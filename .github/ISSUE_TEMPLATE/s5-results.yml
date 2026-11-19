@@ -10,9 +10,9 @@ body:
   - type: textarea
     id: results
     attributes:
-      label: Results file
-      description: Drag the .json file you downloaded from the test page into this box. If it will not attach, open the file in a text editor and paste its contents here instead.
-      placeholder: Drop gta2-s5-....json here
+      label: Results
+      description: The test page's Submit button fills this in, or copies the results for you to paste here. Please paste the text rather than attaching the .json file. Attached files can't be read by the tools that score results.
+      placeholder: Paste the results here
     validations:
       required: true
   - type: textarea

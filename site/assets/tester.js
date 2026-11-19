@@ -103,7 +103,7 @@
   border-radius: 7px; padding: 6px 12px; cursor: pointer; }
 #tg-root a.tg-btn { display: inline-block; font-size: 14px; color: var(--tg-fg); background: var(--tg-field); border: 1px solid var(--tg-line);
   border-radius: 7px; padding: 6px 12px; text-decoration: none; font-weight: 600; }
-#tg-root button.tg-primary { background: var(--tg-accent); border-color: var(--tg-accent); color: #fff; font-weight: 600; }
+#tg-root button.tg-primary, #tg-root a.tg-btn.tg-primary { background: var(--tg-accent); border-color: var(--tg-accent); color: #fff; font-weight: 600; }
 #tg-root .tg-x { padding: 2px 9px; font-size: 18px; line-height: 1.2; }
 #tg-root .tg-send { border-top: 1px solid var(--tg-line); padding: 12px 16px 14px; background: var(--tg-bg); }
 #tg-root .tg-summary { font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; margin: 0 0 8px; color: var(--tg-muted); max-height: 9em; overflow: auto; }
@@ -167,9 +167,9 @@
 ${cfg.download === false ? (cfg.sendNote ? `<div class="tg-send"><p class="tg-muted" style="margin:0">${cfg.sendNote}</p></div>` : "") : `
 <div class="tg-send">
   <div class="tg-summary" hidden></div>
-  <div class="tg-row"><button class="tg-primary tg-dl">1. Download results</button><a class="tg-btn tg-issue" href="${issueBase()}" target="_blank" rel="noopener">2. Submit on GitHub</a></div>
+  <div class="tg-row"><a class="tg-btn tg-issue tg-primary" href="${issueBase()}" target="_blank" rel="noopener">Submit on GitHub</a><button class="tg-dl">Download a copy</button></div>
   <div class="tg-status"></div>
-  <p class="tg-muted" style="margin:8px 0 0">${cfg.sendNote || "Submit opens a new GitHub issue. Drag the downloaded file into the Results file box and press Create. Your answers stay in this browser until you clear them, so you can come back and add to them."}</p>
+  <p class="tg-muted" style="margin:8px 0 0">${cfg.sendNote || "Submit opens a new GitHub issue with your results in the Results box (or copied, ready to paste), then press Create. Please paste, don't attach a file: attached files can't be read by the tools that score results. Your answers stay in this browser until you clear them, so you can come back and add to them."}</p>
   <p class="tg-muted" style="margin:4px 0 0"><a href="#" class="tg-clear" style="color:inherit">Clear my answers on this page</a></p>
 </div>`}`;
   const openBtn = document.createElement("button");
@@ -216,6 +216,7 @@ ${cfg.download === false ? (cfg.sendNote ? `<div class="tg-send"><p class="tg-mu
       const v = values();
       const title = `${cfg.spike.toUpperCase()} results: ${v.name || "tester"}, ${browserName()}, ${osName()}`;
       iss.href = `${issueBase()}&title=${encodeURIComponent(title)}`;
+      iss.dataset.title = title;
     }
     const sum = root.querySelector(".tg-summary");
     if (sum && cfg.summary) { const s = cfg.summary(); sum.hidden = !s; sum.textContent = s || ""; }
@@ -247,6 +248,39 @@ ${cfg.download === false ? (cfg.sendNote ? `<div class="tg-send"><p class="tg-mu
     refresh();
   };
   root.querySelector("details")?.addEventListener("toggle", refresh);
+
+  // Put the results in the issue as text, not as an attached file, so they can
+  // be read through the GitHub API. Small results go straight into the issue
+  // form's Results box through the URL; larger ones are copied to the clipboard
+  // for the tester to paste. GitHub caps an issue body at 65,536 characters.
+  const BODY_MAX = 60000, URL_MAX = 7500;
+  function resultsText(obj) {
+    let t = JSON.stringify(obj, null, 1);
+    if (t.length > BODY_MAX) t = JSON.stringify(obj);
+    return t.length > BODY_MAX ? null : "```json\n" + t + "\n```";
+  }
+  async function submit(obj, title, statusEl) {
+    const say = (m) => { if (statusEl) statusEl.textContent = m; };
+    const text = resultsText(obj);
+    let url = issueBase() + (title ? `&title=${encodeURIComponent(title)}` : "");
+    if (!text) { open(url, "_blank", "noopener"); say("These results are too large for an issue. Download the file and drag it into the Results file box."); return; }
+    const prefilled = url + `&results=${encodeURIComponent(text)}`;
+    if (prefilled.length <= URL_MAX) { open(prefilled, "_blank", "noopener"); say("Opened GitHub with your results filled in. Press Create."); return; }
+    // Start the copy and open the tab in the same click, before awaiting, so
+    // Safari and Firefox still treat both as user-initiated.
+    const copy = navigator.clipboard ? navigator.clipboard.writeText(text).then(() => true, () => false) : Promise.resolve(false);
+    open(url, "_blank", "noopener");
+    const copied = await copy;
+    say(copied ? "Results copied. Paste them into the Results box on GitHub (Ctrl+V or Cmd+V), then press Create."
+               : "Could not copy the results. Download the file and paste its contents into the Results box.");
+  }
+  window.TESTER.submit = submit;
+  const iss = root.querySelector(".tg-issue");
+  if (iss) iss.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (!values().name && !confirm("Submit without your name? Jeff will not know who sent it.")) return;
+    submit(report(), iss.dataset.title, root.querySelector(".tg-status"));
+  });
 
   const mount = () => {
     document.body.appendChild(root);

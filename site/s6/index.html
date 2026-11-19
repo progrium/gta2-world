@@ -671,10 +671,10 @@ window.TESTER = {
     "<b>Latency test:</b> press Start, wiggle the left stick and tap buttons for 10 seconds. Keep the mouse still and this tab in front.",
     "<b>Rumble:</b> press each effect and mark whether you felt it.",
     "<b>Hot-plug:</b> press Mark, unplug or switch off the controller, wait 3 seconds, reconnect it and press a button. Do it once more with this tab in the background, then come back.",
-    "Press <b>Download JSON</b> at the top, then submit it on GitHub using the link below. Then try the next controller or browser.",
+    "Press <b>Submit on GitHub</b> below and press Create on GitHub. Then try the next controller or browser.",
   ],
   download: false,
-  sendNote: 'Use <b>Download JSON</b> at the top of the page, then <a href="https://github.com/progrium/gta2-world/issues/new?template=s6-results.yml" target="_blank" rel="noopener" style="color:inherit;font-weight:600">submit it on GitHub</a>: drag the file into the Results file box and press Create. Each controller and browser pair gives its own file.',
+  sendNote: '<a href="#" onclick="event.preventDefault(); TESTER.submit(report(), \'S6 results: \' + [$(\'f-pad\').value, $(\'f-conn\').value, $(\'f-browser\').value, $(\'f-os\').value].filter(Boolean).join(\', \'), this.nextElementSibling)" style="color:inherit;font-weight:600">Submit on GitHub</a><span style="display:block"></span> This opens a GitHub issue with your results in the Results box, or copies them for you to paste. Please paste rather than attach the file. Each controller and browser pair is its own submission.',
 };
 </script>
 <script src="../assets/tester.js"></script>
