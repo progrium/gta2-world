@@ -5,7 +5,7 @@
 
 ## Answer
 
-**Yes on parsing and drawing; 60 fps still needs a real GPU.** Checked on real wil, ste and bil files (below): all parse, the open conventions are settled from the data, and two mesh bugs found that way are fixed. The frame-rate part of the criterion can only be measured on real hardware.
+**Accepted (19 Nov 2026), with known caveats.** Jeff judged the results good enough to move on. Frame rate passes in Chrome on macOS. Two things were never checked: transparency on the fixed build, and runs in Firefox and Safari. They are carried as caveats, listed at the end of "Tester results". Parsing and drawing were checked on real wil, ste and bil files (below), and two mesh bugs found that way are fixed. Jeff's Chrome run (see "Tester results") holds 120 fps on all three districts. He saw black where see-through faces should be, but the hosted viewer he used was built before the fix for exactly that bug, so that part needs a rerun on a redeployed site.
 
 | Part of the criterion | Status here | Evidence |
 | --- | --- | --- |
@@ -14,7 +14,7 @@
 | Runs in WASM | Done | The same Zig parsers compiled to `wasm32-freestanding` (850 KB); a full 256x256x8 map parses and meshes in about 160 ms in headless Chromium |
 | Draw a full map | Done for synthetic data | A 256x256 synthetic city, 441k triangles, in one draw call |
 | Correct tiles, slopes, transparency | Correct against our reading of the DMA docs; **not checked against the game** | Screenshots of the showcase: every slope code 1-61, the 4 rotations with and without flip, 4 lighting levels, a transparent fence and grate |
-| 60 fps | **Not measured on a real GPU** | The container only has a software renderer, which runs this scene at 12 fps. At 441k triangles and one draw call, a mid-range laptop GPU should easily hold 60 fps, but that is an estimate until you run the benchmark |
+| 60 fps | **Passes in Chrome 156 on macOS (M3 Max)**; Firefox and Safari not run yet | 120 fps average, p99 9.3 ms, 0 frames over 17 ms on wil, ste and bil (Tester results below). The container's software renderer only manages 12 fps |
 
 ## Checked against real files (19 Nov 2026)
 
@@ -34,7 +34,27 @@ Run on wil, ste and bil from a community release of the game (kept outside the r
 
 Headless screenshots (software renderer) of ramps, diagonals, gantries and trees on all three maps look like the game after the two fixes. They are not committed, because they contain the game's art.
 
-**Check 4, 60 fps: still open.** It needs a real GPU and a person: run *Benchmark 20 s* on a mid-range laptop as described below.
+**Check 4, 60 fps: passes in Chrome on macOS** (Tester results below). Firefox and Safari are still to run.
+
+## Tester results
+
+Scored 19 Nov 2026 from the results issues. Pass for frame rate is `avgFps` ≥ 59 and `p99Ms` < 17 in each browser.
+
+| Tester | Browser, OS, GPU | Map | avgFps | p99 ms | Worst ms | Over 17 ms | Tiles | Transparency | Slopes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Jeff (#6) | Chrome 156, macOS, Apple M3 Max, 3024x1714 | wil | 119.9 | 9.3 | 10.9 | 0 | Right | Mostly wrong | Right |
+| | | ste | 120.0 | 9.3 | 10.8 | 0 | Right | Mostly wrong | Right |
+| | | bil | 120.0 | 9.3 | 16.7 | 0 | Right | A few wrong | Right |
+
+- **Frame rate passes on Chrome.** The rate is pinned at the 120 Hz display refresh with a flat 8.3 ms median, so the GPU has headroom. An M3 Max is well above the design doc's "mid-range laptop", so a run on a mid-range machine would be good to have too.
+- **Transparency: rerun needed, not a fail yet.** Jeff's notes say black shows where see-through pixels should be on all three maps. That matches guess 6 above (solid black slabs behind railings and fences), which was fixed in a12f781 at 22:31 UTC. The hosted viewer (`site/s1` on main) was last built at 17:47 UTC, before the fix, and Jeff's run was at 23:08 UTC on that hosted page. Rerun checks 2 and 4 once the site is rebuilt from this branch.
+- Parse counts match across loads (wil 266,833 triangles, ste 298,079, bil loaded), with `unknownChunks 0` and `clampedColumns 0`. That agrees with check 1.
+- Data note: the first load in the file is `ste.gmp + wil.sty`, a mismatched pair. It wasn't benchmarked, so it doesn't affect anything.
+
+**Known caveats, accepted:**
+- Transparency hasn't been seen on the fixed build. Recheck it once the hosted viewer is rebuilt from this branch. If black slabs remain, the cause is in the mesh (`src/mesh.zig`), not the parsers.
+- Frame rate and correctness are untested in Firefox and Safari.
+- The benchmark has only run on a high-end GPU (M3 Max), not a mid-range laptop.
 
 ## What you need to run (about 10 minutes)
 
