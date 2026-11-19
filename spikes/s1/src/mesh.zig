@@ -27,6 +27,9 @@ comptime {
 
 pub const flag_transparent: u8 = 1;
 pub const flag_lid: u8 = 2;
+/// Drawn only from the side it faces (counter-clockwise winding). Used for
+/// the two halves of a flat side face whose reverse shows another tile.
+pub const flag_one_sided: u8 = 4;
 
 pub const Stats = struct {
     lids: u32 = 0,
@@ -168,13 +171,17 @@ fn lidTri(b: *Builder, face: gmp.Face, t: [3]P3) !void {
 /// from outside), whose top edge is at heights ha and hb. `ua`/`ub` are the
 /// horizontal texture coordinates at each end.
 fn wall(bld: *Builder, face: gmp.Face, a: P2, b: P2, ha: i32, hb: i32, ua: i32, ub: i32, shade: u8) !void {
+    return wallFlags(bld, face, a, b, ha, hb, ua, ub, shade, 0);
+}
+
+fn wallFlags(bld: *Builder, face: gmp.Face, a: P2, b: P2, ha: i32, hb: i32, ua: i32, ub: i32, shade: u8, extra: u8) !void {
     if (face.isEmpty()) return;
     if (face.tile == 1023) {
         bld.stats.dummy += 1;
         return;
     }
     if (ha <= 0 and hb <= 0) return;
-    const fl = faceFlags(face, false);
+    const fl = faceFlags(face, false) | extra;
     const a0: P3 = .{ .x = a.x, .y = a.y, .z = 0 };
     const b0: P3 = .{ .x = b.x, .y = b.y, .z = 0 };
     const a1: P3 = .{ .x = a.x, .y = a.y, .z = ha };
@@ -200,19 +207,47 @@ fn box(b: *Builder, blk: gmp.Block, x0: i32, y0: i32, x1: i32, y1: i32, h: Heigh
     const se: P2 = .{ .x = x1, .y = y1 };
     const sw: P2 = .{ .x = x0, .y = y1 };
     // left (west) face seen from the west: north end on the left.
-    try wall(b, blk.left, nw, sw, h[0], h[3], y0, y1, shade_lr);
     // right (east) face seen from the east: south end on the left.
-    try wall(b, blk.right, se, ne, h[2], h[1], 64 - y1, 64 - y0, shade_lr);
+    try sidePair(b, blk.left, blk.right, nw, sw, se, ne, h[0], h[3], h[2], h[1], y0, y1, 64 - y1, 64 - y0, shade_lr);
     // top (north) face seen from the north: east end on the left.
-    try wall(b, blk.top, ne, nw, h[1], h[0], 64 - x1, 64 - x0, shade_tb);
     // bottom (south) face seen from the south: west end on the left.
-    try wall(b, blk.bottom, sw, se, h[3], h[2], x0, x1, shade_tb);
+    try sidePair(b, blk.top, blk.bottom, ne, nw, sw, se, h[1], h[0], h[3], h[2], 64 - x1, 64 - x0, x0, x1, shade_tb);
     try lidQuad(b, blk.lid, .{
         .{ .x = x0, .y = y0, .z = h[0] },
         .{ .x = x1, .y = y0, .z = h[1] },
         .{ .x = x1, .y = y1, .z = h[2] },
         .{ .x = x0, .y = y1, .z = h[3] },
     });
+}
+
+/// Draws two opposite side faces `f` (edge a-b) and `g` (edge c-d), each
+/// given left to right as seen from outside.
+///
+/// Checked against wil/ste/bil: when a side face is flat and the opposite
+/// face is not, the opposite face is the reverse of the flat one (in the
+/// real maps 99% of non-flat faces with see-through tiles sit opposite a
+/// flat face, usually with the same tile). It is drawn on the back of the
+/// flat face, with transparency, and not as a wall on its own edge.
+fn sidePair(b: *Builder, f: gmp.Face, g: gmp.Face, fa: P2, fb: P2, gc: P2, gd: P2, hfa: i32, hfb: i32, hgc: i32, hgd: i32, ufa: i32, ufb: i32, ugc: i32, ugd: i32, shade: u8) !void {
+    const f_backed = f.flat and !g.flat and !g.isEmpty();
+    const g_backed = g.flat and !f.flat and !f.isEmpty();
+    if (f_backed) {
+        try backedWall(b, f, g, fa, fb, hfa, hfb, ufa, ufb, shade);
+    } else if (g_backed) {
+        try backedWall(b, g, f, gc, gd, hgc, hgd, ugc, ugd, shade);
+    } else {
+        try wall(b, f, fa, fb, hfa, hfb, ufa, ufb, shade);
+        try wall(b, g, gc, gd, hgc, hgd, ugc, ugd, shade);
+    }
+}
+
+/// A flat face on edge a-b whose reverse shows `back`. The reverse is seen
+/// from inside the block, so its left end is b.
+fn backedWall(b: *Builder, front: gmp.Face, back: gmp.Face, a: P2, bb: P2, ha: i32, hb: i32, ua: i32, ub: i32, shade: u8) !void {
+    try wallFlags(b, front, a, bb, ha, hb, ua, ub, shade, flag_one_sided);
+    var rev = back;
+    rev.flat = true;
+    try wallFlags(b, rev, bb, a, hb, ha, 64 - ub, 64 - ua, shade, flag_one_sided);
 }
 
 const corners2 = [4]P2{ .{ .x = 0, .y = 0 }, .{ .x = 64, .y = 0 }, .{ .x = 64, .y = 64 }, .{ .x = 0, .y = 64 } };
@@ -243,8 +278,9 @@ fn diagonal(b: *Builder, blk: gmp.Block, c: gmp.Corner) !void {
     const a = corners2[(open + 1) % 4];
     const opp = corners2[(open + 2) % 4];
     const d = corners2[(open + 3) % 4];
-    // Diagonal face, seen from the open corner: d on the left, a on the right.
-    try wall(b, diagonalFace(blk, c), d, a, 64, 64, 0, 64, shade_diag);
+    // Diagonal face, seen from the open corner: a on the left, d on the
+    // right (same handedness as the box walls).
+    try wall(b, diagonalFace(blk, c), a, d, 64, 64, 0, 64, shade_diag);
     try solidSides(b, blk, open, .{ 64, 64, 64, 64 });
     try lidTri(b, blk.lid, .{ p3(a, 64), p3(opp, 64), p3(d, 64) });
 }
