@@ -42,6 +42,14 @@ Two legal principles stand behind the clean-room route. US courts have held that
 
 Option 2 keeps the benefit of the decompilation for handling and file layouts at little cost. Option 3 is the step up if a lawyer advises it before public release.
 
+## Fit with the plan: private, then a pitch, then a reskin
+
+Jeff's stated plan (Nov 19): keep it private, maybe pitch it to Take-Two for promotion, and if they pass, reskin it into a different game. Each step makes the clean-room split more valuable, not less.
+
+- **Private play.** Low practical risk. Keep the link invite-only and unindexed, and keep the repo free of anything copied from gta2_re or the game.
+- **Pitch to Take-Two.** A clean engine is something they could license or buy. Code derived from a decompilation of their own game is a liability their lawyers would have to reject, and the pitch itself shows them the project. Large publishers usually refuse unsolicited idea submissions, so go through a formal channel or an intro (business development, or a lawyer), and expect to be asked how the code was written. The notes split gives a clear answer: written from documented behaviour and file formats, never from their code.
+- **Reskin into an original game.** Only code that is independently written is fully ours to reuse under the MIT licence. Keep everything GTA2-specific (the `.gmp`, `.sty`, `.scr` and `.gci` parsers, and any handling numbers) inside `formats/` and data files, so the sim, netcode, server and shell carry over with new assets and none of Rockstar's names, art or data.
+
 ## Decisions for Jeff
 
 - Adopt option 2 and mark the design doc's "Reference for behaviour" row as resolved, with S5 handling code to be rewritten from notes.
