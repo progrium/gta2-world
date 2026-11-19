@@ -1,0 +1,23 @@
+:root { --bg:#f4f2ec; --card:#fffdf8; --fg:#1c1d1f; --muted:#5d6268; --line:rgba(0,0,0,.12); --accent:#b8432f; --chip:#ebe7dd; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#141517; --card:#1d1f22; --fg:#e9e8e4; --muted:#a3a8ae; --line:rgba(255,255,255,.13); --accent:#ff7b66; --chip:#2a2d31; } }
+:root[data-theme="dark"] { --bg:#141517; --card:#1d1f22; --fg:#e9e8e4; --muted:#a3a8ae; --line:rgba(255,255,255,.13); --accent:#ff7b66; --chip:#2a2d31; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+main { max-width: 60rem; margin: 0 auto; padding: 40px 16px 64px; }
+h1 { font-size: clamp(26px, 5vw, 36px); line-height: 1.15; margin: 0 0 10px; letter-spacing: -.01em; }
+.lede { color: var(--muted); max-width: 46rem; margin: 0 0 28px; }
+.how { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin: 0 0 28px; }
+.how h2 { font-size: 15px; margin: 0 0 6px; }
+.how ol { margin: 0; padding-left: 20px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 14px; }
+a.card { display: flex; flex-direction: column; gap: 6px; text-decoration: none; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+a.card:hover { border-color: var(--accent); }
+a.card.off { opacity: .7; }
+.k { font-size: 12px; letter-spacing: .07em; text-transform: uppercase; color: var(--accent); font-weight: 650; }
+.card h3 { margin: 0; font-size: 18px; line-height: 1.25; }
+.card p { margin: 0; color: var(--muted); font-size: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; padding-top: 8px; }
+.chip { font-size: 12px; background: var(--chip); border-radius: 999px; padding: 2px 9px; }
+.chip.data { background: var(--accent); color: #fff; }
+footer { color: var(--muted); font-size: 13px; margin-top: 36px; }
+code { font: 14px ui-monospace, Menlo, monospace; }

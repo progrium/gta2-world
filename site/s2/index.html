@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike S2 sim check</title>
+<style>
+  :root { --bg: #fff; --fg: #111; --muted: #666; --ok: #0a7d32; --bad: #b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111; --fg: #eee; --muted: #999; --ok: #5cd38a; --bad: #ff8a80; } }
+  body { background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 52rem; padding: 1rem 16px; }
+  pre { white-space: pre-wrap; font: 13px/1.45 ui-monospace, monospace; }
+  .ok { color: var(--ok); font-weight: 600; } .bad { color: var(--bad); font-weight: 600; }
+  .muted { color: var(--muted); }
+  button { font: inherit; padding: .4rem 1rem; }
+</style>
+</head>
+<body>
+<h1>Spike S2: sim cost and determinism</h1>
+<p class="muted">Replays 10,000 recorded ticks (16 players) in WASM and compares <code>hash()</code> every tick
+against hashes recorded by the native build, then benchmarks step time. Takes about 10 to 30 seconds.
+Keep this tab in the foreground while it runs.</p>
+<p><button id="go">Run</button> <span id="verdict"></span></p>
+<pre id="out"></pre>
+<script type="module">
+import { instantiate, replay, bench, fmt } from './s2.js';
+const out = document.getElementById('out');
+const verdict = document.getElementById('verdict');
+const log = (s) => { out.textContent += s + '\n'; };
+const tick = () => new Promise((r) => setTimeout(r, 0));
+async function run() {
+  out.textContent = '';
+  verdict.textContent = 'running...';
+  log(navigator.userAgent);
+  const [wasm, inputs, hashes] = await Promise.all([
+    fetch('s2.wasm').then((r) => r.arrayBuffer()),
+    fetch('replay/inputs.bin').then((r) => r.arrayBuffer()),
+    fetch('replay/hashes.bin').then((r) => r.arrayBuffer()),
+  ]);
+  const ex = await instantiate(wasm);
+  const r = replay(ex, new Uint8Array(inputs), new Uint8Array(hashes), log);
+  log('replay ' + JSON.stringify(r));
+  await tick();
+  const b16 = bench(ex, 16); log(fmt(b16)); await tick();
+  const b200 = bench(ex, 200); log(fmt(b200));
+  const pass = r.ok && b16.step_mean_ms < 0.5;
+  verdict.className = pass ? 'ok' : 'bad';
+  verdict.textContent = (r.ok ? 'hashes MATCH' : `hash MISMATCH at tick ${r.tick}`) +
+    ` · 16-player step ${b16.step_mean_ms.toFixed(4)} ms ` + (b16.step_mean_ms < 0.5 ? '(under 0.5 ms)' : '(OVER 0.5 ms)');
+  window.__s2 = { replay: r, b16, b200, pass };
+}
+document.getElementById('go').onclick = () => run().catch((e) => { verdict.className = 'bad'; verdict.textContent = String(e); });
+if (location.hash === '#auto') document.getElementById('go').click();
+</script>
+<script>
+window.TESTER = {
+  spike: "s2", title: "Does the sim give identical results in your browser?", time: "2 minutes per browser",
+  intro: "This page replays 10,000 recorded game ticks in WebAssembly and checks that every tick matches the result from the native build, then times the simulation step.",
+  needs: "a laptop or desktop and any of Chrome, Firefox and Safari. Results from all three are the most useful. No game files are needed.",
+  steps: [
+    "Close other heavy tabs and apps, and plug the laptop in.",
+    "Press <b>Run</b> and keep this tab in front. It takes 10 to 30 seconds.",
+    "You should see <b>hashes MATCH</b> and a 16-player step under 0.5 ms. Either way, the full output is saved in the results file.",
+    "Press <b>Download results</b> and send the file to Jeff.",
+    "Open this same page in your other browsers and repeat. Each browser gives its own file.",
+  ],
+  fields: [
+    { id: "power", label: "Power", type: "radio", options: ["Plugged in", "On battery", "Desktop"] },
+    { id: "notes", label: "Notes", type: "textarea", placeholder: "Anything odd, e.g. the tab froze, or other things were running" },
+  ],
+  collect: () => {
+    const s = window.__s2;
+    return s ? { pass: s.pass, replay: s.replay, bench16: s.b16, bench200: s.b200, verdict: document.getElementById("verdict").textContent, output: document.getElementById("out").textContent }
+             : { notRunYet: true };
+  },
+  summary: () => window.__s2 ? document.getElementById("verdict").textContent : "Not run yet. Press Run first.",
+};
+</script>
+<script src="../assets/tester.js"></script>
+</body>
+</html>

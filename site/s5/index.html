@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>S5 Handling Bench</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a test bench. Drive canvas and reference footage side by side, rating sheet below, tuning tucked away. */
+:root {
+  --bg: #e9e7e1;          /* dry concrete */
+  --panel: #f6f5f1;
+  --ink: #1f2124;
+  --muted: #5d6066;
+  --line: #c9c6bd;
+  --accent: #e0a100;      /* road-marking yellow */
+  --accent-ink: #1f2124;
+  --good: #2f7d4a;
+  --bad: #b23a2e;
+  --asphalt: #3a3c40;
+  --font-display: "Chakra Petch", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1c1d20; --panel: #26282c; --ink: #ecebe6; --muted: #a3a49f; --line: #3b3d42;
+    --accent: #f0b429; --accent-ink: #1c1d20; --good: #5cbf7c; --bad: #e0675a; --asphalt: #2e3034;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1c1d20; --panel: #26282c; --ink: #ecebe6; --muted: #a3a49f; --line: #3b3d42;
+  --accent: #f0b429; --accent-ink: #1c1d20; --good: #5cbf7c; --bad: #e0675a; --asphalt: #2e3034;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 48px;
+}
+.wrap { max-width: 1320px; margin: 0 auto; display: grid; gap: 20px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: 0.01em; }
+h1 { font-size: 28px; font-weight: 700; }
+h2 { font-size: 19px; font-weight: 700; }
+h3 { font-size: 15px; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+header.top { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; border-bottom: 3px solid var(--accent); padding-bottom: 12px; }
+header.top .sub { color: var(--muted); max-width: 70ch; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; border: 1px solid var(--line); background: var(--panel); }
+.chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+.chip.ok .dot { background: var(--good); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.bench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 900px) { .bench { grid-template-columns: minmax(0, 1fr); } }
+.screen { position: relative; aspect-ratio: 4 / 3; width: 100%; max-width: 100%; background: #000; border-radius: 4px; overflow: hidden; }
+.screen canvas, .screen video { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.screen video { object-fit: contain; background: #000; }
+canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.hud { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 10px; font-family: var(--font-mono); font-size: 12px; color: #f2f0e8; background: rgba(0,0,0,0.55); padding: 4px 8px; border-radius: 3px; pointer-events: none; font-variant-numeric: tabular-nums; }
+.hud b { color: #ffd34d; font-weight: 500; }
+.overlay { position: absolute; inset: 0; display: grid; place-items: center; color: #f2f0e8; background: rgba(0,0,0,0.45); font-family: var(--font-display); font-size: 18px; text-align: center; padding: 16px; cursor: pointer; }
+.row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.keys { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; color: var(--muted); }
+kbd { font-family: var(--font-mono); font-size: 12px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 3px; padding: 0 5px; background: var(--bg); color: var(--ink); }
+button, select, input, textarea { font: inherit; color: var(--ink); }
+button { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 12px; cursor: pointer; font-weight: 500; }
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+select, input[type="text"], input[type="number"], textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; min-width: 0; }
+textarea { width: 100%; min-height: 70px; resize: vertical; }
+.file { position: relative; overflow: hidden; display: inline-block; }
+.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.drop { border: 2px dashed var(--line); border-radius: 4px; padding: 12px; display: grid; gap: 8px; }
+.drop.over { border-color: var(--accent); }
+.steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; max-width: 75ch; }
+.sheet { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .sheet { grid-template-columns: minmax(0, 1fr); } }
+form { display: grid; gap: 12px; }
+.field { display: grid; gap: 4px; }
+.scale { display: grid; grid-template-columns: minmax(120px, 1fr) auto; gap: 6px 12px; align-items: center; }
+.scale .opts { display: flex; gap: 4px; }
+.scale .opts label { display: grid; place-items: center; width: 34px; height: 30px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; font-family: var(--font-mono); font-size: 13px; background: var(--bg); }
+.scale .opts input { position: absolute; opacity: 0; pointer-events: none; }
+.scale .opts input:checked + span { font-weight: 700; }
+.scale .opts label:has(input:checked) { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.scale .opts label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.verdict { display: flex; gap: 8px; flex-wrap: wrap; }
+.verdict label { display: flex; gap: 8px; align-items: center; border: 1px solid var(--line); border-radius: 4px; padding: 8px 12px; cursor: pointer; background: var(--bg); font-weight: 600; }
+.verdict label:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.result { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px; border-radius: 4px; background: var(--bg); border-left: 6px solid var(--line); }
+.result.pass { border-left-color: var(--good); }
+.result.fail { border-left-color: var(--bad); }
+.result strong { font-family: var(--font-display); font-size: 20px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+td.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: center; }
+.yes { color: var(--good); font-weight: 700; }
+.no { color: var(--bad); font-weight: 700; }
+details.panel > summary { cursor: pointer; font-family: var(--font-display); font-weight: 700; font-size: 17px; }
+.tune { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px 16px; }
+.tune .t { display: grid; grid-template-columns: 1fr 96px; gap: 8px; align-items: center; font-size: 13px; }
+.tune .t span { font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.metric { background: var(--bg); border-radius: 4px; padding: 8px 10px; }
+.metric .v { font-family: var(--font-mono); font-size: 16px; font-variant-numeric: tabular-nums; }
+pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); padding: 10px; border-radius: 4px; overflow-x: auto; margin: 0; }
+.msg { font-size: 13px; }
+.msg.err { color: var(--bad); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div style="display:grid;gap:4px;min-width:0">
+      <div class="label">gta2-world · spike S5</div>
+      <h1>Handling bench</h1>
+      <p class="sub">One fixed-point car model, run in WebAssembly at the original's 30 ticks per second, on a flat test map. Drive it next to footage of the original and rate whether it feels like GTA2.</p>
+    </div>
+    <div class="row">
+      <span class="chip" id="srcChip"><span class="dot"></span><span id="srcText">Placeholder constants</span></span>
+      <span class="chip" id="hashChip" title="Determinism self-test: 10,000 scripted ticks, hashed. Native build gives 0xb23b1606."><span class="dot"></span><span id="hashText">Self-test pending</span></span>
+    </div>
+  </header>
+
+  <section class="panel">
+    <h2>Your data files</h2>
+    <p class="muted">The handling constants are read from your own copy of the game. Files stay in this browser; nothing is uploaded. Until you load them, the car runs on invented placeholder values that are not the original's.</p>
+    <div class="drop" id="drop">
+      <div class="row">
+        <span class="file"><button type="button">Choose nyc.gci</button><input type="file" id="gciFile" accept=".gci,.GCI" aria-label="Choose a .gci handling file"></span>
+        <span class="file"><button type="button">Choose a .sty style file</button><input type="file" id="styFile" accept=".sty,.STY" aria-label="Choose a .sty style file"></span>
+        <button type="button" id="usePlaceholders">Back to placeholders</button>
+        <span class="muted msg">or drop them here. Both live in the game's <span class="mono">data</span> folder.</span>
+      </div>
+      <div class="msg" id="loadMsg"></div>
+    </div>
+  </section>
+
+  <section class="bench">
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2>Drive</h2>
+        <div class="row">
+          <label class="label" for="modelSel">Car</label>
+          <select id="modelSel"></select>
+          <button type="button" id="resetBtn">Reset car</button>
+        </div>
+      </div>
+      <div class="screen">
+        <canvas id="cv" tabindex="0" aria-label="Driving view. Click to focus, then use the arrow keys."></canvas>
+        <div class="hud" id="hud"></div>
+        <div class="overlay" id="focusHint">Click here to drive</div>
+      </div>
+      <div class="keys">
+        <span><kbd>↑</kbd>/<kbd>W</kbd> gas</span>
+        <span><kbd>↓</kbd>/<kbd>S</kbd> brake, reverse</span>
+        <span><kbd>←</kbd><kbd>→</kbd>/<kbd>A</kbd><kbd>D</kbd> steer</span>
+        <span><kbd>Space</kbd> handbrake</span>
+        <span><kbd>R</kbd> reset</span>
+        <span id="padInfo">Gamepad: press any button to connect</span>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2>Original footage</h2>
+        <span class="file"><button type="button" class="primary">Open a video file</button><input type="file" id="vidFile" accept="video/*" aria-label="Open a video of the original game"></span>
+      </div>
+      <div class="screen">
+        <video id="vid" controls muted playsinline loop></video>
+        <div class="overlay" id="vidHint" style="cursor:default;font-size:15px;font-family:var(--font-body)">Open a recording of the original game driving on a straight, through corners and with handbrake turns. Videos play from this computer only.</div>
+      </div>
+      <div class="row">
+        <button type="button" id="slowBtn">Play at half speed</button>
+        <span class="muted msg">Tip: record your own clip from the original so both views show the same car.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>How to run the rating</h2>
+    <ol class="steps">
+      <li>Load your <span class="mono">nyc.gci</span> and the matching <span class="mono">.sty</span>, pick a car you also have footage of, and open the footage on the right.</li>
+      <li>Each rater drives for about five minutes: a straight run to top speed, the block circuits, the open lot for handbrake turns, and a few hits on walls.</li>
+      <li>Raters fill in the sheet alone, without seeing the others' answers first.</li>
+      <li>The spike passes when three people who know the game each answer yes to "Recognisably GTA2".</li>
+    </ol>
+  </section>
+
+  <section class="sheet">
+    <div class="panel">
+      <h2>Rating sheet</h2>
+      <form id="rateForm" novalidate>
+        <div class="row">
+          <div class="field" style="flex:1 1 180px">
+            <label class="label" for="rName">Rater</label>
+            <input type="text" id="rName" required placeholder="First name">
+          </div>
+          <div class="field" style="flex:1 1 180px">
+            <label class="label" for="rKnow">Knows GTA2</label>
+            <select id="rKnow">
+              <option value="lots">Played it a lot</option>
+              <option value="some">Played it some</option>
+              <option value="little">Barely or never</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <div class="label">Compared with the footage (1 nothing like it, 5 indistinguishable)</div>
+          <div class="scale" id="scales"></div>
+        </div>
+        <div class="field">
+          <div class="label">Recognisably GTA2?</div>
+          <div class="verdict">
+            <label><input type="radio" name="verdict" value="yes" id="vYes"> Yes</label>
+            <label><input type="radio" name="verdict" value="no" id="vNo"> No</label>
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="rNotes">What felt off?</label>
+          <textarea id="rNotes" placeholder="e.g. slides too long after a handbrake turn"></textarea>
+        </div>
+        <div class="row">
+          <button type="submit" class="primary">Save rating</button>
+          <span class="msg" id="rateMsg"></span>
+        </div>
+      </form>
+    </div>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2>Results</h2>
+        <div class="row"><button type="button" class="primary" id="dlBtn">Download results</button><button type="button" id="copyBtn">Copy as Markdown</button></div>
+      </div>
+      <div class="result" id="verdictBox"><strong id="verdictText">No ratings yet</strong><span class="muted" id="verdictSub">Needs three raters who know the game, all answering yes.</span></div>
+      <div class="tablewrap"><table id="resTable"><thead></thead><tbody></tbody></table></div>
+      <p class="muted msg" id="storeMsg">Ratings are kept in this browser. Press Download results and send the file to Jeff.</p>
+      <textarea id="copyOut" hidden readonly aria-label="Results as Markdown"></textarea>
+    </div>
+  </section>
+
+  <details class="panel" id="tuneBox">
+    <summary>Tune the current car</summary>
+    <p class="muted">Changes apply instantly. These are the <span class="mono">.gci</span> fields in file order plus the sprite geometry from the <span class="mono">.sty</span>. Use this if the rating fails and the plan falls back to tuning by hand.</p>
+    <div class="tune" id="tune"></div>
+    <div class="row"><button type="button" id="measureBtn">Measure</button><span class="muted msg">Runs the car on an empty map: full gas, braking from top speed, full-lock circle.</span></div>
+    <div class="metrics" id="metrics"></div>
+    <div class="label">This car as a .gci record</div>
+    <pre id="gciOut"></pre>
+  </details>
+</div>
+
+<script>
+(() => {
+  const FIELD_NAMES = ["mass","front_drive_bias","front_mass_bias","brake_friction","turn_in","turn_ratio","rear_end_stability","handbrake_slide_value","thrust","max_speed","anti_strength","skid_threshold","gear1_multiplier","gear2_multiplier","gear3_multiplier","gear2_speed","gear3_speed"];
+  const DIM_NAMES = ["sprite width px","sprite height px","front wheel px","rear wheel px"];
+  const ASPECTS = [["accel","Acceleration"],["top","Top speed"],["steer","Steering response"],["slide","Sliding in corners"],["hand","Handbrake turns"],["brake","Braking and reversing"],["walls","Hitting walls"]];
+  const ONE = 16384, TICK_MS = 1000 / 30;
+  const $ = (id) => document.getElementById(id);
+  const fx = (r) => r / ONE;
+  let ex = null, mem = null;
+
+  // ---------- WASM ----------
+  async function boot() {
+    const res = await fetch("handling.wasm");
+    const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), {});
+    ex = instance.exports; mem = ex.memory;
+    ex.init();
+    const h = (ex.selfTest() >>> 0).toString(16).padStart(8, "0");
+    const ok = h === "b23b1606";
+    $("hashChip").classList.toggle("ok", ok);
+    $("hashText").textContent = ok ? "Deterministic (matches native)" : "Self-test hash 0x" + h + " differs from native";
+    refreshModels(); buildTune(); start();
+  }
+
+  function cstr(ptr, max) {
+    const b = new Uint8Array(mem.buffer, ptr, max); let s = "";
+    for (const c of b) { if (!c) break; s += String.fromCharCode(c); }
+    return s;
+  }
+  function refreshModels() {
+    const sel = $("modelSel"); sel.innerHTML = "";
+    const n = ex.modelCount();
+    for (let i = 0; i < n; i++) {
+      const o = document.createElement("option"); o.value = i;
+      o.textContent = cstr(ex.modelName(i), 16) + (ex.source() === 1 && !ex.hasStyDims(i) ? " (size guessed)" : "");
+      sel.appendChild(o);
+    }
+    sel.value = ex.currentModel();
+    const real = ex.source() === 1;
+    $("srcChip").classList.toggle("ok", real);
+    $("srcText").textContent = real ? "Constants from your nyc.gci" : "Placeholder constants";
+    skids.length = 0; fillTune();
+  }
+
+  const GCI_ERR = ["", "EOF in comment", "Token too big", "Invalid integer", "Invalid hex number", "Invalid number", "Number too big", "Output too big", "File length is not a whole number of car records"];
+  const STY_ERR = ["", "Not a GTA2 style file (no GBST header)", "File is truncated", "No car info chunk (CARI) in this file"];
+  async function loadFile(file) {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    if (buf.length > ex.fileBufferSize()) { msg("That file is larger than 16 MB, so it is probably not a .gci or .sty file.", true); return; }
+    new Uint8Array(mem.buffer, ex.fileBuffer(), buf.length).set(buf);
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".sty")) {
+      const n = ex.loadSty(buf.length);
+      if (n < 0) msg(file.name + ": " + (STY_ERR[-n] || "could not be read"), true);
+      else msg(file.name + ": sprite sizes for " + n + " cars loaded." + (ex.source() === 1 ? "" : " Load nyc.gci too, and the sizes will be used."));
+    } else {
+      const n = ex.loadGci(buf.length);
+      if (n < 0) msg(file.name + ": " + (GCI_ERR[-n] || "could not be read"), true);
+      else if (n === 0) msg(file.name + " has no car records.", true);
+      else msg(file.name + ": " + n + " cars loaded.");
+    }
+    refreshModels();
+  }
+  function msg(t, err) { const m = $("loadMsg"); m.textContent = t; m.classList.toggle("err", !!err); }
+
+  $("gciFile").addEventListener("change", (e) => e.target.files[0] && loadFile(e.target.files[0]));
+  $("styFile").addEventListener("change", (e) => e.target.files[0] && loadFile(e.target.files[0]));
+  $("usePlaceholders").addEventListener("click", () => { ex.usePlaceholders(); refreshModels(); msg("Back on placeholder constants."); });
+  const drop = $("drop");
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", async (e) => {
+    e.preventDefault(); drop.classList.remove("over");
+    const fs = [...e.dataTransfer.files].sort((a, b) => (a.name.toLowerCase().endsWith(".sty") ? -1 : 1));
+    for (const f of fs) await loadFile(f);
+  });
+  $("modelSel").addEventListener("change", (e) => { ex.selectModel(+e.target.value); skids.length = 0; fillTune(); });
+  $("resetBtn").addEventListener("click", () => { ex.reset(); skids.length = 0; cv.focus(); });
+
+  // ---------- Input ----------
+  const keys = new Set();
+  const cv = $("cv");
+  const typing = () => { const a = document.activeElement; return a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT"); };
+  const DRIVE_KEYS = ["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyW","KeyA","KeyS","KeyD","Space"];
+  window.addEventListener("keydown", (e) => {
+    if (typing()) return;
+    if (document.activeElement !== cv) return;
+    if (DRIVE_KEYS.includes(e.code)) e.preventDefault();
+    if (e.code === "KeyR") { ex.reset(); skids.length = 0; }
+    keys.add(e.code);
+  });
+  window.addEventListener("keyup", (e) => keys.delete(e.code));
+  window.addEventListener("blur", () => keys.clear());
+  cv.addEventListener("focus", () => $("focusHint").hidden = true);
+  cv.addEventListener("blur", () => { $("focusHint").hidden = false; keys.clear(); });
+  $("focusHint").addEventListener("click", () => cv.focus());
+
+  let padName = "";
+  window.addEventListener("gamepadconnected", (e) => { padName = e.gamepad.id; $("padInfo").textContent = "Gamepad: " + padName.slice(0, 40); });
+  window.addEventListener("gamepaddisconnected", () => { padName = ""; $("padInfo").textContent = "Gamepad: press any button to connect"; });
+  function inputBits() {
+    let b = 0;
+    const k = (c) => keys.has(c);
+    if (k("ArrowUp") || k("KeyW")) b |= 1;
+    if (k("ArrowDown") || k("KeyS")) b |= 2;
+    if (k("ArrowLeft") || k("KeyA")) b |= 4;
+    if (k("ArrowRight") || k("KeyD")) b |= 8;
+    if (k("Space")) b |= 16;
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (const p of pads) {
+      if (!p) continue;
+      const btn = (i) => p.buttons[i] && (p.buttons[i].pressed || p.buttons[i].value > 0.3);
+      const ax = p.axes[0] || 0;
+      if (btn(7) || btn(0)) b |= 1;          // RT or A
+      if (btn(6) || btn(2)) b |= 2;          // LT or X
+      if (ax < -0.35 || btn(14)) b |= 4;
+      if (ax > 0.35 || btn(15)) b |= 8;
+      if (btn(1) || btn(5)) b |= 16;         // B or RB
+      if (btn(9)) { ex.reset(); skids.length = 0; }
+    }
+    // The original is digital: left+right together is no steering.
+    return b;
+  }
+
+  // ---------- Render ----------
+  const ctx = cv.getContext("2d");
+  const skids = []; // [x0,y0,x1,y1]
+  let prev = null, cur = null;
+  const lastWheel = [null, null, null, null];
+  let zoom = 44;
+
+  function snapshot() {
+    const v = new Int32Array(mem.buffer, ex.view(), 21);
+    return { x: fx(v[0]), y: fx(v[1]), th: v[2], vx: fx(v[3]), vy: fx(v[4]), speed: fx(v[5]), gas: fx(v[7]),
+      skidF: v[8], skidR: v[9], impact: fx(v[10]), w: fx(v[11]), l: fx(v[12]), fw: fx(v[13]), rw: fx(v[14]), tick: v[15],
+      brake: v[16], rev: v[17], hb: v[18], snap: v[19] };
+  }
+  function wheelPos(s, lx, ly) {
+    const a = s.th * Math.PI / 720, sn = Math.sin(a), cs = Math.cos(a);
+    return [s.x + lx * cs + ly * sn, s.y - lx * sn + ly * cs];
+  }
+  function recordSkids(s) {
+    const hw = s.w * 7 / 16;
+    const wheels = [[-hw, s.rw, s.skidR], [hw, s.rw, s.skidR], [-hw, s.fw, s.skidF], [hw, s.fw, s.skidF]];
+    wheels.forEach(([lx, ly, on], i) => {
+      const p = wheelPos(s, lx, ly);
+      if (on && lastWheel[i]) skids.push([lastWheel[i][0], lastWheel[i][1], p[0], p[1]]);
+      lastWheel[i] = on ? p : null;
+    });
+    if (skids.length > 4000) skids.splice(0, skids.length - 4000);
+  }
+
+  const MAPN = () => ex.mapSize();
+  let mapCanvas = null;
+  function buildMap() {
+    const n = MAPN(), S = 32;
+    mapCanvas = document.createElement("canvas"); mapCanvas.width = n * S; mapCanvas.height = n * S;
+    const m = mapCanvas.getContext("2d");
+    const col = ["#9c9a92", "#4a4c50", "#6b5f55", "#585a5e"];
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const c = ex.mapCell(x, y), kind = c & 15, arrow = c >> 4;
+      m.fillStyle = col[kind]; m.fillRect(x * S, y * S, S, S);
+      if (kind === 2) { m.fillStyle = "#857667"; m.fillRect(x * S + 2, y * S + 2, S - 4, S - 4); m.fillStyle = "#6b5f55"; m.fillRect(x * S + 8, y * S + 8, S - 16, S - 16); }
+      if (kind === 0) { m.strokeStyle = "#8a887f"; m.strokeRect(x * S + 0.5, y * S + 0.5, S - 1, S - 1); }
+      if (kind === 3) { m.strokeStyle = "#e9e3cf"; m.lineWidth = 1; if (x % 3 === 0) { m.beginPath(); m.moveTo(x * S + 1, y * S + 4); m.lineTo(x * S + 1, y * S + S - 4); m.stroke(); } }
+      if (arrow) {
+        m.strokeStyle = "rgba(255,255,255,0.16)"; m.lineWidth = 2; m.beginPath();
+        if (arrow === 1) { m.moveTo(x * S + 8, y * S + S / 2); m.lineTo(x * S + S - 8, y * S + S / 2); }
+        else { m.moveTo(x * S + S / 2, y * S + 8); m.lineTo(x * S + S / 2, y * S + S - 8); }
+        m.stroke();
+      }
+    }
+    // Centre lines on roads.
+    m.strokeStyle = "#d9b13b"; m.lineWidth = 2; m.setLineDash([10, 12]);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const c = ex.mapCell(x, y), arrow = c >> 4;
+      if (arrow === 1 && y % 12 === 1) { m.beginPath(); m.moveTo(x * S, y * S + S / 2); m.lineTo(x * S + S, y * S + S / 2); m.stroke(); }
+      if (arrow === 2 && x % 12 === 1) { m.beginPath(); m.moveTo(x * S + S / 2, y * S); m.lineTo(x * S + S / 2, y * S + S); m.stroke(); }
+    }
+    m.setLineDash([]);
+  }
+
+  function resize() {
+    const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d));
+  }
+  window.addEventListener("resize", resize);
+
+  function lerpAng(a, b, t) { let d = ((b - a + 2160) % 1440) - 720; return a + d * t; }
+  function draw(alpha) {
+    if (!cur) return;
+    const p = prev || cur;
+    const s = { ...cur, x: p.x + (cur.x - p.x) * alpha, y: p.y + (cur.y - p.y) * alpha, th: lerpAng(p.th, cur.th, alpha) };
+    const W = cv.width, H = cv.height, base = H / 13;
+    // The original pulls the camera back as speed rises.
+    const target = base * (1.25 - Math.min(cur.speed / 0.35, 1) * 0.45);
+    zoom += (target - zoom) * 0.06;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#2b2a28"; ctx.fillRect(0, 0, W, H);
+    ctx.setTransform(zoom, 0, 0, zoom, W / 2 - s.x * zoom, H / 2 - s.y * zoom);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(mapCanvas, 0, 0, MAPN(), MAPN());
+    ctx.strokeStyle = "rgba(20,20,20,0.55)"; ctx.lineWidth = 3 / 64; ctx.beginPath();
+    for (const k of skids) { ctx.moveTo(k[0], k[1]); ctx.lineTo(k[2], k[3]); }
+    ctx.stroke();
+    // Car body: local +y is the front.
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(-s.th * Math.PI / 720);
+    const w = s.w, l = s.l;
+    ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(-w / 2 + 0.05, -l / 2 + 0.05, w, l);
+    ctx.fillStyle = "#c8312a"; ctx.fillRect(-w / 2, -l / 2, w, l);
+    ctx.fillStyle = "#1d2430"; ctx.fillRect(-w / 2 + w * 0.12, l * 0.12, w * 0.76, l * 0.16);
+    ctx.fillRect(-w / 2 + w * 0.12, -l * 0.34, w * 0.76, l * 0.1);
+    ctx.fillStyle = "#e0d9c0"; ctx.fillRect(-w / 2 + w * 0.08, l / 2 - l * 0.05, w * 0.2, l * 0.05); ctx.fillRect(w / 2 - w * 0.28, l / 2 - l * 0.05, w * 0.2, l * 0.05);
+    if (cur.brake || cur.hb) { ctx.fillStyle = "#ff3b2f"; ctx.fillRect(-w / 2 + w * 0.06, -l / 2, w * 0.22, l * 0.04); ctx.fillRect(w / 2 - w * 0.28, -l / 2, w * 0.22, l * 0.04); }
+    ctx.restore();
+    const gear = cur.rev ? "R" : (cur.speed > fxGear3 ? 3 : cur.speed > fxGear2 ? 2 : 1);
+    $("hud").innerHTML = `<span><b>${(cur.speed * 30).toFixed(1)}</b> blk/s</span><span>gear <b>${gear}</b></span><span>gas <b>${cur.gas.toFixed(2)}</b></span>${cur.hb ? "<span><b>HANDBRAKE</b></span>" : ""}${cur.snap ? "<span>lane snap</span>" : ""}`;
+  }
+  let fxGear2 = 0.1, fxGear3 = 0.2;
+
+  // ---------- Loop: fixed 30 Hz sim, render interpolated ----------
+  let acc = 0, last = 0;
+  function start() {
+    buildMap(); resize(); cur = snapshot();
+    requestAnimationFrame(function frame(t) {
+      if (!last) last = t;
+      acc += Math.min(t - last, 250); last = t;
+      while (acc >= TICK_MS) {
+        const bits = document.activeElement === cv || padName ? inputBits() : 0;
+        ex.step(bits);
+        prev = cur; cur = snapshot(); recordSkids(cur);
+        acc -= TICK_MS;
+        if (cur.impact > 0.02 && padName && navigator.getGamepads) {
+          for (const p of navigator.getGamepads()) if (p && p.vibrationActuator) p.vibrationActuator.playEffect("dual-rumble", { duration: 80, strongMagnitude: Math.min(1, cur.impact * 2), weakMagnitude: 0.3 }).catch(() => {});
+        }
+      }
+      draw(acc / TICK_MS);
+      requestAnimationFrame(frame);
+    });
+  }
+
+  // ---------- Tuning ----------
+  function buildTune() {
+    const t = $("tune"); t.innerHTML = "";
+    FIELD_NAMES.forEach((n, i) => {
+      const d = document.createElement("label"); d.className = "t";
+      d.innerHTML = `<span>${n}</span><input type="number" step="0.01" id="tf${i}">`;
+      d.querySelector("input").addEventListener("change", (e) => { ex.setField(i, Math.round(parseFloat(e.target.value) * ONE)); fillTune(); });
+      t.appendChild(d);
+    });
+    DIM_NAMES.forEach((n, i) => {
+      const d = document.createElement("label"); d.className = "t";
+      d.innerHTML = `<span>${n}</span><input type="number" step="1" id="td${i}">`;
+      d.querySelector("input").addEventListener("change", (e) => { ex.setDim(i, parseInt(e.target.value, 10)); fillTune(); });
+      t.appendChild(d);
+    });
+    const d = document.createElement("label"); d.className = "t";
+    d.innerHTML = `<span>turbo</span><input type="checkbox" id="tturbo" style="justify-self:start">`;
+    d.querySelector("input").addEventListener("change", (e) => { ex.setTurbo(e.target.checked); fillTune(); });
+    t.appendChild(d);
+    fillTune();
+  }
+  function fillTune() {
+    if (!ex || !$("tf0")) return;
+    FIELD_NAMES.forEach((n, i) => { const el = $("tf" + i); if (document.activeElement !== el) el.value = +(ex.getField(i) / ONE).toFixed(4); });
+    DIM_NAMES.forEach((n, i) => { const el = $("td" + i); if (document.activeElement !== el) el.value = ex.getDim(i); });
+    $("tturbo").checked = ex.turbo();
+    fxGear2 = ex.getField(15) / ONE; fxGear3 = ex.getField(16) / ONE;
+    const nums = FIELD_NAMES.map((n, i) => "f" + +(ex.getField(i) / ONE).toFixed(4) + " {" + n + "}");
+    $("gciOut").textContent = `{ car ${ex.modelNumber(ex.currentModel())} }\n${ex.modelNumber(ex.currentModel())} {model} ${ex.turbo() ? 1 : 0} {turbo} 0 {value} 0 {pad}\n` + nums.join("\n");
+    $("metrics").innerHTML = "";
+  }
+  $("measureBtn").addEventListener("click", () => {
+    const v = new Int32Array(mem.buffer, ex.measure(), 6);
+    const items = [["Top speed", (fx(v[0]) * 30).toFixed(1) + " blk/s"], ["0 to 90% of top", (v[1] / 30).toFixed(2) + " s"], ["Stop from top", (v[2] / 30).toFixed(2) + " s, " + fx(v[3]).toFixed(2) + " blk"], ["Full-lock circle", (v[4] / 30).toFixed(2) + " s, " + fx(v[5]).toFixed(2) + " blk wide"]];
+    $("metrics").innerHTML = items.map(([k, val]) => `<div class="metric"><div class="label">${k}</div><div class="v">${val}</div></div>`).join("");
+  });
+
+  // ---------- Rating sheet ----------
+  const scales = $("scales");
+  ASPECTS.forEach(([key, label]) => {
+    const name = document.createElement("div"); name.textContent = label; name.id = "lab_" + key;
+    const opts = document.createElement("div"); opts.className = "opts"; opts.setAttribute("role", "radiogroup"); opts.setAttribute("aria-labelledby", "lab_" + key);
+    for (let i = 1; i <= 5; i++) {
+      const l = document.createElement("label");
+      l.innerHTML = `<input type="radio" name="s_${key}" value="${i}" id="s_${key}_${i}"><span>${i}</span>`;
+      opts.appendChild(l);
+    }
+    scales.appendChild(name); scales.appendChild(opts);
+  });
+
+  let ratings = []; let db = null;
+  try { ratings = JSON.parse(localStorage.getItem("gta2-s5-ratings") || "[]"); } catch {}
+  const saveLocal = () => { try { localStorage.setItem("gta2-s5-ratings", JSON.stringify(ratings)); } catch {} };
+  window.__s5 = {
+    ratings: () => ratings,
+    clear: () => { ratings = []; saveLocal(); render(); },
+    current: () => ({ source: ex && ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", selfTest: $("hashText").textContent, gciRecord: $("gciOut").textContent }),
+  };
+  function setRateMsg(t, err) { const m = $("rateMsg"); m.textContent = t; m.classList.toggle("err", !!err); }
+  $("rateForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("rName").value.trim();
+    const verdict = (document.querySelector('input[name="verdict"]:checked') || {}).value;
+    if (!name) { setRateMsg("Add the rater's name.", true); $("rName").focus(); return; }
+    if (!verdict) { setRateMsg("Answer yes or no to 'Recognisably GTA2'.", true); return; }
+    const scores = {};
+    for (const [k] of ASPECTS) { const c = document.querySelector(`input[name="s_${k}"]:checked`); scores[k] = c ? +c.value : null; }
+    const rec = { name, know: $("rKnow").value, scores, verdict, notes: $("rNotes").value.trim(),
+      source: ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", at: Date.now() };
+    if (db) {
+      try { await db.collection("ratings").add(rec); setRateMsg("Saved."); }
+      catch (err) { setRateMsg("Could not save to the shared store (" + (err && err.code || "error") + "). Kept on this page; copy the Markdown before leaving.", true); ratings.push(rec); render(); }
+    } else { ratings.push(rec); saveLocal(); render(); setRateMsg("Saved in this browser. Add another rater, or press Download results to send them to Jeff."); }
+    $("rateForm").reset();
+  });
+
+  function render() {
+    const thead = $("resTable").querySelector("thead"), tbody = $("resTable").querySelector("tbody");
+    thead.innerHTML = "<tr><th>Rater</th><th>Knows</th>" + ASPECTS.map(([, l]) => `<th title="${l}">${l.split(" ")[0]}</th>`).join("") + "<th>GTA2?</th><th>Data</th><th>Notes</th></tr>";
+    tbody.innerHTML = "";
+    for (const r of ratings) {
+      const tr = document.createElement("tr");
+      const cells = [r.name, r.know, ...ASPECTS.map(([k]) => r.scores?.[k] ?? "–"), r.verdict, r.source + (r.car ? " · " + r.car : ""), r.notes || ""];
+      cells.forEach((c, i) => {
+        const td = document.createElement("td"); td.textContent = c;
+        if (i >= 2 && i < 2 + ASPECTS.length) td.className = "num";
+        if (i === 2 + ASPECTS.length) td.className = c === "yes" ? "yes" : "no";
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    }
+    const qualified = ratings.filter((r) => r.know !== "little" && r.source === "gci");
+    const yes = qualified.filter((r) => r.verdict === "yes").length, no = qualified.length - yes;
+    const box = $("verdictBox"); box.classList.remove("pass", "fail");
+    if (!ratings.length) { $("verdictText").textContent = "No ratings yet"; $("verdictSub").textContent = "Needs three raters who know the game, driving on your own data files, all answering yes."; }
+    else if (no > 0) { box.classList.add("fail"); $("verdictText").textContent = "Fails"; $("verdictSub").textContent = `${no} of ${qualified.length} qualifying raters said no.`; }
+    else if (yes >= 3) { box.classList.add("pass"); $("verdictText").textContent = "Passes"; $("verdictSub").textContent = `${yes} qualifying raters said yes.`; }
+    else { $("verdictText").textContent = `${yes} of 3 so far`; $("verdictSub").textContent = "Counts only raters who know the game and drove on your own nyc.gci." + (ratings.length > qualified.length ? ` ${ratings.length - qualified.length} rating(s) not counted.` : ""); }
+  }
+
+  $("copyBtn").addEventListener("click", async () => {
+    const head = "| Rater | Knows | " + ASPECTS.map(([, l]) => l).join(" | ") + " | GTA2? | Data | Notes |";
+    const sep = "|" + " --- |".repeat(ASPECTS.length + 5);
+    const rows = ratings.map((r) => `| ${r.name} | ${r.know} | ` + ASPECTS.map(([k]) => r.scores?.[k] ?? "").join(" | ") + ` | ${r.verdict} | ${r.source} ${r.car} | ${(r.notes || "").replace(/\|/g, "/").replace(/\n/g, " ")} |`);
+    const text = `S5 handling rating: ${$("verdictText").textContent}\n\n${head}\n${sep}\n${rows.join("\n")}\n`;
+    const out = $("copyOut");
+    try { await navigator.clipboard.writeText(text); $("copyBtn").textContent = "Copied"; setTimeout(() => $("copyBtn").textContent = "Copy as Markdown", 1500); }
+    catch { out.hidden = false; out.value = text; out.focus(); out.select(); }
+  });
+
+  async function connectStore() {
+    const timer = setTimeout(() => { if (!db) $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and send the file to Jeff."; }, 10000);
+    try {
+      db = window.claude && window.claude.use ? await window.claude.use("db") : null;
+    } catch { db = null; }
+    if (!db) { clearTimeout(timer); $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and send the file to Jeff."; return; }
+    db.collection("ratings").orderBy("at").onSnapshot((snap) => {
+      clearTimeout(timer);
+      ratings = snap.docs.map((d) => d.data());
+      $("storeMsg").textContent = "Ratings are saved to this page's shared store, so anyone with the link sees the same results.";
+      render();
+    }, (err) => { clearTimeout(timer); $("storeMsg").textContent = "Could not read shared ratings (" + (err && err.code || "error") + ")."; });
+  }
+
+  // ---------- Video ----------
+  $("vidFile").addEventListener("change", (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    const v = $("vid"); v.src = URL.createObjectURL(f); v.play().catch(() => {}); $("vidHint").hidden = true;
+  });
+  $("slowBtn").addEventListener("click", () => {
+    const v = $("vid"); v.playbackRate = v.playbackRate === 1 ? 0.5 : 1;
+    $("slowBtn").textContent = v.playbackRate === 1 ? "Play at half speed" : "Play at normal speed";
+  });
+
+  $("dlBtn").addEventListener("click", () => window.TESTER && window.TESTER.download && window.TESTER.download());
+  render();
+  connectStore();
+  boot().catch((e) => { $("hashText").textContent = "Could not start the car model"; msg("The WebAssembly module failed to load: " + e.message, true); });
+})();
+</script>
+
+<script>
+window.TESTER = {
+  spike: "s5", title: "Does this car feel like GTA2?", time: "15 minutes per rater",
+  intro: "This is a re-creation of GTA2's car handling, driven from the game's own handling file. We need people who know the game to say whether it feels right.",
+  needs: "your own copy of GTA2 (<code>nyc.gci</code> and a <code>.sty</code> such as <code>wil.sty</code> from its <code>data</code> folder), a keyboard or gamepad, and ideally a video clip of the original game driving. Your files and video stay in this browser and are never uploaded.",
+  steps: [
+    "Under <b>Your data files</b>, choose <code>nyc.gci</code> and a <code>.sty</code> file. The chip at the top should change from Placeholder constants. Ratings on placeholder constants do not count.",
+    "Pick a car you know well, and if you have a clip of the original, open it under <b>Original footage</b>.",
+    "Click the driving view and drive for about five minutes: arrows or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Space</kbd> handbrake, <kbd>R</kbd> reset. Do a straight run to top speed, the block circuits, handbrake turns in the open lot, and hit a few walls.",
+    "Fill in the <b>Rating sheet</b> on your own, without looking at anyone else's answers, and press <b>Save rating</b>. More than one person can rate on the same computer.",
+    "Press <b>Download results</b> and send the file to Jeff.",
+  ],
+  fields: [
+    { id: "footage", label: "What did you compare against?", type: "radio", options: ["A video clip", "Playing the original just before", "Memory only"] },
+    { id: "notes", label: "Other notes", type: "textarea" },
+  ],
+  collect: () => window.__s5 ? { ratings: window.__s5.ratings(), current: window.__s5.current() } : null,
+  summary: () => { const r = window.__s5 ? window.__s5.ratings() : []; return r.length ? r.map((x) => `${x.name}: ${x.verdict} (${x.source}, ${x.car})`).join("\n") : "No ratings saved yet."; },
+  clear: () => window.__s5 && window.__s5.clear(),
+};
+</script>
+<script src="../assets/tester.js"></script>

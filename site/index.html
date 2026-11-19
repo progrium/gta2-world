@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gta2-world tests</title>
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<main>
+  <h1>Help test a GTA2 remake for the browser</h1>
+  <p class="lede">These are small experiments for an open-source project that rebuilds GTA2 to run in a web browser. Each one answers a single question, and some of them need a person to try them. Pick any you can do. Each takes between 2 and 20 minutes.</p>
+
+  <section class="how">
+    <h2>How it works</h2>
+    <ol>
+      <li>Open a test. A <b>Tester guide</b> on the right side of the page tells you what to do.</li>
+      <li>Follow the steps and answer the short questions in the guide.</li>
+      <li>Press <b>Download results</b> and send the file back to Jeff, the same way you got this link.</li>
+    </ol>
+    <p style="margin:10px 0 0;color:var(--muted);font-size:14px">Two tests read files from your own copy of GTA2. Those files are opened inside your browser and are never uploaded anywhere. This site does not host any game files.</p>
+  </section>
+
+  <div class="grid">
+    <a class="card" href="s3/">
+      <span class="k">S3 · netcode</span>
+      <h3>Can you feel the network lag?</h3>
+      <p>Drive a little car and guess, trial by trial, whether you are on a laggy network or not.</p>
+      <div class="chips"><span class="chip">15 min</span><span class="chip">Keyboard or gamepad</span><span class="chip">Any browser</span></div>
+    </a>
+    <a class="card" href="s2/">
+      <span class="k">S2 · simulation</span>
+      <h3>Same results in every browser?</h3>
+      <p>Press one button. It replays 10,000 game ticks and checks they match exactly.</p>
+      <div class="chips"><span class="chip">2 min per browser</span><span class="chip">Chrome, Firefox, Safari</span></div>
+    </a>
+    <a class="card" href="s6/">
+      <span class="k">S6 · controllers</span>
+      <h3>Do game controllers work the same everywhere?</h3>
+      <p>A guided check of buttons, sticks, delay and rumble for your controller.</p>
+      <div class="chips"><span class="chip">3 min per pad</span><span class="chip">Xbox, DualSense or Switch Pro</span></div>
+    </a>
+    <a class="card" href="s5/">
+      <span class="k">S5 · car handling</span>
+      <h3>Does this car feel like GTA2?</h3>
+      <p>For people who know the game: drive the re-created handling and rate it.</p>
+      <div class="chips"><span class="chip">15 min</span><span class="chip data">Needs your GTA2 files</span><span class="chip">Knows GTA2</span></div>
+    </a>
+    <a class="card" href="s1/">
+      <span class="k">S1 · map viewer</span>
+      <h3>Does the map look right, and run at 60 fps?</h3>
+      <p>Fly around the original city maps, compare with the game, and run a 20 second benchmark.</p>
+      <div class="chips"><span class="chip">20 min</span><span class="chip data">Needs your GTA2 files</span><span class="chip">Laptop or desktop</span></div>
+    </a>
+    <a class="card off" href="s4/">
+      <span class="k">S4 · connection</span>
+      <h3>Hour-long connection test</h3>
+      <p>Not open yet. It needs a live test server, which Jeff will start when there is a group ready.</p>
+      <div class="chips"><span class="chip">Coming later</span></div>
+    </a>
+  </div>
+
+  <footer>Source and write-ups: <a href="https://github.com/progrium/gta2-world" style="color:inherit">github.com/progrium/gta2-world</a>. GTA2 is a trademark of its owners; this project is unofficial and ships no game data.</footer>
+</main>
+</body>
+</html>

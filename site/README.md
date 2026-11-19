@@ -1,0 +1,18 @@
+# Tester site
+
+Static pages for the spikes that need a person to try them, deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main` that touches `site/`.
+
+Each spike page is a copy of that spike's web page with two additions: a `window.TESTER` config near the end of the page, and `assets/tester.js`, which adds the "Tester guide" drawer (steps, a short form, and a Download results button that saves a JSON file for the tester to send back). Answers and recorded runs are kept in the tester's `localStorage`.
+
+| Page | Copied from | Notes |
+| --- | --- | --- |
+| `s1/` | `spike/s1` @ 012fd42, `spikes/s1` `zig build` output (`zig-out/web`, Zig 0.17.0) | `fixtures/` is the synthetic showcase, not game data. The page records every load and benchmark. |
+| `s2/` | `spike/s2` @ cd14a18, `spikes/s2/web` | Unchanged apart from the guide. |
+| `s3/` | `spike/s3` @ 97e961e, `spikes/s3/s3.html` | Patched to keep trials in `localStorage` and record the remote-car setting per trial. |
+| `s4/` | placeholder | Needs a live server. |
+| `s5/` | `spike/s5` @ 1058004, `spikes/s5-vehicle/web` | Patched to keep ratings in `localStorage` (no claude.ai store here) and add Download results. Added the missing doctype. |
+| `s6/` | `spike/s6` @ b4701dd, `spikes/s6-gamepad/index.html` | Unchanged apart from the guide; the page's own Download JSON is the results file. |
+
+No original game data goes in this folder. Pages that need it (S1, S5) read the tester's own files in the browser.
+
+Preview locally with `python3 -m http.server -d site 8000`.

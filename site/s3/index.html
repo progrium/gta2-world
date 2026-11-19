@@ -1,0 +1,937 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 Prediction Feel</title>
+<style>
+  :root {
+    --panel-bg: rgba(250, 250, 248, 0.94);
+    --panel-fg: #1d1f21;
+    --muted: #5b6066;
+    --accent: #c0392b;
+    --border: rgba(0, 0, 0, 0.12);
+    --btn-bg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --panel-bg: rgba(24, 26, 28, 0.92);
+      --panel-fg: #e8e8e6;
+      --muted: #a2a7ad;
+      --accent: #ff6b5b;
+      --border: rgba(255, 255, 255, 0.14);
+      --btn-bg: #2c2f33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --panel-bg: rgba(24, 26, 28, 0.92);
+    --panel-fg: #e8e8e6;
+    --muted: #a2a7ad;
+    --accent: #ff6b5b;
+    --border: rgba(255, 255, 255, 0.14);
+    --btn-bg: #2c2f33;
+  }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2b2d2f; }
+  body { font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+  #panel {
+    position: fixed; top: 12px; left: 12px; width: 300px; max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 24px); overflow: auto; box-sizing: border-box;
+    padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--panel-bg); color: var(--panel-fg);
+  }
+  h1 { font-size: 14px; margin: 0 0 4px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 6px; }
+  p { margin: 4px 0; color: var(--muted); }
+  .row { display: grid; grid-template-columns: 1fr 96px 62px; gap: 6px; align-items: center; margin: 3px 0; }
+  .row b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; }
+  button, select {
+    font: inherit; color: var(--panel-fg); background: var(--btn-bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; cursor: pointer;
+  }
+  button.primary { border-color: var(--accent); }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  #abLabel { font-size: 22px; font-weight: 700; color: var(--accent); min-width: 1.2em; display: inline-block; }
+  #stats { white-space: pre; font: 11px/1.45 ui-monospace, Menlo, monospace; margin-top: 8px; }
+  kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+<div id="panel">
+  <h1>S3: prediction feel</h1>
+  <p><kbd>WASD</kbd>/arrows drive, <kbd>Space</kbd> handbrake, gamepad works too. <kbd>Tab</kbd> switch A/B, <kbd>R</kbd> reset, <kbd>H</kbd> hide panel, <kbd>G</kbd> debug.</p>
+
+  <h2>Blind trials</h2>
+  <p id="trialMsg">Each trial resets the car and secretly picks zero latency or the network settings below.</p>
+  <div class="btns"><button id="startTrial" class="primary">Start trial</button></div>
+  <div class="btns" id="guess" hidden>
+    <button id="saysLocal">Felt like zero latency</button>
+    <button id="saysNet">Felt networked</button>
+  </div>
+  <p id="tally"></p>
+
+  <div id="abRow">
+    <h2>Free A/B</h2>
+    <div class="btns" style="align-items:center">
+      Showing <span id="abLabel">A</span>
+      <button id="reveal">Reveal and reshuffle</button>
+    </div>
+    <p id="abReveal">One of A and B is networked, the other is zero latency.</p>
+  </div>
+
+  <h2>Network</h2>
+  <div id="sliders"></div>
+  <label class="row"><span>Other car</span>
+    <select id="bot"><option value="off">off</option><option value="wander" selected>wanders</option><option value="chase">chases you</option></select><b></b>
+  </label>
+  <label class="row"><span>Draw other car</span>
+    <select id="remoteView"><option value="interpolated" selected>interpolated</option><option value="predicted">predicted</option></select><b></b>
+  </label>
+  <label><input type="checkbox" id="debug"> Debug overlay</label>
+  <div id="stats" hidden></div>
+</div>
+<script type="module">
+const SIM_WASM_B64 = "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ALilAABspQAAH6UAANKkAACFpAAAOKQAAOujAACeowAAUKMAAAOjAAC1ogAAaKIAABqiAADMoQAAfqEAADChAADioAAAlKAAAEWgAAD3nwAAqJ8AAFqfAAALnwAAvJ4AAG2eAAAengAAz50AAICdAAAxnQAA4ZwAAJKcAABCnAAA8psAAKObAABTmwAAA5sAALOaAABjmgAAEpoAAMKZAABymQAAIZkAANCYAACAmAAAL5gAAN6XAACNlwAAPJcAAOuWAACalgAASJYAAPeVAACllQAAVJUAAAKVAACwlAAAXpQAAAyUAAC6kwAAaJMAABaTAADEkgAAcZIAAB+SAADMkQAAeZEAACeRAADUkAAAgZAAAC6QAADbjwAAiI8AADSPAADhjgAAjY4AADqOAADmjQAAk40AAD+NAADrjAAAl4wAAEOMAADviwAAmosAAEaLAADyigAAnYoAAEmKAAD0iQAAn4kAAEqJAAD2iAAAoYgAAEyIAAD2hwAAoYcAAEyHAAD3hgAAoYYAAEyGAAD2hQAAoIUAAEqFAAD1hAAAn4QAAEmEAADygwAAnIMAAEaDAADwggAAmYIAAEOCAADsgQAAlYEAAD+BAADogAAAkYAAADqAAADjfwAAjH8AADV/AADdfgAAhn4AAC9+AADXfQAAf30AACh9AADQfAAAeHwAACB8AADIewAAcHsAABh7AADAegAAaHoAABB6AAC3eQAAX3kAAAZ5AACteAAAVXgAAPx3AACjdwAASncAAPF2AACYdgAAP3YAAOZ1AACNdQAAM3UAANp0AACAdAAAJ3QAAM1zAABzcwAAGnMAAMByAABmcgAADHIAALJxAABYcQAA/nAAAKNwAABJcAAA728AAJRvAAA6bwAA324AAIVuAAAqbgAAz20AAHRtAAAZbQAAvmwAAGNsAAAIbAAArWsAAFJrAAD2agAAm2oAAEBqAADkaQAAiWkAAC1pAADRaAAAdmgAABpoAAC+ZwAAYmcAAAZnAACqZgAATmYAAPJlAACVZQAAOWUAAN1kAACAZAAAJGQAAMdjAABrYwAADmMAALFiAABUYgAA+GEAAJthAAA+YQAA4WAAAIRgAAAmYAAAyV8AAGxfAAAPXwAAsV4AAFReAAD2XQAAmV0AADtdAADeXAAAgFwAACJcAADEWwAAZlsAAAhbAACqWgAATFoAAO5ZAACQWQAAMlkAANRYAAB1WAAAF1gAALlXAABaVwAA/FYAAJ1WAAA+VgAA4FUAAIFVAAAiVQAAw1QAAGRUAAAGVAAAp1MAAEhTAADoUgAAiVIAACpSAADLUQAAbFEAAAxRAACtUAAATVAAAO5PAACOTwAAL08AAM9OAABwTgAAEE4AALBNAABQTQAA8EwAAJBMAAAxTAAA0UsAAHFLAAAQSwAAsEoAAFBKAADwSQAAkEkAAC9JAADPSAAAb0gAAA5IAACuRwAATUcAAOxGAACMRgAAK0YAAMtFAABqRQAACUUAAKhEAABHRAAA5kMAAIVDAAAkQwAAw0IAAGJCAAABQgAAoEEAAD9BAADeQAAAfEAAABtAAAC6PwAAWD8AAPc+AACVPgAAND4AANI9AABxPQAADz0AAK48AABMPAAA6jsAAIg7AAAnOwAAxToAAGM6AAABOgAAnzkAAD05AADbOAAAeTgAABc4AAC1NwAAUzcAAPE2AACONgAALDYAAMo1AABoNQAABTUAAKM0AABANAAA3jMAAHwzAAAZMwAAtzIAAFQyAADxMQAAjzEAACwxAADKMAAAZzAAAAQwAAChLwAAPy8AANwuAAB5LgAAFi4AALMtAABQLQAA7SwAAIosAAAnLAAAxCsAAGErAAD+KgAAmyoAADgqAADVKQAAcSkAAA4pAACrKAAASCgAAOQnAACBJwAAHicAALomAABXJgAA9CUAAJAlAAAtJQAAySQAAGYkAAACJAAAnyMAADsjAADXIgAAdCIAABAiAACtIQAASSEAAOUgAACCIAAAHiAAALofAABWHwAA8x4AAI8eAAArHgAAxx0AAGMdAAD/HAAAmxwAADgcAADUGwAAcBsAAAwbAACoGgAARBoAAOAZAAB8GQAAGBkAALQYAABQGAAA6xcAAIcXAAAjFwAAvxYAAFsWAAD3FQAAkxUAAC4VAADKFAAAZhQAAAIUAACeEwAAORMAANUSAABxEgAADRIAAKgRAABEEQAA4BAAAHsQAAAXEAAAsw8AAE4PAADqDgAAhg4AACEOAAC9DQAAWQ0AAPQMAACQDAAAKwwAAMcLAABiCwAA/goAAJoKAAA1CgAA0QkAAGwJAAAICQAAowgAAD8IAADaBwAAdgcAABEHAACtBgAASAYAAOQFAAB/BQAAGwUAALYEAABSBAAA7QMAAIkDAAAkAwAAwAIAAFsCAAD3AQAAkgEAAC4BAADJAAAAZQAAAAAAAACb////N////9L+//9u/v//Cf7//6X9//9A/f//3Pz//3f8//8T/P//rvv//0r7///l+v//gfr//xz6//+4+f//U/n//+/4//+K+P//Jvj//8H3//9d9///+Pb//5T2//8v9v//y/X//2b1//8C9f//nvT//zn0///V8///cPP//wzz//+n8v//Q/L//9/x//968f//FvH//7Lw//9N8P//6e///4Xv//8g7///vO7//1ju///z7f//j+3//yvt///H7P//Yuz///7r//+a6///Nuv//9Lq//9t6v//Cer//6Xp//9B6f//3ej//3no//8V6P//sOf//0zn///o5v//hOb//yDm//+85f//WOX///Tk//+Q5P//LOT//8jj//9l4///AeP//53i//854v//1eH//3Hh//8N4f//quD//0bg///i3///ft///xvf//+33v//U97///Dd//+M3f//Kd3//8Xc//9h3P///tv//5rb//832///09r//3Da//8M2v//qdn//0bZ///i2P//f9j//xzY//+41///Vdf///LW//+P1v//K9b//8jV//9l1f//AtX//5/U//881P//2dP//3bT//8T0///sNL//03S///q0f//h9H//yTR///B0P//X9D///zP//+Zz///Ns///9TO//9xzv//D87//6zN//9Jzf//58z//4TM//8izP//wMv//13L///7yv//mMr//zbK///Uyf//csn//w/J//+tyP//S8j//+nH//+Hx///Jcf//8PG//9hxv///8X//53F//87xf//2cT//3jE//8WxP//tMP//1LD///xwv//j8L//y7C///Mwf//a8H//wnB//+owP//RsD//+W///+Ev///Ir///8G+//9gvv///73//569//89vf//3Lz//3u8//8avP//ubv//1i7///3uv//lrr//zW6///Vuf//dLn//xS5//+zuP//Urj///K3//+Rt///Mbf//9G2//9wtv//ELb//7C1//9Qtf//8LT//4+0//8vtP//z7P//3Cz//8Qs///sLL//1Cy///wsf//kLH//zGx///RsP//crD//xKw//+zr///U6////Su//+Urv//Na7//9at//93rf//GK3//7is//9ZrP//+qv//5yr//89q///3qr//3+q//8gqv//wqn//2Op//8Eqf//pqj//0eo///pp///i6f//yyn///Opv//cKb//xKm//+0pf//VqX///ik//+apP//PKT//96j//+Ao///IqP//8Wi//9nov//CqL//6yh//9Pof//8aD//5Sg//83oP//2p///3yf//8fn///wp7//2We//8Inv//rJ3//0+d///ynP//lZz//zmc///cm///gJv//yOb///Hmv//a5r//w6a//+ymf//Vpn///qY//+emP//Qpj//+aX//+Kl///L5f//9OW//93lv//HJb//8CV//9llf//CpX//66U//9TlP//+JP//52T//9Ck///55L//4yS//8xkv//1pH//3uR//8hkf//xpD//2yQ//8RkP//t4///12P//8Cj///qI7//06O///0jf//mo3//0CN///mjP//jYz//zOM///Zi///gIv//yaL///Niv//c4r//xqK///Bif//aIn//w+J//+2iP//XYj//wSI//+rh///U4f///qG//+hhv//SYb///CF//+Yhf//QIX//+iE//+QhP//OIT//+CD//+Ig///MIP//9iC//+Bgv//KYL//9GB//96gf//I4H//8uA//90gP//HYD//8Z///9vf///GH///8F+//9rfv//FH7//719//9nff//EH3//7p8//9kfP//Dnz//7d7//9he///C3v//7Z6//9gev//Cnr//7R5//9fef//CXn//7R4//9feP//Cnj//7R3//9fd///Cnf//7Z2//9hdv//DHb//7d1//9jdf//DnX//7p0//9mdP//EXT//71z//9pc///FXP//8Fy//9tcv//GnL//8Zx//9zcf//H3H//8xw//94cP//JXD//9Jv//9/b///LG///9lu//+Hbv//NG7//+Ft//+Pbf//PG3//+ps//+YbP//Rmz///Rr//+ia///UGv///5q//+sav//W2r//wlq//+4af//Zmn//xVp///EaP//c2j//yJo///RZ///gGf//zBn///fZv//jmb//z5m///uZf//nWX//01l///9ZP//rWT//11k//8OZP//vmP//25j//8fY///z2L//4Bi//8xYv//4mH//5Nh//9EYf//9WD//6Zg//9YYP//CWD//7tf//9sX///Hl///9Be//+CXv//NF7//+Zd//+YXf//S13///1c//+wXP//Ylz//xVc///IW///e1v//y5b///hWv//lFr//0ha///7Wf//rln//2JZ//8WWf//ylj//35Y//8yWP//5lf//5pX//9OV///A1f//7dW//9sVv//IVb//9ZV//+KVf//P1X///VU//+qVP//X1T//xVU///KU///gFP//zZT///sUv//olL//1hS//8OUv//xFH//3tR//8xUf//6FD//55Q//9VUP//DFD//8NP//96T///Mk///+lO//+gTv//WE7//xBO///HTf//f03//zdN///vTP//qEz//2BM//8YTP//0Uv//4lL//9CS///+0r//7RK//9tSv//Jkr//+BJ//+ZSf//U0n//wxJ///GSP//gEj//zpI///0R///rkf//2hH//8jR///3Ub//5hG//9SRv//DUb//8hF//+DRf//P0X///pE//+1RP//cUT//yxE///oQ///pEP//2BD//8cQ///2EL//5VC//9RQv//DkL//8pB//+HQf//REH//wFB//++QP//e0D//zlA///2P///tD///3E///8vP///7T7//6s+//9pPv//KD7//+Y9//+kPf//Yz3//yI9///hPP//oDz//188//8ePP//3Tv//507//9cO///HDv//9w6//+cOv//XDr//xw6///cOf//nTn//105//8eOf//3zj//584//9gOP//Ijj//+M3//+kN///Zjf//yc3///pNv//qzb//202//8vNv//8TX//7M1//92Nf//OTX///s0//++NP//gTT//0Q0//8HNP//yzP//44z//9SM///FTP//9ky//+dMv//YTL//yUy///pMf//rjH//3Ix//83Mf///DD//8Ew//+GMP//SzD//xAw///WL///my///2Ev//8nL///7S7//7Mu//95Lv//Py7//wYu///MLf//ky3//1ot//8hLf//6Cz//68s//92LP//Piz//wUs///NK///lSv//10r//8lK///7Sr//7Uq//9+Kv//Rir//w8q///YKf//oSn//2op//8zKf///Sj//8Yo//+QKP//Wij//yQo///uJ///uCf//4In//9MJ///Fyf//+Im//+sJv//dyb//0Im//8OJv//2SX//6Ql//9wJf//PCX//wgl///UJP//oCT//2wk//84JP//BST//9Ej//+eI///ayP//zgj//8FI///0yL//6Ai//9uIv//OyL//wki///XIf//pSH//3Qh//9CIf//ECH//98g//+uIP//fSD//0wg//8bIP//6h///7of//+JH///WR///ykf///5Hv//yR7//5ke//9qHv//Oh7//wse///cHf//rR3//34d//9PHf//IR3///Ic///EHP//lRz//2cc//85HP//DBz//94b//+wG///gxv//1Yb//8pG////Br//88a//+iGv//dRr//0ka//8dGv//8Bn//8QZ//+ZGf//bRn//0EZ//8WGf//6hj//78Y//+UGP//aRj//z4Y//8UGP//6Rf//78X//+VF///axf//0EX//8XF///7Rb//8QW//+aFv//cRb//0gW//8fFv//9hX//84V//+lFf//fRX//1UV//8sFf//BBX//90U//+1FP//jRT//2YU//8/FP//GBT///ET///KE///oxP//30T//9WE///MBP//woT///kEv//vhL//5gS//9zEv//TRL//ygS//8DEv//3hH//7kR//+VEf//cBH//0wR//8nEf//AxH//98Q//+7EP//mBD//3QQ//9REP//LhD//wsQ///oD///xQ///6IP//+AD///XQ///zsP//8ZD///9w7//9UO//+0Dv//kg7//3EO//9PDv//Lg7//w0O///tDf//zA3//6wN//+LDf//aw3//0sN//8rDf//Cw3//+wM///MDP//rQz//44M//9vDP//UAz//zEM//8TDP//9Av//9YL//+4C///mgv//3wL//9eC///QQv//yML//8GC///6Qr//8wK//+vCv//kgr//3YK//9aCv//PQr//yEK//8FCv//6gn//84J//+yCf//lwn//3wJ//9hCf//Rgn//ysJ//8RCf//9gj//9wI///CCP//qAj//44I//90CP//Wwj//0EI//8oCP//Dwj///YH///dB///xQf//6wH//+UB///ewf//2MH//9MB///NAf//xwH//8FB///7Qb//9YG//+/Bv//qAb//5IG//97Bv//ZQb//04G//84Bv//Igb//w0G///3Bf//4QX//8wF//+3Bf//ogX//40F//94Bf//ZAX//08F//87Bf//JwX//xMF////BP//6wT//9gE///EBP//sQT//54E//+LBP//eAT//2YE//9TBP//QQT//y8E//8dBP//CwT///kD///oA///1gP//8UD//+0A///owP//5ID//+BA///cQP//2AD//9QA///QAP//zAD//8hA///EQP//wID///yAv//4wL//9QC///FAv//twL//6gC//+aAv//jAL//30C//9wAv//YgL//1QC//9HAv//OQL//ywC//8fAv//EgL//wYC///5Af//7QH//+EB///VAf//yQH//70B//+xAf//pgH//5oB//+PAf//hAH//3kB//9vAf//ZAH//1oB//9QAf//RgH//zwB//8yAf//KAH//x8B//8VAf//DAH//wMB///6AP//8gD//+kA///hAP//2AD//9AA///IAP//wQD//7kA//+yAP//qgD//6MA//+cAP//lQD//48A//+IAP//ggD//3sA//91AP//bwD//2oA//9kAP//XgD//1kA//9UAP//TwD//0oA//9FAP//QQD//zwA//84AP//NAD//zAA//8sAP//KQD//yUA//8iAP//HwD//xwA//8ZAP//FgD//xQA//8RAP//DwD//w0A//8LAP//CQD//wgA//8GAP//BQD//wQA//8DAP//AgD//wEA//8BAP//AAD//wAA//8AAP//AAD//wAA//8BAP//AQD//wIA//8DAP//BAD//wUA//8GAP//CAD//wkA//8LAP//DQD//w8A//8RAP//FAD//xYA//8ZAP//HAD//x8A//8iAP//JQD//ykA//8sAP//MAD//zQA//84AP//PAD//0EA//9FAP//SgD//08A//9UAP//WQD//14A//9kAP//agD//28A//91AP//ewD//4IA//+IAP//jwD//5UA//+cAP//owD//6oA//+yAP//uQD//8EA///IAP//0AD//9gA///hAP//6QD///IA///6AP//AwH//wwB//8VAf//HwH//ygB//8yAf//PAH//0YB//9QAf//WgH//2QB//9vAf//eQH//4QB//+PAf//mgH//6YB//+xAf//vQH//8kB///VAf//4QH//+0B///5Af//BgL//xIC//8fAv//LAL//zkC//9HAv//VAL//2IC//9wAv//fQL//4wC//+aAv//qAL//7cC///FAv//1AL//+MC///yAv//AgP//xED//8hA///MAP//0AD//9QA///YAP//3ED//+BA///kgP//6MD//+0A///xQP//9YD///oA///+QP//wsE//8dBP//LwT//0EE//9TBP//ZgT//3gE//+LBP//ngT//7EE///EBP//2AT//+sE////BP//EwX//ycF//87Bf//TwX//2QF//94Bf//jQX//6IF//+3Bf//zAX//+EF///3Bf//DQb//yIG//84Bv//Tgb//2UG//97Bv//kgb//6gG//+/Bv//1gb//+0G//8FB///HAf//zQH//9MB///Ywf//3sH//+UB///rAf//8UH///dB///9gf//w8I//8oCP//QQj//1sI//90CP//jgj//6gI///CCP//3Aj///YI//8RCf//Kwn//0YJ//9hCf//fAn//5cJ//+yCf//zgn//+oJ//8FCv//IQr//z0K//9aCv//dgr//5IK//+vCv//zAr//+kK//8GC///Iwv//0EL//9eC///fAv//5oL//+4C///1gv///QL//8TDP//MQz//1AM//9vDP//jgz//60M///MDP//7Az//wsN//8rDf//Sw3//2sN//+LDf//rA3//8wN///tDf//DQ7//y4O//9PDv//cQ7//5IO//+0Dv//1Q7///cO//8ZD///Ow///10P//+AD///og///8UP///oD///CxD//y4Q//9REP//dBD//5gQ//+7EP//3xD//wMR//8nEf//TBH//3AR//+VEf//uRH//94R//8DEv//KBL//00S//9zEv//mBL//74S///kEv//ChP//zAT//9WE///fRP//6MT///KE///8RP//xgU//8/FP//ZhT//40U//+1FP//3RT//wQV//8sFf//VRX//30V//+lFf//zhX///YV//8fFv//SBb//3EW//+aFv//xBb//+0W//8XF///QRf//2sX//+VF///vxf//+kX//8UGP//Phj//2kY//+UGP//vxj//+oY//8WGf//QRn//20Z//+ZGf//xBn///AZ//8dGv//SRr//3Ua//+iGv//zxr///wa//8pG///Vhv//4Mb//+wG///3hv//wwc//85HP//Zxz//5Uc///EHP//8hz//yEd//9PHf//fh3//60d///cHf//Cx7//zoe//9qHv//mR7//8ke///5Hv//KR///1kf//+JH///uh///+of//8bIP//TCD//30g//+uIP//3yD//xAh//9CIf//dCH//6Uh///XIf//CSL//zsi//9uIv//oCL//9Mi//8FI///OCP//2sj//+eI///0SP//wUk//84JP//bCT//6Ak///UJP//CCX//zwl//9wJf//pCX//9kl//8OJv//Qib//3cm//+sJv//4ib//xcn//9MJ///gif//7gn///uJ///JCj//1oo//+QKP//xij///0o//8zKf//ain//6Ep///YKf//Dyr//0Yq//9+Kv//tSr//+0q//8lK///XSv//5Ur///NK///BSz//z4s//92LP//ryz//+gs//8hLf//Wi3//5Mt///MLf//Bi7//z8u//95Lv//sy7//+0u//8nL///YS///5sv///WL///EDD//0sw//+GMP//wTD///ww//83Mf//cjH//64x///pMf//JTL//2Ey//+dMv//2TL//xUz//9SM///jjP//8sz//8HNP//RDT//4E0//++NP//+zT//zk1//92Nf//szX///E1//8vNv//bTb//6s2///pNv//Jzf//2Y3//+kN///4zf//yI4//9gOP//nzj//984//8eOf//XTn//505///cOf//HDr//1w6//+cOv//3Dr//xw7//9cO///nTv//907//8ePP//Xzz//6A8///hPP//Ij3//2M9//+kPf//5j3//yg+//9pPv//qz7//+0+//8vP///cT///7Q////2P///OUD//3tA//++QP//AUH//0RB//+HQf//ykH//w5C//9RQv//lUL//9hC//8cQ///YEP//6RD///oQ///LET//3FE//+1RP//+kT//z9F//+DRf//yEX//w1G//9SRv//mEb//91G//8jR///aEf//65H///0R///Okj//4BI///GSP//DEn//1NJ//+ZSf//4En//yZK//9tSv//tEr///tK//9CS///iUv//9FL//8YTP//YEz//6hM///vTP//N03//39N///HTf//EE7//1hO//+gTv//6U7//zJP//96T///w0///wxQ//9VUP//nlD//+hQ//8xUf//e1H//8RR//8OUv//WFL//6JS///sUv//NlP//4BT///KU///FVT//19U//+qVP//9VT//z9V//+KVf//1lX//yFW//9sVv//t1b//wNX//9OV///mlf//+ZX//8yWP//flj//8pY//8WWf//Yln//65Z///7Wf//SFr//5Ra///hWv//Llv//3tb///IW///FVz//2Jc//+wXP///Vz//0td//+YXf//5l3//zRe//+CXv//0F7//x5f//9sX///u1///wlg//9YYP//pmD///Vg//9EYf//k2H//+Jh//8xYv//gGL//89i//8fY///bmP//75j//8OZP//XWT//61k///9ZP//TWX//51l///uZf//Pmb//45m///fZv//MGf//4Bn///RZ///Imj//3No///EaP//FWn//2Zp//+4af//CWr//1tq//+sav///mr//1Br//+ia///9Gv//0Zs//+YbP//6mz//zxt//+Pbf//4W3//zRu//+Hbv//2W7//yxv//9/b///0m///yVw//94cP//zHD//x9x//9zcf//xnH//xpy//9tcv//wXL//xVz//9pc///vXP//xF0//9mdP//unT//w51//9jdf//t3X//wx2//9hdv//tnb//wp3//9fd///tHf//wp4//9feP//tHj//wl5//9fef//tHn//wp6//9gev//tnr//wt7//9he///t3v//w58//9kfP//unz//xB9//9nff//vX3//xR+//9rfv//wX7//xh///9vf///xn///x2A//90gP//y4D//yOB//96gf//0YH//ymC//+Bgv//2IL//zCD//+Ig///4IP//ziE//+QhP//6IT//0CF//+Yhf//8IX//0mG//+hhv//+ob//1OH//+rh///BIj//12I//+2iP//D4n//2iJ///Bif//Gor//3OK///Niv//Jov//4CL///Zi///M4z//42M///mjP//QI3//5qN///0jf//To7//6iO//8Cj///XY///7eP//8RkP//bJD//8aQ//8hkf//e5H//9aR//8xkv//jJL//+eS//9Ck///nZP///iT//9TlP//rpT//wqV//9llf//wJX//xyW//93lv//05b//y+X//+Kl///5pf//0KY//+emP//+pj//1aZ//+ymf//Dpr//2ua///Hmv//I5v//4Cb///cm///OZz//5Wc///ynP//T53//6yd//8Inv//ZZ7//8Ke//8fn///fJ///9qf//83oP//lKD///Gg//9Pof//rKH//wqi//9nov//xaL//yKj//+Ao///3qP//zyk//+apP//+KT//1al//+0pf//Eqb//3Cm///Opv//LKf//4un///pp///R6j//6ao//8Eqf//Y6n//8Kp//8gqv//f6r//96q//89q///nKv///qr//9ZrP//uKz//xit//93rf//1q3//zWu//+Urv//9K7//1Ov//+zr///ErD//3Kw///RsP//MbH//5Cx///wsf//ULL//7Cy//8Qs///cLP//8+z//8vtP//j7T///C0//9Qtf//sLX//xC2//9wtv//0bb//zG3//+Rt///8rf//1K4//+zuP//FLn//3S5///Vuf//Nbr//5a6///3uv//WLv//7m7//8avP//e7z//9y8//89vf//nr3///+9//9gvv//wb7//yK///+Ev///5b///0bA//+owP//CcH//2vB///Mwf//LsL//4/C///xwv//UsP//7TD//8WxP//eMT//9nE//87xf//ncX////F//9hxv//w8b//yXH//+Hx///6cf//0vI//+tyP//D8n//3LJ///Uyf//Nsr//5jK///7yv//Xcv//8DL//8izP//hMz//+fM//9Jzf//rM3//w/O//9xzv//1M7//zbP//+Zz////M///1/Q///B0P//JNH//4fR///q0f//TdL//7DS//8T0///dtP//9nT//881P//n9T//wLV//9l1f//yNX//yvW//+P1v//8tb//1XX//+41///HNj//3/Y///i2P//Rtn//6nZ//8M2v//cNr//9Pa//832///mtv///7b//9h3P//xdz//ynd//+M3f//8N3//1Pe//+33v//G9///37f///i3///RuD//6rg//8N4f//ceH//9Xh//854v//neL//wHj//9l4///yOP//yzk//+Q5P//9OT//1jl//+85f//IOb//4Tm///o5v//TOf//7Dn//8V6P//eej//93o//9B6f//pen//wnq//9t6v//0ur//zbr//+a6////uv//2Ls///H7P//K+3//4/t///z7f//WO7//7zu//8g7///he///+nv//9N8P//svD//xbx//968f//3/H//0Py//+n8v//DPP//3Dz///V8///OfT//570//8C9f//ZvX//8v1//8v9v//lPb///j2//9d9///wff//yb4//+K+P//7/j//1P5//+4+f//HPr//4H6///l+v//Svv//677//8T/P//d/z//9z8//9A/f//pf3//wn+//9u/v//0v7//zf///+b////AABYAgAAkAEAALAEAAAgAwAACAcAAJABAABYAgAAsAQAAAgHAACwBAAAsAQAACwBAACwBAAAFAU=";
+// Spike S3 netcode: an in-page fake network between a server sim and a
+// client sim, with client-side rewind-and-replay prediction and error
+// smoothing. No DOM here so the same file runs in the browser and in Node.
+
+export const TICK_MS = 1000 / 30;
+const SNAP_EVERY = 1.5; // 30 Hz sim, 20 Hz snapshots
+const REDUNDANT_FRAMES = 8;
+export const F = 65536;
+
+export function instantiate(bytes) {
+  const mod = new WebAssembly.Module(bytes);
+  return new WebAssembly.Instance(mod, {}).exports;
+}
+
+// Small deterministic PRNG so headless runs are repeatable.
+export function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hash32(n) {
+  n = Math.imul(n ^ (n >>> 16), 0x45d9f3b);
+  n = Math.imul(n ^ (n >>> 16), 0x45d9f3b);
+  return (n ^ (n >>> 16)) >>> 0;
+}
+
+function wrapAngle(a) {
+  while (a > Math.PI) a -= 2 * Math.PI;
+  while (a < -Math.PI) a += 2 * Math.PI;
+  return a;
+}
+
+// Fake one-way link: latency, uniform jitter (which also reorders), loss.
+export class Link {
+  constructor(rng) {
+    this.rng = rng;
+    this.q = [];
+    this.oneWay = 75;
+    this.jitter = 0;
+    this.loss = 0;
+    this.sent = 0;
+    this.dropped = 0;
+  }
+  send(now, msg) {
+    this.sent++;
+    if (this.rng() < this.loss) {
+      this.dropped++;
+      return;
+    }
+    const d = Math.max(0, this.oneWay + (this.rng() * 2 - 1) * this.jitter);
+    this.q.push({ t: now + d, msg });
+  }
+  poll(now) {
+    const out = [];
+    const keep = [];
+    for (const e of this.q) (e.t <= now ? out : keep).push(e);
+    this.q = keep;
+    out.sort((a, b) => a.t - b.t);
+    return out.map((e) => e.msg);
+  }
+}
+
+// Server-side bot driver. Stands in for another player: the client cannot
+// know its next input, which is what makes bumping into it mispredict.
+export function botInput(sim, slot, mode) {
+  if (mode === "off") return [0, 0, 0];
+  const t = sim.tick(slot);
+  const bx = sim.carX(slot, 1) / F, by = sim.carY(slot, 1) / F;
+  const bh = (sim.carH(slot, 1) / 65536) * 2 * Math.PI;
+  let tx, ty;
+  if (mode === "chase") {
+    tx = sim.carX(slot, 0) / F;
+    ty = sim.carY(slot, 0) / F;
+  } else {
+    const r = hash32((t >> 6) + 1);
+    tx = 200 + (r % 2000);
+    ty = 200 + ((r >>> 11) % 1200);
+  }
+  const diff = wrapAngle(Math.atan2(ty - by, tx - bx) - bh);
+  const steer = Math.max(-127, Math.min(127, Math.round(diff * 160)));
+  const throttle = Math.abs(diff) > 2 ? 50 : mode === "chase" ? 127 : 100;
+  const vx = sim.carVX(slot, 1) / F, vy = sim.carVY(slot, 1) / F;
+  const hb = mode === "chase" && Math.abs(diff) > 1.0 && Math.hypot(vx, vy) > 9 ? 1 : 0;
+  return [steer, throttle, hb];
+}
+
+function stateView(sim, slot) {
+  return new Uint8Array(sim.memory.buffer, sim.slotPtr(slot), sim.stateSize());
+}
+
+function pose(sim, slot, car) {
+  return {
+    x: sim.carX(slot, car) / F,
+    y: sim.carY(slot, car) / F,
+    h: (sim.carH(slot, car) / 65536) * 2 * Math.PI,
+  };
+}
+
+function lerpPose(a, b, t) {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, h: a.h + wrapAngle(b.h - a.h) * t };
+}
+
+class Server {
+  constructor(sim, slot, up, down, opts, now) {
+    Object.assign(this, { sim, slot, up, down, opts });
+    this.t0 = now;
+    this.n = 0;
+    this.buf = new Map();
+    this.last = { steer: 0, throttle: 0, buttons: 0 };
+    this.slackSamples = []; // [time, slack]
+    this.slack = 0;
+    this.missing = 0;
+    this.processed = 0;
+  }
+  update(now) {
+    for (const m of this.up.poll(now)) this.onInput(now, m);
+    while (now >= this.t0 + (this.n + 1) * TICK_MS) {
+      this.n++;
+      this.tickOnce(now);
+    }
+  }
+  onInput(now, m) {
+    const wt = this.sim.tick(this.slot);
+    let newest = -1;
+    for (const f of m.frames) {
+      if (f.tick >= wt && !this.buf.has(f.tick)) this.buf.set(f.tick, f);
+      newest = Math.max(newest, f.tick);
+    }
+    this.slackSamples.push([now, newest - wt]);
+  }
+  tickOnce(now) {
+    const { sim, slot } = this;
+    const wt = sim.tick(slot);
+    const f = this.buf.get(wt);
+    if (f) {
+      this.last = f;
+      this.buf.delete(wt);
+    } else {
+      this.missing++; // late or lost: repeat the previous frame
+    }
+    this.processed++;
+    for (const k of this.buf.keys()) if (k < wt) this.buf.delete(k);
+    sim.setInput(slot, 0, this.last.steer, this.last.throttle, this.last.buttons);
+    const b = botInput(sim, slot, this.opts.botMode);
+    sim.setInput(slot, 1, b[0], b[1], b[2]);
+    sim.step(slot);
+    const nt = wt + 1;
+    if (Math.floor(nt / SNAP_EVERY) !== Math.floor(wt / SNAP_EVERY)) {
+      // min arrival slack over the last second is what the client steers on
+      this.slackSamples = this.slackSamples.filter((s) => s[0] > now - 1000);
+      if (this.slackSamples.length) this.slack = Math.min(...this.slackSamples.map((s) => s[1]));
+      this.down.send(now, { tick: nt, state: stateView(sim, slot).slice(), slack: this.slack });
+    }
+  }
+}
+
+class Client {
+  constructor(sim, slot, up, down, opts, now) {
+    Object.assign(this, { sim, slot, up, down, opts });
+    this.lastT = now;
+    this.acc = 0;
+    this.interval = TICK_MS;
+    this.inputs = new Map();
+    this.ackTick = 0;
+    this.snapTick = -1;
+    this.slack = null;
+    this.lastResync = -1e9;
+    this.prev = pose(sim, slot, 0);
+    this.cur = this.prev;
+    this.prevBot = pose(sim, slot, 1);
+    this.curBot = this.prevBot;
+    this.offset = { x: 0, y: 0, h: 0 };
+    this.botOffset = { x: 0, y: 0, h: 0 };
+    this.snaps = []; // for remote (bot) interpolation
+    this.srvOffset = null; // server tick minus local time in ticks
+    this.stats = { corrections: 0, snaps: 0, replays: 0, replayTicks: 0, errs: [], hardResyncs: 0 };
+    this.onTick = null;
+  }
+  doTick(input) {
+    const { sim, slot } = this;
+    const t = sim.tick(slot);
+    this.inputs.set(t, input);
+    this.prev = this.cur;
+    this.prevBot = this.curBot;
+    sim.setInput(slot, 0, input.steer, input.throttle, input.buttons);
+    sim.step(slot);
+    this.cur = pose(sim, slot, 0);
+    this.curBot = pose(sim, slot, 1);
+    const frames = [];
+    for (let k = Math.max(this.ackTick, t - REDUNDANT_FRAMES + 1); k <= t; k++) {
+      const f = this.inputs.get(k);
+      if (f) frames.push({ tick: k, ...f });
+    }
+    this.up.send(this.now, { frames });
+    if (this.onTick) this.onTick(t, input);
+  }
+  onSnapshot(now, s) {
+    if (s.tick <= this.snapTick) return; // stale or reordered
+    const { sim, slot } = this;
+    this.snapTick = s.tick;
+    this.ackTick = s.tick;
+    this.slack = s.slack;
+    this.stats.snaps++;
+    // remote entity buffer + server clock estimate
+    const view = new DataView(s.state.buffer);
+    // World layout: tick u32, pad, cars[2] each 9 x i32 (x,y,vx,vy,heading,...)
+    const base = 8 + 36;
+    this.snaps.push({
+      tick: s.tick,
+      x: view.getInt32(base, true) / F,
+      y: view.getInt32(base + 4, true) / F,
+      h: (view.getInt32(base + 16, true) / 65536) * 2 * Math.PI,
+      own: { x: view.getInt32(8, true) / F, y: view.getInt32(12, true) / F, h: (view.getInt32(24, true) / 65536) * 2 * Math.PI },
+    });
+    if (this.snaps.length > 40) this.snaps.shift();
+    const sample = s.tick - now / TICK_MS;
+    if (this.srvOffset === null || sample > this.srvOffset + 3) this.srvOffset = sample;
+    else this.srvOffset += (sample - this.srvOffset) * 0.05;
+
+    // rewind and replay
+    const target = sim.tick(slot);
+    const before = this.renderPoseRaw(this.alpha());
+    const beforeBot = lerpPose(this.prevBot, this.curBot, Math.max(0, this.alpha()));
+    stateView(sim, slot).set(s.state);
+    let n = 0;
+    let last = { steer: 0, throttle: 0, buttons: 0 };
+    for (let t = s.tick; t < target; t++) {
+      if (t === target - 1) {
+        this.prev = pose(sim, slot, 0);
+        this.prevBot = pose(sim, slot, 1);
+      }
+      const f = this.inputs.get(t) || last;
+      last = f;
+      sim.setInput(slot, 0, f.steer, f.throttle, f.buttons);
+      sim.step(slot);
+      n++;
+    }
+    if (n === 0) {
+      this.prev = pose(sim, slot, 0);
+      this.prevBot = pose(sim, slot, 1);
+    }
+    this.cur = pose(sim, slot, 0);
+    this.curBot = pose(sim, slot, 1);
+    {
+      const ab = lerpPose(this.prevBot, this.curBot, Math.max(0, this.alpha()));
+      const bx = beforeBot.x - ab.x, by = beforeBot.y - ab.y;
+      if (Math.hypot(bx, by) > 200 || this.opts.smoothMs <= 0) this.botOffset = { x: 0, y: 0, h: 0 };
+      else {
+        this.botOffset.x += bx;
+        this.botOffset.y += by;
+        this.botOffset.h = wrapAngle(this.botOffset.h + wrapAngle(beforeBot.h - ab.h));
+      }
+    }
+    for (const k of this.inputs.keys()) if (k < s.tick) this.inputs.delete(k);
+    this.stats.replays++;
+    this.stats.replayTicks += n;
+    this.lastReplay = n;
+    const after = this.renderPoseRaw(this.alpha());
+    const ex = before.x - after.x, ey = before.y - after.y, eh = wrapAngle(before.h - after.h);
+    const e = Math.hypot(ex, ey);
+    if (e > 0.01 || Math.abs(eh) > 0.0005) {
+      this.stats.corrections++;
+      this.stats.errs.push({ t: now, e, eh });
+      if (this.stats.errs.length > 2000) this.stats.errs.shift();
+    }
+    if (e > 200 || this.opts.smoothMs <= 0) {
+      this.offset = { x: 0, y: 0, h: 0 }; // too big to hide, or smoothing off: snap
+    } else {
+      this.offset.x += ex;
+      this.offset.y += ey;
+      this.offset.h = wrapAngle(this.offset.h + eh);
+    }
+  }
+  alpha() {
+    return Math.min(1, this.acc / this.interval);
+  }
+  renderPoseRaw(a) {
+    return lerpPose(this.prev, this.cur, a);
+  }
+  update(now, input) {
+    this.now = now;
+    for (const m of this.down.poll(now)) this.onSnapshot(now, m);
+    const dt = now - this.lastT;
+    this.lastT = now;
+    // clock steering: keep min input slack at the server near the buffer target
+    if (this.slack !== null) {
+      const err = this.slack - this.opts.bufferTicks;
+      if ((err < -3 || err > 6) && now - this.lastResync > 1500) {
+        this.acc -= err * this.interval; // jump the clock; runs or stalls ticks below
+        this.lastResync = now;
+        this.stats.hardResyncs++;
+      }
+      const dil = Math.max(-0.08, Math.min(0.08, err * 0.015));
+      this.interval = TICK_MS * (1 + dil);
+    }
+    this.acc += dt;
+    let steps = 0;
+    while (this.acc >= this.interval && steps < 20) {
+      this.acc -= this.interval;
+      this.doTick(input);
+      steps++;
+    }
+    if (this.acc < -10 * this.interval) this.acc = -10 * this.interval;
+    const k = this.opts.smoothMs > 0 ? Math.exp((-dt * 3) / this.opts.smoothMs) : 0;
+    this.offset.x *= k;
+    this.offset.y *= k;
+    this.offset.h *= k;
+    this.botOffset.x *= k;
+    this.botOffset.y *= k;
+    this.botOffset.h *= k;
+    return steps;
+  }
+  ownPose() {
+    const p = this.renderPoseRaw(Math.max(0, this.alpha()));
+    return { x: p.x + this.offset.x, y: p.y + this.offset.y, h: p.h + this.offset.h };
+  }
+  // remote entity: interpolate between snapshots about interpMs in the past
+  remoteRenderTick(now) {
+    if (this.srvOffset === null) return null;
+    return now / TICK_MS + this.srvOffset - this.opts.interpMs / TICK_MS;
+  }
+  remotePose(now) {
+    const rt = this.remoteRenderTick(now);
+    const s = this.snaps;
+    if (rt === null || !s.length) return pose(this.sim, this.slot, 1);
+    if (rt <= s[0].tick) return s[0];
+    for (let i = s.length - 1; i > 0; i--) {
+      if (s[i - 1].tick <= rt) {
+        const a = s[i - 1], b = s[i];
+        if (rt >= b.tick) return b;
+        return lerpPose(a, b, (rt - a.tick) / (b.tick - a.tick));
+      }
+    }
+    return s[s.length - 1];
+  }
+  // remote entity drawn from the predicted world instead: present time,
+  // dead-reckoned on its last known input, corrections smoothed like ours
+  predictedRemotePose() {
+    const p = lerpPose(this.prevBot, this.curBot, Math.max(0, this.alpha()));
+    return { x: p.x + this.botOffset.x, y: p.y + this.botOffset.y, h: p.h + this.botOffset.h };
+  }
+  serverGhost() {
+    const s = this.snaps[this.snaps.length - 1];
+    return s ? s.own : null;
+  }
+}
+
+// Zero-latency reference: the same sim stepped on the same client ticks with
+// the same inputs, no network, no corrections. While it is not on screen it
+// is kept equal to the predicted world so a switch is seamless.
+class Local {
+  constructor(sim, slot, opts) {
+    Object.assign(this, { sim, slot, opts });
+    this.prev = pose(sim, slot, 0);
+    this.cur = this.prev;
+    this.prevBot = pose(sim, slot, 1);
+    this.curBot = this.prevBot;
+    this.botHist = new Map();
+  }
+  doTick(input) {
+    const { sim, slot } = this;
+    this.prev = this.cur;
+    this.prevBot = this.curBot;
+    sim.setInput(slot, 0, input.steer, input.throttle, input.buttons);
+    const b = botInput(sim, slot, this.opts.botMode);
+    sim.setInput(slot, 1, b[0], b[1], b[2]);
+    sim.step(slot);
+    this.cur = pose(sim, slot, 0);
+    this.curBot = pose(sim, slot, 1);
+    this.recordBot();
+  }
+  recordBot() {
+    const t = this.sim.tick(this.slot);
+    this.botHist.set(t, pose(this.sim, this.slot, 1));
+    this.botHist.delete(t - 120);
+  }
+  // show the bot with the same delay the networked view has, so the only
+  // difference between the two views is how the own car behaves
+  botPose(tick) {
+    const t0 = Math.floor(tick);
+    const a = this.botHist.get(t0), b = this.botHist.get(t0 + 1);
+    if (a && b) return lerpPose(a, b, tick - t0);
+    return a || b || pose(this.sim, this.slot, 1);
+  }
+}
+
+export const DEFAULTS = {
+  rttMs: 150,
+  jitterMs: 10,
+  lossPct: 2,
+  smoothMs: 100,
+  bufferTicks: 2,
+  interpMs: 100,
+  botMode: "wander",
+  remoteView: "interpolated", // or "predicted"
+};
+
+// Everything for one session: slots 0 server, 1 client, 2 local reference.
+export class Sandbox {
+  constructor(sim, opts, now, seed = 1) {
+    this.sim = sim;
+    this.opts = { ...DEFAULTS, ...opts };
+    for (const s of [0, 1, 2]) sim.init(s);
+    this.rng = mulberry32(seed);
+    this.up = new Link(this.rng);
+    this.down = new Link(this.rng);
+    this.applyOpts();
+    this.server = new Server(sim, 0, this.up, this.down, this.opts, now);
+    this.client = new Client(sim, 1, this.up, this.down, this.opts, now);
+    this.local = new Local(sim, 2, this.opts);
+    this.localActive = false;
+    this.client.onTick = (t, input) => {
+      if (this.localActive) this.local.doTick(input);
+    };
+    // start a few ticks ahead; clock steering settles the real lead
+    this.client.now = now;
+    const lead = Math.ceil(this.opts.rttMs / 2 / TICK_MS) + this.opts.bufferTicks;
+    for (let i = 0; i < lead; i++) this.client.doTick({ steer: 0, throttle: 0, buttons: 0 });
+  }
+  applyOpts() {
+    for (const l of [this.up, this.down]) {
+      l.oneWay = this.opts.rttMs / 2;
+      l.jitter = this.opts.jitterMs;
+      l.loss = this.opts.lossPct / 100;
+    }
+  }
+  setOpts(o) {
+    Object.assign(this.opts, o);
+    this.applyOpts();
+  }
+  setLocalActive(on) {
+    if (on && !this.localActive) {
+      this.sim.copySlot(2, 1);
+      this.local.prev = this.client.prev;
+      this.local.cur = this.client.cur;
+      this.local.prevBot = this.client.prevBot;
+      this.local.curBot = this.client.curBot;
+      this.local.botHist.clear();
+      // seed the bot history from what the networked view was showing
+      const snaps = this.client.snaps;
+      for (const s of snaps) this.local.botHist.set(s.tick, s);
+      const last = snaps[snaps.length - 1];
+      const nowTick = this.sim.tick(2);
+      const predicted = pose(this.sim, 2, 1);
+      if (last) {
+        for (let t = last.tick + 1; t < nowTick; t++)
+          this.local.botHist.set(t, lerpPose(last, predicted, (t - last.tick) / (nowTick - last.tick)));
+      }
+      this.local.recordBot();
+    }
+    this.localActive = on;
+  }
+  frame(now, input) {
+    this.server.update(now);
+    this.client.update(now, input);
+    const c = this.client;
+    const predictedRemote = this.opts.remoteView === "predicted";
+    const net = {
+      own: c.ownPose(),
+      bot: predictedRemote ? c.predictedRemotePose() : c.remotePose(now),
+      ghost: c.serverGhost(),
+    };
+    let shown = net;
+    if (this.localActive) {
+      const a = c.alpha();
+      const rt = c.remoteRenderTick(now);
+      shown = {
+        own: lerpPose(this.local.prev, this.local.cur, Math.max(0, a)),
+        bot: predictedRemote
+          ? lerpPose(this.local.prevBot, this.local.curBot, Math.max(0, a))
+          : rt === null ? pose(this.sim, 2, 1) : this.local.botPose(rt),
+        ghost: null,
+      };
+    }
+    return { net, shown };
+  }
+  // slip of the shown car, for skid marks
+  slip() {
+    const slot = this.localActive ? 2 : 1;
+    const s = this.sim;
+    const h = (s.carH(slot, 0) / 65536) * 2 * Math.PI;
+    const vx = s.carVX(slot, 0) / F, vy = s.carVY(slot, 0) / F;
+    return Math.abs(-Math.sin(h) * vx + Math.cos(h) * vy);
+  }
+}
+
+// Spike S3 browser page. Concatenated after net.js by build.sh, so the
+// net.js names (Sandbox, instantiate, DEFAULTS, TICK_MS) are in scope.
+
+const sim = instantiate(Uint8Array.from(atob(SIM_WASM_B64), (c) => c.charCodeAt(0)));
+// F (fixed-point one) comes from net.js
+const ARENA_W = sim.arenaW() / F, ARENA_H = sim.arenaH() / F;
+const PILLARS = [];
+for (let i = 0; i < sim.pillarCount(); i++) PILLARS.push({ x: sim.pillarX(i) / F, y: sim.pillarY(i) / F });
+const PILLAR_R = sim.pillarR() / F;
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("view");
+const ctx = canvas.getContext("2d");
+
+const opts = { ...DEFAULTS };
+let sb = new Sandbox(sim, opts, performance.now(), (Math.random() * 1e9) | 0);
+let skids = [];
+let debug = false;
+
+// ---- A/B toggle: A and B map to networked/local at random per page load
+let abNetIsA = Math.random() < 0.5;
+let abShowing = "A";
+function applyAB() {
+  sb.setLocalActive(abShowing === "A" ? !abNetIsA : abNetIsA);
+  $("abLabel").textContent = abShowing;
+}
+
+// ---- blind trials
+let trials = [];
+try { trials = JSON.parse(localStorage.getItem("gta2-s3-trials") || "[]"); } catch {}
+const saveTrials = () => { try { localStorage.setItem("gta2-s3-trials", JSON.stringify(trials)); } catch {} };
+window.__s3 = { trials: () => trials, clear: () => { trials.length = 0; saveTrials(); $("tally").textContent = ""; $("startTrial").textContent = "Start trial"; }, opts: () => ({ ...opts }) };
+let trial = null; // { local: bool }
+function startTrial() {
+  sb = new Sandbox(sim, opts, performance.now(), (Math.random() * 1e9) | 0);
+  skids = [];
+  trial = { local: Math.random() < 0.5, settings: describeSettings(), opts: { ...opts }, otherCar: $("bot").value, drawOtherCar: $("remoteView").value, startedAt: new Date().toISOString() };
+  sb.setLocalActive(trial.local);
+  setDebug(false);
+  $("guess").hidden = false;
+  $("startTrial").hidden = true;
+  $("trialMsg").textContent = `Trial ${trials.length + 1}: drive for a while, then guess.`;
+  $("abRow").hidden = true;
+  canvas.focus();
+}
+function guess(saysLocal) {
+  if (!trial) return;
+  const correct = saysLocal === trial.local;
+  trials.push({ ...trial, correct, guessed: saysLocal ? "zero latency" : "networked", secondsDriven: Math.round((Date.now() - Date.parse(trial.startedAt)) / 1000) });
+  saveTrials();
+  $("trialMsg").textContent = `That was ${trial.local ? "zero latency" : "networked (" + trial.settings + ")"}. You were ${correct ? "right" : "wrong"}.`;
+  trial = null;
+  $("guess").hidden = true;
+  $("startTrial").hidden = false;
+  $("startTrial").textContent = "Next trial";
+  $("abRow").hidden = false;
+  renderTally();
+  applyAB();
+}
+function binomTail(n, k) {
+  // P(X >= k) for X ~ Bin(n, 0.5)
+  let p = 0, c = 1;
+  for (let i = 0; i <= n; i++) {
+    if (i > 0) c = (c * (n - i + 1)) / i;
+    if (i >= k) p += c;
+  }
+  return p / Math.pow(2, n);
+}
+function renderTally() {
+  const n = trials.length, k = trials.filter((t) => t.correct).length;
+  if (!n) return;
+  const p = binomTail(n, k);
+  let verdict = "";
+  if (n >= 10) verdict = p < 0.05 ? " You can tell them apart: FAIL." : " Not distinguishable from chance: PASS.";
+  $("tally").textContent = `${k}/${n} correct, chance of doing this well by guessing p=${p.toFixed(3)}.${verdict}`;
+}
+function describeSettings() {
+  return `${opts.rttMs} ms RTT, ±${opts.jitterMs} ms jitter, ${opts.lossPct}% loss, smooth ${opts.smoothMs} ms`;
+}
+
+// ---- controls panel
+const sliders = [
+  ["rttMs", "Round trip", "ms", 0, 400, 10],
+  ["jitterMs", "Jitter ±", "ms", 0, 80, 1],
+  ["lossPct", "Loss", "%", 0, 20, 0.5],
+  ["smoothMs", "Error smoothing", "ms", 0, 400, 10],
+  ["bufferTicks", "Server input buffer", "ticks", 0, 6, 1],
+  ["interpMs", "Remote interp delay", "ms", 0, 300, 10],
+];
+for (const [key, label, unit, min, max, step] of sliders) {
+  const row = document.createElement("label");
+  row.className = "row";
+  row.innerHTML = `<span>${label}</span><input type="range" min="${min}" max="${max}" step="${step}" value="${opts[key]}"><b></b>`;
+  const input = row.querySelector("input"), out = row.querySelector("b");
+  const show = () => (out.textContent = `${opts[key]} ${unit}`);
+  input.addEventListener("input", () => {
+    opts[key] = Number(input.value);
+    sb.setOpts({ [key]: opts[key] });
+    show();
+  });
+  show();
+  $("sliders").appendChild(row);
+}
+$("bot").addEventListener("change", (e) => {
+  opts.botMode = e.target.value;
+  sb.setOpts({ botMode: opts.botMode });
+});
+$("remoteView").addEventListener("change", (e) => {
+  opts.remoteView = e.target.value;
+  sb.setOpts({ remoteView: opts.remoteView });
+});
+$("startTrial").onclick = startTrial;
+$("saysLocal").onclick = () => guess(true);
+$("saysNet").onclick = () => guess(false);
+$("reveal").onclick = () => {
+  $("abReveal").textContent = `A = ${abNetIsA ? "networked" : "zero latency"}, B = ${abNetIsA ? "zero latency" : "networked"}. Shuffled again.`;
+  abNetIsA = Math.random() < 0.5;
+  applyAB();
+};
+$("debug").addEventListener("change", (e) => setDebug(e.target.checked));
+function setDebug(on) {
+  debug = on && !trial;
+  $("debug").checked = debug;
+  $("debug").disabled = !!trial;
+  $("stats").hidden = !debug;
+}
+
+// ---- input
+const keys = new Set();
+addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  keys.add(e.code);
+  if (e.code === "Tab") {
+    e.preventDefault();
+    if (!trial) {
+      abShowing = abShowing === "A" ? "B" : "A";
+      applyAB();
+    }
+  }
+  if (e.code === "KeyR" && !trial) {
+    sb = new Sandbox(sim, opts, performance.now(), (Math.random() * 1e9) | 0);
+    skids = [];
+    applyAB();
+  }
+  if (e.code === "KeyH") $("panel").hidden = !$("panel").hidden;
+  if (e.code === "KeyG") setDebug(!debug);
+  if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
+});
+addEventListener("keyup", (e) => keys.delete(e.code));
+addEventListener("blur", () => keys.clear());
+
+function sampleInput() {
+  let steer = 0, throttle = 0, buttons = 0;
+  if (keys.has("ArrowLeft") || keys.has("KeyA")) steer -= 127;
+  if (keys.has("ArrowRight") || keys.has("KeyD")) steer += 127;
+  if (keys.has("ArrowUp") || keys.has("KeyW")) throttle += 127;
+  if (keys.has("ArrowDown") || keys.has("KeyS")) throttle -= 127;
+  if (keys.has("Space")) buttons |= 1;
+  for (const gp of navigator.getGamepads ? navigator.getGamepads() : []) {
+    if (!gp) continue;
+    const ax = gp.axes[0] || 0;
+    if (Math.abs(ax) > 0.15) steer = Math.round(ax * 127);
+    const rt = gp.buttons[7] ? gp.buttons[7].value : 0;
+    const lt = gp.buttons[6] ? gp.buttons[6].value : 0;
+    if (rt > 0.05 || lt > 0.05) throttle = Math.round((rt - lt) * 127);
+    if (gp.buttons[0] && gp.buttons[0].pressed) buttons |= 1;
+    if (gp.buttons[1] && gp.buttons[1].pressed) buttons |= 1;
+  }
+  return { steer, throttle, buttons };
+}
+
+// ---- drawing
+function resize() {
+  const dpr = devicePixelRatio || 1;
+  canvas.width = innerWidth * dpr;
+  canvas.height = innerHeight * dpr;
+}
+addEventListener("resize", resize);
+resize();
+
+function drawCar(p, body, outline) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.h);
+  if (outline) {
+    ctx.strokeStyle = body;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(-20, -10, 40, 20);
+  } else {
+    ctx.fillStyle = "rgba(0,0,0,0.35)";
+    ctx.fillRect(-18, -8, 40, 20);
+    ctx.fillStyle = body;
+    ctx.fillRect(-20, -10, 40, 20);
+    ctx.fillStyle = "#1c2a36";
+    ctx.fillRect(4, -8, 8, 16); // windscreen
+    ctx.fillRect(-14, -8, 5, 16); // rear window
+    ctx.fillStyle = "#ffe9a8";
+    ctx.fillRect(18, -9, 2, 4);
+    ctx.fillRect(18, 5, 2, 4);
+  }
+  ctx.restore();
+}
+
+function addSkid(p, slip, hb) {
+  if (slip < 2.2 && !hb) {
+    skids.push(null);
+    return;
+  }
+  const c = Math.cos(p.h), s = Math.sin(p.h);
+  const rx = p.x - c * 14, ry = p.y - s * 14;
+  skids.push([rx - s * 8, ry + c * 8, rx + s * 8, ry - c * 8]);
+  if (skids.length > 4000) skids.splice(0, 500);
+}
+
+function draw(out, now) {
+  const W = canvas.width, H = canvas.height;
+  const scale = Math.min(W, H) / 650;
+  const cam = out.shown.own;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = "#2b2d2f";
+  ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(scale, 0, 0, scale, W / 2 - cam.x * scale, H / 2 - cam.y * scale);
+
+  // tarmac with tile grid, like a top-down city block
+  ctx.fillStyle = "#55585b";
+  ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+  ctx.strokeStyle = "rgba(255,255,255,0.06)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x <= ARENA_W; x += 64) (ctx.moveTo(x, 0), ctx.lineTo(x, ARENA_H));
+  for (let y = 0; y <= ARENA_H; y += 64) (ctx.moveTo(0, y), ctx.lineTo(ARENA_W, y));
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(240,210,90,0.55)";
+  ctx.lineWidth = 4;
+  ctx.setLineDash([30, 30]);
+  ctx.beginPath();
+  ctx.moveTo(0, ARENA_H / 2);
+  ctx.lineTo(ARENA_W, ARENA_H / 2);
+  ctx.moveTo(ARENA_W / 2, 0);
+  ctx.lineTo(ARENA_W / 2, ARENA_H);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = "#c9c9c9";
+  ctx.lineWidth = 12;
+  ctx.strokeRect(-6, -6, ARENA_W + 12, ARENA_H + 12);
+
+  // skids
+  ctx.strokeStyle = "rgba(20,20,20,0.55)";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  for (let i = 1; i < skids.length; i++) {
+    const a = skids[i - 1], b = skids[i];
+    if (!a || !b) continue;
+    ctx.moveTo(a[0], a[1]);
+    ctx.lineTo(b[0], b[1]);
+    ctx.moveTo(a[2], a[3]);
+    ctx.lineTo(b[2], b[3]);
+  }
+  ctx.stroke();
+
+  for (const p of PILLARS) {
+    ctx.fillStyle = "#3a3c3e";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, PILLAR_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = "#8a8d90";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+  }
+
+  if (opts.botMode !== "off") drawCar(out.shown.bot, "#3a7bd5");
+  drawCar(out.shown.own, "#d23b2f");
+
+  if (debug) {
+    if (out.net.ghost) drawCar(out.net.ghost, "rgba(80,255,120,0.9)", true);
+    const raw = sb.client.renderPoseRaw(Math.max(0, sb.client.alpha()));
+    drawCar(raw, "rgba(255,255,0,0.9)", true);
+  }
+}
+
+// rolling stats for the debug panel
+const errWindow = [];
+function updateStats(now) {
+  const c = sb.client, s = c.stats;
+  const recent = s.errs.filter((e) => e.t > now - 5000);
+  const maxE = recent.reduce((m, e) => Math.max(m, e.e), 0);
+  const lead = sim.tick(1) - sim.tick(0);
+  $("stats").textContent =
+    `showing: ${sb.localActive ? "zero latency" : "networked"}\n` +
+    `client lead: ${lead} ticks, server slack: ${c.slack}\n` +
+    `replay depth: ${c.lastReplay ?? 0} ticks\n` +
+    `corrections (5 s): ${recent.length}, max error ${maxE.toFixed(1)} u\n` +
+    `smoothing offset: ${Math.hypot(c.offset.x, c.offset.y).toFixed(2)} u\n` +
+    `server repeated inputs: ${sb.server.missing}\n` +
+    `packets lost up/down: ${sb.up.dropped}/${sb.down.dropped}\n` +
+    `hard clock resyncs: ${s.hardResyncs}\n` +
+    `green = latest server state, yellow = unsmoothed prediction`;
+}
+
+let lastStats = 0;
+function loop(now) {
+  const input = sampleInput();
+  const out = sb.frame(now, input);
+  addSkid(out.shown.own, sb.slip(), input.buttons & 1);
+  draw(out, now);
+  if (debug && now - lastStats > 200) {
+    updateStats(now);
+    lastStats = now;
+  }
+  requestAnimationFrame(loop);
+}
+applyAB();
+renderTally();
+setDebug(false);
+requestAnimationFrame(loop);
+
+</script>
+<script>
+(() => {
+  const t = () => (window.__s3 ? window.__s3.trials() : []);
+  const binom = (n, k) => { let p = 0, c = 1; for (let i = 0; i <= n; i++) { if (i > 0) c = (c * (n - i + 1)) / i; if (i >= k) p += c; } return p / Math.pow(2, n); };
+  const line = (list, label) => { const n = list.length, k = list.filter((x) => x.correct).length; return n ? `${label}: ${k}/${n} right, p=${binom(n, k).toFixed(3)}` : `${label}: no trials yet`; };
+  window.TESTER = {
+    spike: "s3", push: false, title: "Can you feel the network lag?", time: "15 minutes",
+    intro: "You drive a small car. Each trial secretly runs either with zero latency or through a simulated 150 ms, 2% loss network with prediction. Your job is to guess which. If nobody can do better than chance, the netcode passes.",
+    needs: "a keyboard (or a gamepad) and any modern browser. No game files are needed.",
+    steps: [
+      "Leave the Network sliders on the left at their defaults. Set <b>Other car</b> to <b>chases you</b>.",
+      "Press <b>Start trial</b>. Drive and drift for 20 to 30 seconds: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> or arrows, <kbd>Space</kbd> handbrake. Bump into the blue car a few times.",
+      "Press <b>Felt like zero latency</b> or <b>Felt networked</b>. Go with your gut.",
+      "Do at least 10 trials with <b>Draw other car</b> set to <b>interpolated</b>, then at least 10 more with it set to <b>predicted</b>.",
+      "Press <b>Download results</b> and send the file to Jeff. Every trial is recorded automatically, and they are kept if you reload the page.",
+    ],
+    fields: [
+      { id: "input", label: "What did you drive with?", type: "radio", options: ["Keyboard", "Gamepad"] },
+      { id: "tells", label: "If you could tell, what gave it away?", type: "textarea", placeholder: "e.g. the car jumps a little after hitting the blue car" },
+      { id: "otherCar", label: "Did the blue car look like it was where you hit it?", type: "radio", options: ["Yes", "Sometimes off", "Often off"] },
+      { id: "notes", label: "Other notes", type: "textarea" },
+    ],
+    collect: () => ({ trials: t(), currentSettings: window.__s3 ? window.__s3.opts() : null }),
+    summary: () => [line(t().filter((x) => x.drawOtherCar === "interpolated"), "Interpolated"), line(t().filter((x) => x.drawOtherCar === "predicted"), "Predicted")].join("\n"),
+    clear: () => window.__s3 && window.__s3.clear(),
+  };
+})();
+</script>
+<script src="../assets/tester.js"></script>
+</body>
+</html>

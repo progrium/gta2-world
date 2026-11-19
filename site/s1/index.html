@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S1 map viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #panel { position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,.72); padding: 10px 12px; border-radius: 6px; max-width: 380px; }
+  #panel h1 { font-size: 14px; margin: 0 0 6px; }
+  #panel label { display: block; margin: 4px 0; }
+  #panel button { margin: 4px 4px 0 0; }
+  #fps { font: 600 15px ui-monospace, monospace; color: #9f9; }
+  #stats, #help { white-space: pre-wrap; font: 11px ui-monospace, monospace; color: #bbb; margin-top: 6px; }
+  #err { color: #f88; white-space: pre-wrap; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+  <h1>S1: parse and draw a map</h1>
+  <div id="fps">-- fps</div>
+  <label>Map (.gmp) <input type="file" id="gmp" accept=".gmp"></label>
+  <label>Style (.sty) <input type="file" id="sty" accept=".sty"></label>
+  <button id="load">Load files</button><button id="demo">Synthetic showcase</button><button id="bench">Benchmark 20 s</button><button id="toggle">Hide panel</button>
+  <div id="err"></div>
+  <div id="stats"></div>
+  <div id="help">Files are read in this tab only and never uploaded.
+Click the view to capture the mouse (Esc releases).
+WASD move · Space / C up and down · Shift faster
+Mouse look · Wheel changes speed · T top-down view
+1-4 jump to a map quarter · 0 map centre</div>
+</div>
+<script>
+(() => {
+  // Record every map load and benchmark the viewer reports, so they go into the results file.
+  const KEY = "gta2-s1-runs";
+  let runs; try { runs = JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { runs = []; }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(runs)); } catch {} };
+  const files = () => [document.getElementById("gmp")?.files[0]?.name, document.getElementById("sty")?.files[0]?.name].filter(Boolean).join(" + ") || "synthetic showcase";
+  let lastInfo = null, lastBench = null, loaded = "";
+  setInterval(() => {
+    const s = window.__s1; if (!s) return;
+    if (s.info && s.info !== lastInfo) { lastInfo = s.info; loaded = files(); runs.push({ kind: "load", files: loaded, at: new Date().toISOString(), info: s.info }); save(); }
+    if (s.bench && s.bench !== lastBench) { lastBench = s.bench; runs.push({ kind: "benchmark", files: loaded || files(), at: new Date().toISOString(), result: s.bench }); save(); window.TESTER.refresh?.(); }
+  }, 500);
+  const DISTRICTS = [["wil", "Downtown (wil)"], ["ste", "Residential (ste)"], ["bil", "Industrial (bil)"]];
+  const LOOK = ["Right", "A few wrong", "Mostly wrong", "Did not check"];
+  const fields = [];
+  for (const [id, name] of DISTRICTS) {
+    fields.push({ heading: name });
+    fields.push({ id: id + "_tiles", label: "Tile images, colours, rotation (road arrows and markings line up)", type: "radio", options: LOOK });
+    fields.push({ id: id + "_transp", label: "Transparency (fences, railings, grates have holes, not black)", type: "radio", options: LOOK });
+    fields.push({ id: id + "_slopes", label: "Slopes, ramps, bridges, diagonal walls", type: "radio", options: LOOK });
+    fields.push({ id: id + "_notes", label: "What looked wrong, and where", type: "textarea", placeholder: "e.g. ramps near the river point the wrong way (quarter 2)" });
+  }
+  fields.push({ heading: "Anything else" }, { id: "notes", label: "Other notes", type: "textarea" });
+  window.TESTER = {
+    spike: "s1", push: false, title: "Does the map look right, and run at 60 fps?", time: "20 minutes",
+    intro: "This viewer reads the original GTA2 map and style files and draws them in the browser. We want to know if it draws them the way the game does, and how fast.",
+    needs: "your own copy of GTA2 (the <code>data</code> folder holds <code>wil</code>, <code>ste</code> and <code>bil</code> <code>.gmp</code>/<code>.sty</code> files), a laptop or desktop on mains power, and current Chrome, Firefox or Safari. Your files are read inside this tab and are never uploaded.",
+    steps: [
+      "Press <b>Synthetic showcase</b> (top left). A small made-up city should appear. This checks the viewer works on your machine.",
+      "Pick <code>wil.gmp</code> as Map and <code>wil.sty</code> as Style from your GTA2 <code>data</code> folder, then press <b>Load files</b>.",
+      "Click the view to steer with the mouse (<kbd>Esc</kbd> lets go). <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move, <kbd>Space</kbd>/<kbd>C</kbd> up and down, <kbd>Shift</kbd> faster, <kbd>T</kbd> top-down, <kbd>1</kbd>–<kbd>4</kbd> jump to a map quarter. Compare with the game and fill in the answers below. Take screenshots of anything wrong.",
+      "Close this guide with ×, press <b>Benchmark 20 s</b> and leave the mouse and keyboard alone until the result shows in the panel. It is recorded here automatically.",
+      "Do the same for <code>ste</code> and <code>bil</code>.",
+      "Press <b>Download results</b> and send the file to Jeff with your screenshots. If you have a second browser, running just the benchmarks there helps too (each browser saves its own file).",
+    ],
+    fields,
+    collect: () => ({ runs }),
+    summary: () => runs.filter((r) => r.kind === "benchmark").map((r) => `${r.files}: ${r.result.avgFps} fps avg, p99 ${r.result.p99Ms} ms`).join("\n") || "No benchmarks recorded yet.",
+    clear: () => { runs.length = 0; save(); },
+  };
+})();
+</script>
+<script src="../assets/tester.js"></script>
+<script type="module" src="viewer.js"></script>
+</body>
+</html>
