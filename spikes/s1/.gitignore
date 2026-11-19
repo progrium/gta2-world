@@ -1,0 +1,11 @@
+# Zig build output
+.zig-cache/
+zig-out/
+
+# Never commit original GTA2 data, anywhere in the tree.
+*.gmp
+*.sty
+*.scr
+*.GMP
+*.STY
+*.SCR
