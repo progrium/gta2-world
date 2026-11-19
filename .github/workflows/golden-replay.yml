@@ -65,7 +65,7 @@ jobs:
       - name: Native 200-player bot run
         id: native200
         run: |
-          out=$(./zig-out/bin/s2 hash200)
+          out=$(./zig-out/bin/s2 hash200 2>&1)
           echo "$out"
           h=$(echo "$out" | sed -n 's/.*final hash \([0-9a-f]\{16\}\).*/\1/p')
           test -n "$h" || { echo "could not parse native hash200 output" >&2; exit 1; }
