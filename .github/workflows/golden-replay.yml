@@ -1,0 +1,70 @@
+name: Golden replay
+
+# Determinism rules from the design doc: no floats in sim/, and the recorded
+# replay must hash identically every tick on native and on WASM.
+
+on:
+  push:
+    paths:
+      - 'sim/**'
+      - 'spikes/s2/**'
+      - '.github/workflows/golden-replay.yml'
+  pull_request:
+    paths:
+      - 'sim/**'
+      - 'spikes/s2/**'
+      - '.github/workflows/golden-replay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  no-floats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh spikes/s2/check-no-floats.sh
+
+  golden-replay:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        optimize: [Debug, ReleaseSafe, ReleaseFast]
+    defaults:
+      run:
+        working-directory: spikes/s2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Sim unit tests
+        run: zig build test -Doptimize=${{ matrix.optimize }}
+
+      - name: Build native and WASM
+        run: zig build -Doptimize=${{ matrix.optimize }}
+
+      - name: Native replay vs recorded hashes (every tick, with rewinds)
+        run: ./zig-out/bin/s2 verify web/replay
+
+      - name: Native 200-player bot run
+        id: native200
+        run: |
+          out=$(./zig-out/bin/s2 hash200)
+          echo "$out"
+          h=$(echo "$out" | sed -n 's/.*final hash \([0-9a-f]\{16\}\).*/\1/p')
+          test -n "$h" || { echo "could not parse native hash200 output" >&2; exit 1; }
+          echo "hash=$h" >> "$GITHUB_OUTPUT"
+
+      - name: WASM replay vs recorded hashes, and 200-player hash vs native
+        run: node ci-replay-wasm.mjs zig-out/bin/s2.wasm web/replay ${{ steps.native200.outputs.hash }}
+
+      - name: Committed web/s2.wasm is up to date
+        if: matrix.optimize == 'ReleaseFast'
+        run: cmp zig-out/bin/s2.wasm web/s2.wasm || { echo "web/s2.wasm is stale: run 'zig build web -Doptimize=ReleaseFast'" >&2; exit 1; }
