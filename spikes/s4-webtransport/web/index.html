@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S4 transport soak</title>
+<style>
+  :root { --bg:#fafafa; --fg:#1b1b1b; --muted:#666; --card:#fff; --line:#ddd; --ok:#1a7f37; --bad:#c62828; --warn:#a15c00; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#eee; --muted:#9a9a9a; --card:#1f1f1f; --line:#333; --ok:#4cc26b; --bad:#ff6b6b; --warn:#e0a040; } }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:14px/1.4 system-ui, sans-serif; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .muted { color:var(--muted); }
+  form { display:flex; flex-wrap:wrap; gap:8px 16px; align-items:end; margin:12px 0; }
+  label { display:flex; flex-direction:column; font-size:12px; color:var(--muted); }
+  input { font:inherit; padding:4px 6px; width:7em; }
+  input[type=checkbox] { width:auto; }
+  button { font:inherit; padding:6px 14px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px; }
+  .card h2 { font-size:15px; margin:0 0 8px; display:flex; justify-content:space-between; }
+  table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  td { padding:2px 0; } td:last-child { text-align:right; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); }
+  #verdict { font-size:16px; margin:12px 0; }
+  #log { white-space:pre-wrap; font:12px ui-monospace, monospace; max-height:200px; overflow:auto; background:var(--card); border:1px solid var(--line); padding:8px; border-radius:8px; }
+</style>
+</head>
+<body>
+<h1>Spike S4: WebTransport + WebSocket soak</h1>
+<div class="muted" id="ua"></div>
+<form id="f" onsubmit="return false">
+  <label>Rate (msgs/s per transport)<input id="rate" type="number" value="20" min="1" max="500"></label>
+  <label>Datagram bytes<input id="size" type="number" value="200" min="16" max="1200"></label>
+  <label>Duration (min)<input id="dur" type="number" value="60" min="1"></label>
+  <label>Stall threshold (ms)<input id="stall" type="number" value="1000" min="100"></label>
+  <label><span><input id="usehash" type="checkbox"> use cert hash (self-signed)</span></label>
+  <button id="start">Start</button><button id="stop" disabled>Stop</button>
+</form>
+<div id="verdict" class="muted">Not running.</div>
+<div class="grid" id="cards"></div>
+<p class="muted">Elapsed <span id="elapsed">0:00</span>. Reports are posted to the server every 60 s. <a href="#" id="dl">Download JSON</a></p>
+<div id="log"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const log = (m) => { const l = $("log"); l.textContent += new Date().toISOString().slice(11, 19) + " " + m + "\n"; l.scrollTop = 1e9; };
+$("ua").textContent = navigator.userAgent + (typeof WebTransport === "undefined" ? " — WebTransport NOT available" : "");
+
+let cfg = { wtPort: 4433, certHash: null };
+const T = {}; // transports by name
+let running = false, t0 = 0, timers = [], reportTimer = null;
+
+function mkStats(name) {
+  return { name, sent: 0, recv: 0, lost: 0, inflight: new Map(), rtts: [], maxGap: 0, stalls: 0,
+           lastRecv: 0, connects: 0, disconnects: 0, errors: 0, lastError: "", up: false, connectMs: null };
+}
+function pct(a, p) { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; }
+function fmt(v, d = 1) { return v == null ? "–" : v.toFixed(d); }
+
+// Payload: u32 seq, f64 send time (performance.now), padding.
+function encode(seq, size) { const b = new ArrayBuffer(size); const v = new DataView(b); v.setUint32(0, seq); v.setFloat64(4, performance.now()); return new Uint8Array(b); }
+function onEcho(s, bytes) {
+  if (bytes.byteLength < 12) return;
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const seq = v.getUint32(0), sentAt = v.getFloat64(4), now = performance.now();
+  if (!s.inflight.has(seq)) return; // duplicate or already counted lost
+  s.inflight.delete(seq);
+  s.recv++;
+  s.rtts.push(now - sentAt); if (s.rtts.length > 1200) s.rtts.splice(0, s.rtts.length - 1200);
+  if (s.lastRecv) { const gap = now - s.lastRecv; if (gap > s.maxGap) s.maxGap = gap; }
+  s.lastRecv = now;
+}
+function checkStall(s, stallMs) {
+  const now = performance.now();
+  for (const [seq, at] of s.inflight) if (now - at > 5000) { s.inflight.delete(seq); s.lost++; }
+  if (s.up && s.lastRecv && now - s.lastRecv > stallMs) {
+    if (!s.inStall) { s.stalls++; s.inStall = true; log(`${s.name}: stall (no echo for ${stallMs} ms)`); }
+    s.maxGap = Math.max(s.maxGap, now - s.lastRecv);
+  } else s.inStall = false;
+}
+
+function wtUrl() { return `https://${location.hostname}:${cfg.wtPort}/s4`; }
+function wtOptions() {
+  if (!$("usehash").checked || !cfg.certHash) return {};
+  const raw = Uint8Array.from(atob(cfg.certHash), (ch) => ch.charCodeAt(0));
+  return { serverCertificateHashes: [{ algorithm: "sha-256", value: raw }] };
+}
+
+// One WebTransport session carries both the datagram and the stream test.
+async function runWT() {
+  const dg = T.dgram, st = T.stream;
+  while (running) {
+    let wt;
+    const tc = performance.now();
+    try {
+      wt = new WebTransport(wtUrl(), wtOptions());
+      await wt.ready;
+      dg.connectMs = st.connectMs = performance.now() - tc;
+      dg.connects++; st.connects++; dg.up = st.up = true; dg.lastRecv = st.lastRecv = performance.now();
+      log(`webtransport: connected in ${dg.connectMs.toFixed(0)} ms` + (wt.datagrams.maxDatagramSize ? `, maxDatagramSize ${wt.datagrams.maxDatagramSize}` : ""));
+      const bidi = await wt.createBidirectionalStream();
+      await Promise.race([pumpWT(wt, bidi), wt.closed]);
+    } catch (e) {
+      dg.errors++; dg.lastError = st.lastError = String(e && e.message || e); log("webtransport: " + dg.lastError);
+    }
+    if (dg.up) { dg.disconnects++; st.disconnects++; }
+    dg.up = st.up = false;
+    try { wt && wt.close(); } catch (_) {}
+    if (running) await sleep(1000);
+  }
+}
+async function pumpWT(wt, bidi) {
+  const dg = T.dgram, st = T.stream;
+  const dw = wt.datagrams.writable.getWriter(), dr = wt.datagrams.readable.getReader();
+  const sw = bidi.writable.getWriter(), sr = bidi.readable.getReader();
+  const size = Math.min(+$("size").value, wt.datagrams.maxDatagramSize || 1200);
+  let alive = true;
+  const reader = (async () => { while (alive) { const { value, done } = await dr.read(); if (done) break; onEcho(dg, value); } })();
+  const sreader = (async () => {
+    let buf = new Uint8Array(0);
+    while (alive) {
+      const { value, done } = await sr.read(); if (done) break;
+      const nb = new Uint8Array(buf.length + value.length); nb.set(buf); nb.set(value, buf.length); buf = nb;
+      while (buf.length >= 4) { const len = new DataView(buf.buffer, buf.byteOffset).getUint32(0); if (buf.length < 4 + len) break; onEcho(st, buf.subarray(4, 4 + len)); buf = buf.slice(4 + len); }
+    }
+  })();
+  let seqD = 0, seqS = 0;
+  const iv = setInterval(() => {
+    if (!alive) return;
+    const p = encode(seqD, size); dg.inflight.set(seqD, performance.now()); seqD++; dg.sent++;
+    dw.write(p).catch(() => {});
+    const m = encode(seqS, 64), framed = new Uint8Array(4 + m.length); new DataView(framed.buffer).setUint32(0, m.length); framed.set(m, 4);
+    st.inflight.set(seqS, performance.now()); seqS++; st.sent++;
+    sw.write(framed).catch(() => {});
+  }, 1000 / +$("rate").value);
+  try { await Promise.race([reader, sreader, wt.closed]); } finally { alive = false; clearInterval(iv); }
+  throw new Error("session ended");
+}
+
+async function runWS() {
+  const s = T.ws;
+  while (running) {
+    const tc = performance.now();
+    await new Promise((resolve) => {
+      const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+      ws.binaryType = "arraybuffer";
+      let iv = null, seq = 0;
+      ws.onopen = () => {
+        s.connectMs = performance.now() - tc; s.connects++; s.up = true; s.lastRecv = performance.now();
+        log(`websocket: connected in ${s.connectMs.toFixed(0)} ms`);
+        iv = setInterval(() => { if (ws.readyState !== 1) return; s.inflight.set(seq, performance.now()); ws.send(encode(seq++, +$("size").value)); s.sent++; }, 1000 / +$("rate").value);
+      };
+      ws.onmessage = (e) => onEcho(s, new Uint8Array(e.data));
+      ws.onerror = () => { s.errors++; s.lastError = "error"; };
+      ws.onclose = (e) => { clearInterval(iv); if (s.up) s.disconnects++; s.up = false; log(`websocket: closed ${e.code}`); resolve(); };
+      T.ws.sock = ws;
+    });
+    if (running) await sleep(1000);
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function summary() {
+  const out = { ua: navigator.userAgent, elapsedSec: running || t0 ? Math.round((performance.now() - t0) / 1000) : 0, transports: {} };
+  for (const s of Object.values(T)) out.transports[s.name] = {
+    sent: s.sent, recv: s.recv, lost: s.lost, lossPct: s.sent ? +(100 * s.lost / s.sent).toFixed(3) : 0,
+    rttP50: pct(s.rtts, 0.5), rttP99: pct(s.rtts, 0.99), maxGapMs: Math.round(s.maxGap), stalls: s.stalls,
+    connects: s.connects, disconnects: s.disconnects, errors: s.errors, lastError: s.lastError, up: s.up, connectMs: s.connectMs };
+  return out;
+}
+window.__s4 = { summary, start, stop };
+
+function verdict() {
+  const sm = summary(), need = +$("dur").value * 60;
+  const wt = [sm.transports.dgram, sm.transports.stream];
+  const ok = wt.every((x) => x.stalls === 0 && x.disconnects === 0 && x.recv > 0);
+  const done = sm.elapsedSec >= need;
+  const el = $("verdict");
+  if (typeof WebTransport === "undefined") { el.className = "bad"; el.textContent = "FAIL: this browser has no WebTransport."; return; }
+  el.className = ok ? (done ? "ok" : "warn") : "bad";
+  el.textContent = ok ? (done ? `PASS: ${need / 60} min of WebTransport datagrams and stream with no stalls or reconnects.` : `Running clean so far (${Math.floor(sm.elapsedSec / 60)} of ${need / 60} min).`)
+                      : `FAIL: WebTransport had ${wt[0].stalls + wt[1].stalls} stalls and ${wt[0].disconnects} reconnects.`;
+  if (done && running) { log("duration reached"); report(); stop(); }
+}
+
+function render() {
+  const stallMs = +$("stall").value;
+  for (const s of Object.values(T)) checkStall(s, stallMs);
+  const sm = summary();
+  $("cards").innerHTML = Object.entries(sm.transports).map(([k, v]) => `
+    <div class="card"><h2>${{ dgram: "WebTransport datagrams", stream: "WebTransport stream", ws: "WebSocket" }[k]}
+      <span class="${v.up ? "ok" : "bad"}">${v.up ? "up" : "down"}</span></h2><table>
+      <tr><td>sent / echoed</td><td>${v.sent} / ${v.recv}</td></tr>
+      <tr><td>lost</td><td>${v.lost} (${v.lossPct}%)</td></tr>
+      <tr><td>RTT p50 / p99 (ms)</td><td>${fmt(v.rttP50)} / ${fmt(v.rttP99)}</td></tr>
+      <tr><td>longest gap (ms)</td><td class="${v.maxGapMs > stallMs ? "bad" : ""}">${v.maxGapMs}</td></tr>
+      <tr><td>stalls</td><td class="${v.stalls ? "bad" : ""}">${v.stalls}</td></tr>
+      <tr><td>connects / drops</td><td>${v.connects} / ${v.disconnects}</td></tr>
+      <tr><td>connect time (ms)</td><td>${fmt(v.connectMs, 0)}</td></tr>
+      <tr><td>last error</td><td>${v.lastError || "–"}</td></tr></table></div>`).join("");
+  const e = Math.floor(sm.elapsedSec); $("elapsed").textContent = `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")}`;
+  if (running) verdict();
+}
+
+function report() { fetch("/report", { method: "POST", body: JSON.stringify(summary()) }).catch(() => {}); }
+
+function start() {
+  if (running) return;
+  running = true; t0 = performance.now();
+  T.dgram = mkStats("dgram"); T.stream = mkStats("stream"); T.ws = mkStats("ws");
+  $("start").disabled = true; $("stop").disabled = false;
+  if (typeof WebTransport !== "undefined") runWT(); else { T.dgram.lastError = T.stream.lastError = "no WebTransport"; }
+  runWS();
+  timers.push(setInterval(render, 500));
+  reportTimer = setInterval(report, 60000);
+}
+function stop() {
+  running = false; timers.forEach(clearInterval); timers = []; clearInterval(reportTimer);
+  try { T.ws.sock && T.ws.sock.close(); } catch (_) {}
+  $("start").disabled = false; $("stop").disabled = true; render(); verdict(); report();
+}
+$("start").onclick = start; $("stop").onclick = stop;
+$("dl").onclick = (e) => { e.preventDefault(); const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(summary(), null, 2)], { type: "application/json" })); a.download = "s4-result.json"; a.click(); };
+
+fetch("/config").then((r) => r.json()).then((c) => {
+  cfg = c; $("usehash").checked = !!c.certHash;
+  log(`config: webtransport port ${c.wtPort}, ${c.certHash ? "self-signed cert hash offered" : "CA-signed cert"}`);
+  const q = new URLSearchParams(location.search);
+  for (const k of ["rate", "size", "dur", "stall"]) if (q.has(k)) $(k).value = q.get(k);
+  if (q.has("autostart")) start();
+});
+</script>
+</body>
+</html>

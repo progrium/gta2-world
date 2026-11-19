@@ -1,0 +1,4 @@
+deps/
+certs/
+zig-out/
+.zig-cache/
