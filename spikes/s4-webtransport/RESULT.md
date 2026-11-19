@@ -1,6 +1,8 @@
 # Spike S4 result
 
 **Answer: yes for Chrome, measured; Firefox and Safari still to be measured.**
+
+**Accepted (19 Nov 2026), with known caveats.** Jeff judged the spike results good enough to move on. No tester results were submitted for S4. The known caveat is that the pass criterion's public-host run in Firefox and Safari hasn't happened, because it needs a publicly reachable server. Until it does, WebTransport stays provisional and WebSocket is the fallback.
 A Zig server speaks WebTransport to Chrome with no Rust, using ngtcp2 for
 QUIC, GnuTLS for TLS and nghttp3 only for QPACK. It held one hour of
 datagrams and a stream with no stalls. The pass criterion also covers Firefox
