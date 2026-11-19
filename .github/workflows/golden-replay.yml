@@ -19,6 +19,10 @@ on:
 permissions:
   contents: read
 
+env:
+  ZIG_VERSION: 0.17.0
+  ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+
 jobs:
   no-floats:
     runs-on: ubuntu-latest
@@ -37,9 +41,14 @@ jobs:
         working-directory: spikes/s2
     steps:
       - uses: actions/checkout@v4
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.17.0
+      - name: Install Zig ${{ env.ZIG_VERSION }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
+          tar xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-$ZIG_VERSION" >> "$GITHUB_PATH"
+      - run: zig version
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -67,4 +76,5 @@ jobs:
 
       - name: Committed web/s2.wasm is up to date
         if: matrix.optimize == 'ReleaseFast'
-        run: cmp zig-out/bin/s2.wasm web/s2.wasm || { echo "web/s2.wasm is stale: run 'zig build web -Doptimize=ReleaseFast'" >&2; exit 1; }
+        run: |
+          cmp zig-out/bin/s2.wasm web/s2.wasm || { echo "web/s2.wasm is stale, run 'zig build web -Doptimize=ReleaseFast'" >&2; exit 1; }
