@@ -63,6 +63,8 @@ void main() {
   uint idx = texelFetch(u_atlas, base + p, 0).r;
   // GTA2 transparency is binary: palette index 0 on a flat face is a hole.
   if ((v_flags & 1u) != 0u && idx == 0u) discard;
+  // One-sided halves of a flat side face whose reverse shows another tile.
+  if ((v_flags & 4u) != 0u && !gl_FrontFacing) discard;
   vec4 c = texelFetch(u_pal, ivec2(int(idx), int(v_tile)), 0);
   o = vec4(c.rgb * v_shade, 1.0);
 }`;

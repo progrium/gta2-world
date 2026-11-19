@@ -6,7 +6,7 @@ Each spike page is a copy of that spike's web page with two additions: a `window
 
 | Page | Copied from | Notes |
 | --- | --- | --- |
-| `s1/` | `spike/s1` @ 012fd42, `spikes/s1` `zig build` output (`zig-out/web`, Zig 0.17.0) | `fixtures/` is the synthetic showcase, not game data. The page records every load and benchmark. |
+| `s1/` | `spike/s1` @ 88d0abd, `spikes/s1` `zig build` output (`zig-out/web`, Zig 0.17.0) | `fixtures/` is the synthetic showcase, not game data. The page records every load and benchmark. |
 | `s2/` | `spike/s2` @ cd14a18, `spikes/s2/web` | Unchanged apart from the guide. |
 | `s3/` | `spike/s3` @ 97e961e, `spikes/s3/s3.html` | Patched to keep trials in `localStorage` and record the remote-car setting per trial. |
 | `s4/` | placeholder | Needs a live server. |
