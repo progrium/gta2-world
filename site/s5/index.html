@@ -241,7 +241,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
       </div>
       <div class="result" id="verdictBox"><strong id="verdictText">No ratings yet</strong><span class="muted" id="verdictSub">Needs three raters who know the game, all answering yes.</span></div>
       <div class="tablewrap"><table id="resTable"><thead></thead><tbody></tbody></table></div>
-      <p class="muted msg" id="storeMsg">Ratings are kept in this browser. Press Download results and send the file to Jeff.</p>
+      <p class="muted msg" id="storeMsg">Ratings are kept in this browser. Press Download results and then <b>Submit on GitHub</b>.</p>
       <textarea id="copyOut" hidden readonly aria-label="Results as Markdown"></textarea>
     </div>
   </section>
@@ -569,7 +569,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     if (db) {
       try { await db.collection("ratings").add(rec); setRateMsg("Saved."); }
       catch (err) { setRateMsg("Could not save to the shared store (" + (err && err.code || "error") + "). Kept on this page; copy the Markdown before leaving.", true); ratings.push(rec); render(); }
-    } else { ratings.push(rec); saveLocal(); render(); setRateMsg("Saved in this browser. Add another rater, or press Download results to send them to Jeff."); }
+    } else { ratings.push(rec); saveLocal(); render(); setRateMsg("Saved in this browser. Add another rater, or press Download results and submit the file from the Tester guide."); }
     $("rateForm").reset();
   });
 
@@ -608,11 +608,11 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
   });
 
   async function connectStore() {
-    const timer = setTimeout(() => { if (!db) $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and send the file to Jeff."; }, 10000);
+    const timer = setTimeout(() => { if (!db) $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and then <b>Submit on GitHub</b>."; }, 10000);
     try {
       db = window.claude && window.claude.use ? await window.claude.use("db") : null;
     } catch { db = null; }
-    if (!db) { clearTimeout(timer); $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and send the file to Jeff."; return; }
+    if (!db) { clearTimeout(timer); $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and then <b>Submit on GitHub</b>."; return; }
     db.collection("ratings").orderBy("at").onSnapshot((snap) => {
       clearTimeout(timer);
       ratings = snap.docs.map((d) => d.data());
@@ -648,7 +648,7 @@ window.TESTER = {
     "Pick a car you know well, and if you have a clip of the original, open it under <b>Original footage</b>.",
     "Click the driving view and drive for about five minutes: arrows or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Space</kbd> handbrake, <kbd>R</kbd> reset. Do a straight run to top speed, the block circuits, handbrake turns in the open lot, and hit a few walls.",
     "Fill in the <b>Rating sheet</b> on your own, without looking at anyone else's answers, and press <b>Save rating</b>. More than one person can rate on the same computer.",
-    "Press <b>Download results</b> and send the file to Jeff.",
+    "Press <b>Download results</b> and then <b>Submit on GitHub</b>.",
   ],
   fields: [
     { id: "footage", label: "What did you compare against?", type: "radio", options: ["A video clip", "Playing the original just before", "Memory only"] },

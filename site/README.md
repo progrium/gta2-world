@@ -2,7 +2,7 @@
 
 Static pages for the spikes that need a person to try them, deployed to GitHub Pages by `.github/workflows/pages.yml` on every push to `main` that touches `site/`.
 
-Each spike page is a copy of that spike's web page with two additions: a `window.TESTER` config near the end of the page, and `assets/tester.js`, which adds the "Tester guide" drawer (steps, a short form, and a Download results button that saves a JSON file for the tester to send back). Answers and recorded runs are kept in the tester's `localStorage`.
+Each spike page is a copy of that spike's web page with two additions: a `window.TESTER` config near the end of the page, and `assets/tester.js`, which adds the "Tester guide" drawer (steps, a short form, and a Download results button that saves a JSON file) and a Submit on GitHub link that opens the matching issue form in `.github/ISSUE_TEMPLATE/` (labels `results` and the spike id). Answers and recorded runs are kept in the tester's `localStorage`.
 
 | Page | Copied from | Notes |
 | --- | --- | --- |

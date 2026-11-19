@@ -1,0 +1,22 @@
+name: "S6 results: Do game controllers work the same everywhere?"
+description: Send your results from the S6 gamepad probe test page.
+title: "S6 results"
+labels: ["results", "s6"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing! The test page is at https://progrium.github.io/gta2-world/s6/
+  - type: textarea
+    id: results
+    attributes:
+      label: Results file
+      description: Drag the .json file you downloaded from the test page into this box. If it will not attach, open the file in a text editor and paste its contents here instead.
+      placeholder: Drop gta2-s6-....json here
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Optional. Anything you want Jeff to know that is not in the file.

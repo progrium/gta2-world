@@ -101,12 +101,15 @@
 #tg-root .tg-radios label { font-weight: 400; display: inline-flex; gap: 5px; align-items: center; font-size: 14px; }
 #tg-root button { font: inherit; font-size: 14px; color: var(--tg-fg); background: var(--tg-field); border: 1px solid var(--tg-line);
   border-radius: 7px; padding: 6px 12px; cursor: pointer; }
+#tg-root a.tg-btn { display: inline-block; font-size: 14px; color: var(--tg-fg); background: var(--tg-field); border: 1px solid var(--tg-line);
+  border-radius: 7px; padding: 6px 12px; text-decoration: none; font-weight: 600; }
 #tg-root button.tg-primary { background: var(--tg-accent); border-color: var(--tg-accent); color: #fff; font-weight: 600; }
 #tg-root .tg-x { padding: 2px 9px; font-size: 18px; line-height: 1.2; }
 #tg-root .tg-send { border-top: 1px solid var(--tg-line); padding: 12px 16px 14px; background: var(--tg-bg); }
 #tg-root .tg-summary { font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; margin: 0 0 8px; color: var(--tg-muted); max-height: 9em; overflow: auto; }
 #tg-root .tg-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-#tg-root .tg-status { font-size: 12px; color: var(--tg-ok); }
+#tg-root .tg-status { font-size: 12px; color: var(--tg-ok); margin-top: 6px; }
+#tg-root .tg-status:empty { display: none; }
 #tg-root details { margin-top: 12px; font-size: 13px; }
 #tg-root details pre { font: 11px ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
 #tg-open { position: fixed; right: 14px; bottom: 14px; z-index: 2147483000; font: 600 14px system-ui, sans-serif;
@@ -119,6 +122,9 @@
   style.textContent = css;
   document.head.appendChild(style);
 
+  const REPO = "https://github.com/progrium/gta2-world";
+  const issueBase = () => `${REPO}/issues/new?template=${cfg.spike}-results.yml`;
+  window.TESTER.issueUrl = issueBase;
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const saved = store.get(KEY, {});
   if (!saved.name) saved.name = store.get(NAME_KEY, "");
@@ -161,8 +167,9 @@
 ${cfg.download === false ? (cfg.sendNote ? `<div class="tg-send"><p class="tg-muted" style="margin:0">${cfg.sendNote}</p></div>` : "") : `
 <div class="tg-send">
   <div class="tg-summary" hidden></div>
-  <div class="tg-row"><button class="tg-primary tg-dl">Download results</button><span class="tg-status"></span></div>
-  <p class="tg-muted" style="margin:8px 0 0">${cfg.sendNote || "Send the downloaded file back to Jeff. Your answers are kept in this browser until you clear them, so you can come back and add to them."}</p>
+  <div class="tg-row"><button class="tg-primary tg-dl">1. Download results</button><a class="tg-btn tg-issue" href="${issueBase()}" target="_blank" rel="noopener">2. Submit on GitHub</a></div>
+  <div class="tg-status"></div>
+  <p class="tg-muted" style="margin:8px 0 0">${cfg.sendNote || "Submit opens a new GitHub issue. Drag the downloaded file into the Results file box and press Create. Your answers stay in this browser until you clear them, so you can come back and add to them."}</p>
   <p class="tg-muted" style="margin:4px 0 0"><a href="#" class="tg-clear" style="color:inherit">Clear my answers on this page</a></p>
 </div>`}`;
   const openBtn = document.createElement("button");
@@ -204,6 +211,12 @@ ${cfg.download === false ? (cfg.sendNote ? `<div class="tg-send"><p class="tg-mu
     root.querySelector(".tg-status").textContent = "Saved " + name;
   }
   function refresh() {
+    const iss = root.querySelector(".tg-issue");
+    if (iss) {
+      const v = values();
+      const title = `${cfg.spike.toUpperCase()} results: ${v.name || "tester"}, ${browserName()}, ${osName()}`;
+      iss.href = `${issueBase()}&title=${encodeURIComponent(title)}`;
+    }
     const sum = root.querySelector(".tg-summary");
     if (sum && cfg.summary) { const s = cfg.summary(); sum.hidden = !s; sum.textContent = s || ""; }
     const pre = root.querySelector(".tg-preview");
