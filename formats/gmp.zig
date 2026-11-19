@@ -120,6 +120,9 @@ pub const Block = struct {
     top: Face = .empty,
     bottom: Face = .empty,
     lid: Face = .empty,
+    /// Road arrows. Low nibble green (normal traffic): bit 0 -x, bit 1 +x,
+    /// bit 2 -y, bit 3 +y (checked on real maps, see grid.zig). High
+    /// nibble red, same order.
     arrows: u8 = 0,
     slope_type: u8 = 0,
 

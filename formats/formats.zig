@@ -5,10 +5,12 @@ pub const chunk = @import("chunk.zig");
 pub const gmp = @import("gmp.zig");
 pub const sty = @import("sty.zig");
 pub const synth = @import("synth.zig");
+pub const grid = @import("grid.zig");
 
 test {
     _ = chunk;
     _ = gmp;
     _ = sty;
     _ = synth;
+    _ = grid;
 }

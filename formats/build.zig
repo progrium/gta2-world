@@ -3,11 +3,13 @@ const std = @import("std");
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const interfaces = b.dependency("interfaces", .{ .target = target, .optimize = optimize });
 
     const mod = b.addModule("formats", .{
         .root_source_file = b.path("formats.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{.{ .name = "interfaces", .module = interfaces.module("interfaces") }},
     });
 
     const tests = b.addTest(.{ .root_module = mod });
