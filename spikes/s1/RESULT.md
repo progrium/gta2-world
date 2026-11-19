@@ -5,7 +5,7 @@
 
 ## Answer
 
-**Not yet a yes. Everything is built and works on synthetic data, but the pass criterion needs real GTA2 files, which this spike could not use.** It becomes a **yes** if the four local checks below pass on your copy. If check 1 fails, the fix is almost certainly a small parser change, not the fallback.
+**Yes on parsing and drawing; 60 fps still needs a real GPU.** Checked on real wil, ste and bil files (below): all parse, the open conventions are settled from the data, and two mesh bugs found that way are fixed. The frame-rate part of the criterion can only be measured on real hardware.
 
 | Part of the criterion | Status here | Evidence |
 | --- | --- | --- |
@@ -15,6 +15,26 @@
 | Draw a full map | Done for synthetic data | A 256x256 synthetic city, 441k triangles, in one draw call |
 | Correct tiles, slopes, transparency | Correct against our reading of the DMA docs; **not checked against the game** | Screenshots of the showcase: every slope code 1-61, the 4 rotations with and without flip, 4 lighting levels, a transparent fence and grate |
 | 60 fps | **Not measured on a real GPU** | The container only has a software renderer, which runs this scene at 12 fps. At 441k triangles and one draw call, a mid-range laptop GPU should easily hold 60 fps, but that is an estimate until you run the benchmark |
+
+## Checked against real files (19 Nov 2026)
+
+Run on wil, ste and bil from a community release of the game (kept outside the repo). The checks are reproducible with `python3 -I spikes/s1/tools/check_conventions.py /path/to/GTA2/data`, an independent numpy reading of the same files.
+
+**Check 1, parsing: passes.** All six files parse with `s1 inspect`: no `FAILED`, `clamped columns 0` on every map, `tiles whose palette is out of range: 0` on every style, no unknown chunks. Guess 8 (column layout) is right.
+
+| Guess | Verdict | Evidence from the data |
+| --- | --- | --- |
+| 1. Axes | **Right** | Top-down render: road text ("SLOW") reads correctly, and it sits in the lane of the traffic that reads it with right-hand driving. Side faces are set where the neighbour on their own side is air (left on x-1, top on y-1). |
+| 2. Slope direction | **Right** | Codes rise by one per block toward the named direction in every group (e.g. wil: 435 of 435 up-7 neighbours). The top of a 7-degree ramp meets a full block ahead of it 464 times and something else 23 times over the three maps. |
+| 3. Lid rotation and flip | **Right** | Colour continuity across neighbouring flat lids where one is flipped and quarter-turned: the mesh's convention (rotate clockwise, mirror after) gives a mean edge step of 8.7–10.9, close to the 6.9–8.5 of unrotated neighbours. Mirroring first gives 18.7–31.2. |
+| 4. Diagonal face tile | **Right**, but the texture was mirrored | 45–52 use only the left face on left-facing pieces and only the right face on right-facing ones. The diagonal wall drew its tile mirrored relative to the box walls. **Fixed.** |
+| 5. 3- and 4-sided diagonal slopes | **Plausible** | 53–89% of 49–52 definitions have lid 1023, so most are the 3-sided kind. In ste they are mostly 2x2 tree canopies (49 50 / 51 52 with a see-through branch tile), and they render as round trees. |
+| 6. Flat side faces | **Was wrong. Fixed.** | In the real maps, a non-flat face with a see-through tile almost always sits opposite a flat face in the same block, usually with the same tile (bil: 1458 of 1474 definitions). It is the reverse of the flat face. The mesh drew it as a wall of its own, so railings, gantries, fences and bridge girders had solid black slabs behind them. Now a flat face whose opposite is not flat is drawn as two one-sided halves on its own edge, front with its tile and back with the opposite tile, both see-through. |
+| 7. Partial blocks | **Right** | See-through lids on left and top partial blocks have their opaque pixels in x or y 0–24. |
+
+Headless screenshots (software renderer) of ramps, diagonals, gantries and trees on all three maps look like the game after the two fixes. They are not committed, because they contain the game's art.
+
+**Check 4, 60 fps: still open.** It needs a real GPU and a person: run *Benchmark 20 s* on a mid-range laptop as described below.
 
 ## What you need to run (about 10 minutes)
 
