@@ -1,0 +1,5 @@
+uni echo: "hello uni"
+tab0 dgram  sent=72598 recv=69847 lost=2746 (3.782%) rtt p50=0.5 p99=2.8 maxGap=249 stalls=0 connects=1 drops=0 err=
+tab0 stream sent=72598 recv=72598 lost=0 (0%) rtt p50=0.5 p99=4.2 maxGap=234 stalls=0 connects=1 drops=0 err=
+tab0 ws     sent=72597 recv=72597 lost=0 (0%) rtt p50=0.7 p99=2.9 maxGap=235 stalls=0 connects=1 drops=0 err=
+tab0 verdict: Running clean so far (60 of 61 min).

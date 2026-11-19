@@ -1,0 +1,36 @@
+17:00:25
+ 5097  7568  1.5       05:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       05:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:05:25
+ 5097  7568  1.5       10:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       10:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:10:25
+ 5097  7568  1.5       15:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       15:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:15:25
+ 5097  7568  1.5       20:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       20:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:20:25
+ 5097  7568  1.4       25:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       25:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:25:25
+ 5097  7568  1.4       30:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       30:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:30:25
+ 5097  7568  1.4       35:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       35:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:35:25
+ 5097  7568  1.4       40:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       40:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:40:25
+ 5097  7568  1.4       45:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       45:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:45:25
+ 5097  7568  1.4       50:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       50:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:50:25
+ 5097  7568  1.4       55:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5       55:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log
+17:55:25
+ 5097  7568  1.4    01:00:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --report /tmp/claude-0/soak/clean-reports.log
+ 5099  7244  0.5    01:00:00 ./zig-out/bin/s4-server --cert certs/cert.pem --key certs/key.pem --port 4434 --http-port 8081 --loss 2 --report /tmp/claude-0/soak/lossy-reports.log

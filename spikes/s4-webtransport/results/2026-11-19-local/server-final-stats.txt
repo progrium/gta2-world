@@ -1,0 +1,2 @@
+1795110955 [info] default: stats: quic conns=3 (total 4) sessions=4 wt_streams=4 dgram rx=217711 tx=217711 drop=0 stream rx=14804357B tx=14804532B | ws clients=3 (total 3) msgs=217711 | reports=180
+1795110955 [info] default: stats: quic conns=1 (total 2) sessions=2 wt_streams=2 dgram rx=71161 tx=71161 drop=0 stream rx=4934973B tx=4935062B | ws clients=1 (total 1) msgs=72572 | reports=60

@@ -1,0 +1,13 @@
+uni echo: "hello uni"
+tab0 dgram  sent=72595 recv=72595 lost=0 (0%) rtt p50=0.5 p99=2.2 maxGap=242 stalls=0 connects=1 drops=0 err=
+tab0 stream sent=72595 recv=72595 lost=0 (0%) rtt p50=0.5 p99=2.3 maxGap=242 stalls=0 connects=1 drops=0 err=
+tab0 ws     sent=72595 recv=72595 lost=0 (0%) rtt p50=0.4 p99=2.0 maxGap=242 stalls=0 connects=1 drops=0 err=
+tab0 verdict: Running clean so far (60 of 61 min).
+tab1 dgram  sent=72594 recv=72594 lost=0 (0%) rtt p50=0.6 p99=2.8 maxGap=274 stalls=0 connects=1 drops=0 err=
+tab1 stream sent=72594 recv=72594 lost=0 (0%) rtt p50=0.6 p99=2.4 maxGap=275 stalls=0 connects=1 drops=0 err=
+tab1 ws     sent=72593 recv=72593 lost=0 (0%) rtt p50=0.7 p99=2.6 maxGap=264 stalls=0 connects=1 drops=0 err=
+tab1 verdict: Running clean so far (60 of 61 min).
+tab2 dgram  sent=72594 recv=72594 lost=0 (0%) rtt p50=0.6 p99=2.9 maxGap=262 stalls=0 connects=1 drops=0 err=
+tab2 stream sent=72594 recv=72594 lost=0 (0%) rtt p50=0.6 p99=2.6 maxGap=263 stalls=0 connects=1 drops=0 err=
+tab2 ws     sent=72595 recv=72595 lost=0 (0%) rtt p50=0.6 p99=2.7 maxGap=266 stalls=0 connects=1 drops=0 err=
+tab2 verdict: Running clean so far (60 of 61 min).
