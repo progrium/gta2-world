@@ -74,6 +74,9 @@ pub const Server = struct {
     list: std.ArrayList(*Conn) = .empty,
     stats: Stats = .{},
     verbose: bool = false,
+    /// Test knob: drop this fraction (0..1) of UDP packets in each direction.
+    loss: f64 = 0,
+    prng: std.Random.DefaultPrng = .init(0x5345),
     sendbuf: [65536]u8 = undefined,
 
     pub fn init(gpa: Allocator, port: u16, cert: [:0]const u8, key: [:0]const u8, verbose: bool) !*Server {
@@ -110,6 +113,7 @@ pub const Server = struct {
             var rlen: c.socklen_t = @sizeOf(c.struct_sockaddr_storage);
             const n = c.recvfrom(self.fd, &buf, buf.len, 0, @ptrCast(&remote), &rlen);
             if (n < 0) return; // EAGAIN or error
+            if (self.dropForTest()) continue;
             self.onPacket(buf[0..@intCast(n)], &remote, rlen);
         }
     }
@@ -184,6 +188,10 @@ pub const Server = struct {
             for (keys.items) |k| _ = self.conns.remove(k);
             conn.destroy();
         }
+    }
+
+    fn dropForTest(self: *Server) bool {
+        return self.loss > 0 and self.prng.random().float(f64) < self.loss;
     }
 
     pub fn liveConns(self: *Server) usize {
@@ -465,6 +473,7 @@ const Conn = struct {
     }
 
     fn sendto(self: *Conn, path: *const c.ngtcp2_path, data: []const u8) void {
+        if (self.server.dropForTest()) return;
         _ = c.sendto(self.server.fd, data.ptr, data.len, 0, path.remote.addr, path.remote.addrlen);
     }
 

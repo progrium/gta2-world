@@ -49,6 +49,12 @@ $("ua").textContent = navigator.userAgent + (typeof WebTransport === "undefined"
 let cfg = { wtPort: 4433, certHash: null };
 const T = {}; // transports by name
 let running = false, t0 = 0, timers = [], reportTimer = null;
+// Hidden tabs get their timers throttled, which looks exactly like a stall.
+let hiddenMs = 0, hiddenAt = null;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { hiddenAt = performance.now(); if (running) log("page hidden: timers will be throttled, results invalid"); }
+  else if (hiddenAt != null) { if (running) hiddenMs += performance.now() - hiddenAt; hiddenAt = null; }
+});
 
 function mkStats(name) {
   return { name, sent: 0, recv: 0, lost: 0, inflight: new Map(), rtts: [], maxGap: 0, stalls: 0,
@@ -152,7 +158,7 @@ async function runWS() {
       };
       ws.onmessage = (e) => onEcho(s, new Uint8Array(e.data));
       ws.onerror = () => { s.errors++; s.lastError = "error"; };
-      ws.onclose = (e) => { clearInterval(iv); if (s.up) s.disconnects++; s.up = false; log(`websocket: closed ${e.code}`); resolve(); };
+      ws.onclose = (e) => { clearInterval(iv); if (s.up && running) s.disconnects++; s.up = false; log(`websocket: closed ${e.code}`); resolve(); };
       T.ws.sock = ws;
     });
     if (running) await sleep(1000);
@@ -162,7 +168,7 @@ async function runWS() {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function summary() {
-  const out = { ua: navigator.userAgent, elapsedSec: running || t0 ? Math.round((performance.now() - t0) / 1000) : 0, transports: {} };
+  const out = { ua: navigator.userAgent, hiddenSec: Math.round((hiddenMs + (hiddenAt != null && running ? performance.now() - hiddenAt : 0)) / 1000), elapsedSec: running || t0 ? Math.round((performance.now() - t0) / 1000) : 0, transports: {} };
   for (const s of Object.values(T)) out.transports[s.name] = {
     sent: s.sent, recv: s.recv, lost: s.lost, lossPct: s.sent ? +(100 * s.lost / s.sent).toFixed(3) : 0,
     rttP50: pct(s.rtts, 0.5), rttP99: pct(s.rtts, 0.99), maxGapMs: Math.round(s.maxGap), stalls: s.stalls,
@@ -178,8 +184,9 @@ function verdict() {
   const done = sm.elapsedSec >= need;
   const el = $("verdict");
   if (typeof WebTransport === "undefined") { el.className = "bad"; el.textContent = "FAIL: this browser has no WebTransport."; return; }
+  if (sm.hiddenSec > 0) { el.className = "warn"; el.textContent = `INVALID: the page was hidden for ${sm.hiddenSec} s, so timers were throttled. Keep this tab visible and restart.`; if (done && running) stop(); return; }
   el.className = ok ? (done ? "ok" : "warn") : "bad";
-  el.textContent = ok ? (done ? `PASS: ${need / 60} min of WebTransport datagrams and stream with no stalls or reconnects.` : `Running clean so far (${Math.floor(sm.elapsedSec / 60)} of ${need / 60} min).`)
+  el.textContent = ok ? (done ? `PASS: ${need / 60} min of WebTransport datagrams and stream with no stalls or reconnects.` : running ? `Running clean so far (${Math.floor(sm.elapsedSec / 60)} of ${need / 60} min).` : `Stopped after ${Math.floor(sm.elapsedSec / 60)} min with no stalls; not a full run.`)
                       : `FAIL: WebTransport had ${wt[0].stalls + wt[1].stalls} stalls and ${wt[0].disconnects} reconnects.`;
   if (done && running) { log("duration reached"); report(); stop(); }
 }
@@ -207,7 +214,7 @@ function report() { fetch("/report", { method: "POST", body: JSON.stringify(summ
 
 function start() {
   if (running) return;
-  running = true; t0 = performance.now();
+  running = true; t0 = performance.now(); hiddenMs = 0; hiddenAt = document.hidden ? performance.now() : null;
   T.dgram = mkStats("dgram"); T.stream = mkStats("stream"); T.ws = mkStats("ws");
   $("start").disabled = true; $("stop").disabled = false;
   if (typeof WebTransport !== "undefined") runWT(); else { T.dgram.lastError = T.stream.lastError = "no WebTransport"; }

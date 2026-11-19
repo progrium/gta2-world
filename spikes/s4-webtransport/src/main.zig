@@ -1,7 +1,7 @@
 //! Spike S4: WebTransport (datagrams + streams) and WebSocket echo server.
 //!
 //!   s4-server --cert cert.pem --key key.pem [--port 4433] [--http-port 8080]
-//!             [--tls-http] [--report reports.log] [--no-cert-hash] [--verbose]
+//!             [--tls-http] [--report reports.log] [--no-cert-hash] [--loss PCT] [--verbose]
 //!
 //! UDP --port serves HTTP/3 + WebTransport at any path.
 //! TCP --http-port serves the test page, /config, /report and /ws.
@@ -27,6 +27,7 @@ const usage =
     \\  --tls-http        serve the TCP side over TLS with the same cert
     \\  --report FILE     append browser soak reports to FILE
     \\  --no-cert-hash    do not offer serverCertificateHashes (CA-signed cert)
+    \\  --loss PCT        test knob: drop PCT% of UDP packets each way
     \\  --verbose         log more
     \\
 ;
@@ -43,6 +44,7 @@ pub fn main(init: std.process.Init) !void {
     var tls_http = false;
     var offer_hash = true;
     var verbose = false;
+    var loss: f64 = 0;
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
         const a = args[i];
@@ -61,6 +63,9 @@ pub fn main(init: std.process.Init) !void {
             i += 1;
         } else if (std.mem.eql(u8, a, "--http-port")) {
             http_port = try std.fmt.parseInt(u16, next, 10);
+            i += 1;
+        } else if (std.mem.eql(u8, a, "--loss")) {
+            loss = (try std.fmt.parseFloat(f64, next)) / 100.0;
             i += 1;
         } else if (std.mem.eql(u8, a, "--tls-http")) {
             tls_http = true;
@@ -90,6 +95,8 @@ pub fn main(init: std.process.Init) !void {
     });
 
     const qs = try quic.Server.init(gpa, port, cert.?, key.?, verbose);
+    qs.loss = loss;
+    if (loss > 0) std.log.warn("dropping {d:.1}% of UDP packets each way (--loss)", .{loss * 100});
     const ts = try tcp.Server.init(gpa, http_port, if (tls_http) .{ cert.?, key.? } else null, config, report);
     std.log.info("webtransport on udp :{d}, page + websocket on {s}://:{d}/", .{ port, if (tls_http) "https" else "http", http_port });
 
