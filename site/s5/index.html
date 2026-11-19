@@ -301,7 +301,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
   }
 
   const GCI_ERR = ["", "EOF in comment", "Token too big", "Invalid integer", "Invalid hex number", "Invalid number", "Number too big", "Output too big", "File length is not a whole number of car records"];
-  const STY_ERR = ["", "Not a GTA2 style file (no GBST header)", "File is truncated", "No car info chunk (CARI) in this file"];
+  const STY_ERR = ["", "Not a GTA2 style file (no GBST header)", "File is truncated", "No car info chunk (CARI) in this file", "A car info record is outside what the game accepts (size over 128 px, more than 64 remaps or 5 doors, or a bad sprite flag)"];
   async function loadFile(file) {
     const buf = new Uint8Array(await file.arrayBuffer());
     if (buf.length > ex.fileBufferSize()) { msg("That file is larger than 16 MB, so it is probably not a .gci or .sty file.", true); return; }
@@ -309,8 +309,13 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     const name = file.name.toLowerCase();
     if (name.endsWith(".sty")) {
       const n = ex.loadSty(buf.length);
+      styCars = n;
       if (n < 0) msg(file.name + ": " + (STY_ERR[-n] || "could not be read"), true);
-      else msg(file.name + ": sprite sizes for " + n + " cars loaded." + (ex.source() === 1 ? "" : " Load nyc.gci too, and the sizes will be used."));
+      else {
+        const behind = ex.styWheelsBehind();
+        if (behind > 0) msg(file.name + ": sprite sizes for " + n + " cars loaded, but " + behind + " of them have the front wheel offset at or behind the rear one. The model expects the front ahead, so please report it with your results.", true);
+        else msg(file.name + ": sprite sizes for " + n + " cars loaded, every front wheel ahead of its rear wheel." + (ex.source() === 1 ? "" : " Load nyc.gci too, and the sizes will be used."));
+      }
     } else {
       const n = ex.loadGci(buf.length);
       if (n < 0) msg(file.name + ": " + (GCI_ERR[-n] || "could not be read"), true);
@@ -319,6 +324,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     }
     refreshModels();
   }
+  let styCars = null;
   function msg(t, err) { const m = $("loadMsg"); m.textContent = t; m.classList.toggle("err", !!err); }
 
   $("gciFile").addEventListener("change", (e) => e.target.files[0] && loadFile(e.target.files[0]));
@@ -553,7 +559,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
   window.__s5 = {
     ratings: () => ratings,
     clear: () => { ratings = []; saveLocal(); render(); },
-    current: () => ({ source: ex && ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", selfTest: $("hashText").textContent, gciRecord: $("gciOut").textContent }),
+    current: () => ({ source: ex && ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", selfTest: $("hashText").textContent, gciRecord: $("gciOut").textContent, styCars, styWheelsBehind: ex ? ex.styWheelsBehind() : null }),
   };
   function setRateMsg(t, err) { const m = $("rateMsg"); m.textContent = t; m.classList.toggle("err", !!err); }
   $("rateForm").addEventListener("submit", async (e) => {
