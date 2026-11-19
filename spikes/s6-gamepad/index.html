@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S6 Gamepad Probe</title>
+<style>
+  :root { --bg:#111; --fg:#e8e8e8; --dim:#888; --acc:#4fb3ff; --ok:#3ecf6e; --bad:#ff5d5d; --warn:#f5b942; --panel:#1b1b1b; --line:#333; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, sans-serif; }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  header h1 { font-size:17px; margin:0 12px 0 0; }
+  main { display:grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap:12px; padding:12px 16px; }
+  @media (max-width: 900px) { main { grid-template-columns: minmax(0,1fr); } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:10px 12px; min-width:0; }
+  section h2 { font-size:14px; margin:0 0 8px; color:var(--acc); text-transform:uppercase; letter-spacing:.04em; }
+  .full { grid-column: 1 / -1; }
+  button { background:#2a2a2a; color:var(--fg); border:1px solid #444; border-radius:4px; padding:5px 10px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--acc); }
+  button.primary { background:#16466b; border-color:var(--acc); }
+  input, select, textarea { background:#0c0c0c; color:var(--fg); border:1px solid #444; border-radius:4px; padding:4px 6px; font:inherit; }
+  label { color:var(--dim); font-size:12px; display:flex; flex-direction:column; gap:2px; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:flex-end; margin:6px 0; }
+  .mono, pre { font:12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  pre { white-space:pre-wrap; word-break:break-all; margin:0; max-height:260px; overflow:auto; background:#0c0c0c; padding:6px; border-radius:4px; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); } .dim { color:var(--dim); }
+  .btns { display:grid; grid-template-columns: repeat(auto-fill, minmax(64px,1fr)); gap:4px; }
+  .b { border:1px solid #444; border-radius:4px; padding:3px; text-align:center; font-size:11px; position:relative; overflow:hidden; }
+  .b .fill { position:absolute; left:0; bottom:0; width:100%; background:#16466b; z-index:0; }
+  .b span { position:relative; z-index:1; }
+  .b.on { border-color:var(--acc); }
+  .axes { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap:6px; margin-top:8px; }
+  .axis { font-size:11px; }
+  .bar { height:8px; background:#0c0c0c; border:1px solid #444; position:relative; }
+  .bar i { position:absolute; top:0; bottom:0; width:2px; background:var(--acc); }
+  .sticks { display:flex; gap:12px; margin-top:8px; flex-wrap:wrap; }
+  canvas { background:#0c0c0c; border:1px solid #444; border-radius:4px; }
+  .prompt { font-size:18px; padding:10px; background:#0c0c0c; border-radius:4px; min-height:48px; }
+  table { border-collapse:collapse; width:100%; font-size:12px; }
+  td, th { border-bottom:1px solid var(--line); padding:3px 4px; text-align:left; vertical-align:top; }
+  .banner { padding:8px 16px; background:#3a2a00; color:var(--warn); }
+</style>
+</head>
+<body>
+<header>
+  <h1>S6 Gamepad Probe</h1>
+  <div class="row">
+    <label>Controller <input id="f-pad" placeholder="e.g. DualSense" size="14"></label>
+    <label>Connection <select id="f-conn"><option value="">?</option><option>USB</option><option>Bluetooth</option><option>Dongle</option></select></label>
+    <label>OS <input id="f-os" size="12"></label>
+    <label>Browser <input id="f-browser" size="14"></label>
+    <label>Notes <input id="f-notes" size="24" placeholder="Steam running? driver?"></label>
+  </div>
+  <div class="row">
+    <label>Test pad <select id="pad-select"></select></label>
+    <button class="primary" id="export">Download JSON</button>
+    <button id="copy">Copy JSON</button>
+    <span id="export-status" class="dim"></span>
+  </div>
+</header>
+<div id="banner"></div>
+<main>
+  <section>
+    <h2>1. Environment and pads</h2>
+    <div id="env" class="mono"></div>
+    <div id="pads"></div>
+  </section>
+
+  <section>
+    <h2>Live state</h2>
+    <div id="live" class="dim">Press any button on a controller. Browsers hide pads until a button is pressed.</div>
+  </section>
+
+  <section>
+    <h2>2. Mapping check</h2>
+    <p class="dim">Prompts you for each standard-mapping control by position. Press and release each. Skip anything the OS captures (Guide/PS/Home often open a system overlay).</p>
+    <div class="row"><button class="primary" id="map-start">Start mapping check</button><button id="map-skip">Skip step</button><button id="map-stop">Stop</button></div>
+    <div id="map-prompt" class="prompt dim">Not running.</div>
+    <div id="map-result"></div>
+  </section>
+
+  <section>
+    <h2>3. Axis ranges and triggers</h2>
+    <p class="dim">8 seconds: roll both sticks around their outer edge several times, and squeeze both triggers slowly from zero to full and back. Then let go of everything; the last 2 seconds measure rest drift.</p>
+    <div class="row"><button class="primary" id="axis-start">Start axis test</button></div>
+    <div id="axis-prompt" class="prompt dim">Not running.</div>
+    <div class="sticks"><canvas id="stickL" width="160" height="160"></canvas><canvas id="stickR" width="160" height="160"></canvas></div>
+    <div id="axis-result"></div>
+  </section>
+
+  <section>
+    <h2>4. Polling latency</h2>
+    <p class="dim">10 seconds: wiggle the left stick continuously and tap face buttons. Keep this tab focused and the mouse still. Measures how often the browser's pad state changes, how stale it is when read in requestAnimationFrame, and how many updates a once-per-frame read misses.</p>
+    <div class="row"><button class="primary" id="lat-start">Start latency test</button></div>
+    <div id="lat-prompt" class="prompt dim">Not running.</div>
+    <div id="lat-result"></div>
+  </section>
+
+  <section>
+    <h2>5. Rumble</h2>
+    <p class="dim">Fire each effect, then mark whether you felt it.</p>
+    <div id="rumble-caps" class="mono"></div>
+    <div class="row">
+      <button data-rumble="strong">Strong motor 1.0, 600 ms</button>
+      <button data-rumble="weak">Weak motor 1.0, 600 ms</button>
+      <button data-rumble="both">Both 0.5, 600 ms</button>
+      <button data-rumble="trigger">Trigger rumble 1.0, 600 ms</button>
+      <button data-rumble="preempt">Long then preempt</button>
+      <button data-rumble="reset">reset()</button>
+      <button data-rumble="legacy">Legacy hapticActuators.pulse</button>
+    </div>
+    <table id="rumble-log"><thead><tr><th>effect</th><th>result</th><th>felt?</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section>
+    <h2>6. Hot-plug</h2>
+    <p class="dim">With the page focused: unplug (or power off) the pad, wait 3 s, reconnect, press a button. Then repeat while this tab is in the background, and come back. Optionally connect a second pad.</p>
+    <div class="row"><button id="hp-mark">Mark: starting hot-plug test</button></div>
+    <div id="hp-summary"></div>
+    <pre id="hp-log"></pre>
+  </section>
+
+  <section class="full">
+    <h2>Export preview</h2>
+    <pre id="preview"></pre>
+  </section>
+</main>
+
+<script>
+"use strict";
+const SCHEMA = "s6-gamepad-probe/1";
+const STANDARD_BUTTONS = [
+  ["bottom face", "A", "Cross", "B"],
+  ["right face", "B", "Circle", "A"],
+  ["left face", "X", "Square", "Y"],
+  ["top face", "Y", "Triangle", "X"],
+  ["left shoulder", "LB", "L1", "L"],
+  ["right shoulder", "RB", "R1", "R"],
+  ["left trigger", "LT", "L2", "ZL"],
+  ["right trigger", "RT", "R2", "ZR"],
+  ["back/select", "View", "Create", "Minus"],
+  ["start", "Menu", "Options", "Plus"],
+  ["left stick click", "LS", "L3", "LS"],
+  ["right stick click", "RS", "R3", "RS"],
+  ["d-pad up", "Up", "Up", "Up"],
+  ["d-pad down", "Down", "Down", "Down"],
+  ["d-pad left", "Left", "Left", "Left"],
+  ["d-pad right", "Right", "Right", "Right"],
+  ["home/guide", "Xbox", "PS", "Home"],
+];
+const EXTRA_STEPS = [
+  { label: "touchpad click / capture / share (extra button, if any)", expect: { type: "button", index: 17 }, optional: true },
+];
+const STICK_STEPS = [
+  { label: "Push LEFT stick fully LEFT, then release",  expect: { type: "axis", index: 0, sign: -1 } },
+  { label: "Push LEFT stick fully UP, then release",    expect: { type: "axis", index: 1, sign: -1 } },
+  { label: "Push RIGHT stick fully LEFT, then release", expect: { type: "axis", index: 2, sign: -1 } },
+  { label: "Push RIGHT stick fully UP, then release",   expect: { type: "axis", index: 3, sign: -1 } },
+];
+
+const $ = (id) => document.getElementById(id);
+const now = () => performance.now();
+const r3 = (x) => (typeof x === "number" && isFinite(x)) ? Math.round(x * 1000) / 1000 : x;
+
+const state = {
+  startedAt: new Date().toISOString(),
+  selected: null,          // pad index
+  lastActive: null,
+  pads: {},                // by "index:id" -> descriptor history
+  events: [],
+  mapping: null,
+  axes: null,
+  latency: null,
+  rumble: [],
+  hotplugMarks: [],
+  identityStable: null,
+};
+
+// ---------- environment ----------
+function env() {
+  const e = {
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    userAgentData: navigator.userAgentData ? { brands: navigator.userAgentData.brands, platform: navigator.userAgentData.platform, mobile: navigator.userAgentData.mobile } : null,
+    secureContext: window.isSecureContext,
+    location: location.protocol + "//" + location.host,
+    getGamepads: typeof navigator.getGamepads === "function",
+    GamepadHapticActuator: typeof window.GamepadHapticActuator !== "undefined",
+    gamepadrawinputchanged: "ongamepadrawinputchanged" in window,
+    permissionsPolicyGamepad: (document.featurePolicy && document.featurePolicy.allowsFeature) ? document.featurePolicy.allowsFeature("gamepad") : null,
+    devicePixelRatio: devicePixelRatio,
+    screen: screen.width + "x" + screen.height,
+  };
+  return e;
+}
+function guessBrowser() {
+  const ua = navigator.userAgent;
+  if (/Firefox\/(\d+)/.test(ua)) return "Firefox " + RegExp.$1;
+  if (/Edg\/(\d+)/.test(ua)) return "Edge " + RegExp.$1;
+  if (/Chrome\/(\d+)/.test(ua)) return "Chrome " + RegExp.$1;
+  if (/Version\/([\d.]+).*Safari/.test(ua)) return "Safari " + RegExp.$1;
+  return "unknown";
+}
+function guessOS() {
+  const ua = navigator.userAgent;
+  if (/Windows/.test(ua)) return "Windows";
+  if (/Mac OS X/.test(ua)) return "macOS";
+  if (/Linux/.test(ua)) return "Linux";
+  return "";
+}
+$("f-browser").value = guessBrowser();
+$("f-os").value = guessOS();
+const E = env();
+$("env").innerHTML = [
+  ["secure context", E.secureContext, true],
+  ["getGamepads", E.getGamepads, true],
+  ["GamepadHapticActuator", E.GamepadHapticActuator, true],
+  ["gamepadrawinputchanged", E.gamepadrawinputchanged, null],
+].map(([k, v, want]) => `${k}: <span class="${want === null ? "dim" : (v === want ? "ok" : "bad")}">${v}</span>`).join("<br>");
+if (!E.secureContext) $("banner").innerHTML = '<div class="banner">Not a secure context. Chrome and Firefox hide gamepads here. Serve from http://localhost or https.</div>';
+
+// ---------- pad helpers ----------
+function pads() {
+  const list = navigator.getGamepads ? navigator.getGamepads() : [];
+  return Array.from(list || []).filter(Boolean);
+}
+function pad(idx) {
+  if (idx == null) return null;
+  const list = navigator.getGamepads ? navigator.getGamepads() : [];
+  return (list && list[idx]) || null;
+}
+function describe(gp) {
+  const va = gp.vibrationActuator;
+  return {
+    index: gp.index,
+    id: gp.id,
+    mapping: gp.mapping,
+    connected: gp.connected,
+    buttons: gp.buttons.length,
+    axes: gp.axes.length,
+    timestamp: r3(gp.timestamp),
+    vibrationActuator: va ? { type: va.type, effects: va.effects ? Array.from(va.effects) : null, canPlay: typeof va.playEffect === "function" } : null,
+    hapticActuators: gp.hapticActuators ? gp.hapticActuators.length : null,
+    hand: gp.hand !== undefined ? gp.hand : undefined,
+    touches: gp.touches ? gp.touches.length : undefined,
+    hasTouchedField: gp.buttons[0] ? ("touched" in gp.buttons[0]) : null,
+  };
+}
+function snap(gp) {
+  return { b: gp.buttons.map(b => b.value), p: gp.buttons.map(b => b.pressed), a: gp.axes.slice(), t: gp.timestamp };
+}
+function record(gp) {
+  const key = gp.index + ":" + gp.id;
+  if (!state.pads[key]) state.pads[key] = describe(gp);
+}
+
+// ---------- events / hot-plug ----------
+function logEvent(type, gp, extra) {
+  const ev = { t: r3(now()), wall: new Date().toISOString(), type, hidden: document.hidden, focused: document.hasFocus(), ...(gp ? { index: gp.index, id: gp.id, mapping: gp.mapping } : {}), ...(extra || {}) };
+  state.events.push(ev);
+  $("hp-log").textContent = state.events.map(e => `${e.t.toFixed(0).padStart(8)} ${e.type.padEnd(22)} ${e.index ?? ""} ${e.id ?? ""} ${e.hidden ? "(hidden)" : ""} ${e.note ?? ""}`).join("\n");
+  hpSummary();
+}
+window.addEventListener("gamepadconnected", (e) => { record(e.gamepad); logEvent("gamepadconnected", e.gamepad); refreshPadList(); });
+window.addEventListener("gamepaddisconnected", (e) => { logEvent("gamepaddisconnected", e.gamepad); refreshPadList(); });
+document.addEventListener("visibilitychange", () => logEvent("visibility:" + document.visibilityState, null));
+window.addEventListener("focus", () => logEvent("window:focus", null));
+window.addEventListener("blur", () => logEvent("window:blur", null));
+$("hp-mark").onclick = () => { state.hotplugMarks.push(r3(now())); logEvent("mark", null, { note: "hot-plug test start" }); };
+
+let polledSet = new Map(); // index -> id, as seen by polling
+function pollPresence() {
+  const seen = new Map();
+  for (const gp of pads()) seen.set(gp.index, gp.id);
+  for (const [i, id] of seen) if (polledSet.get(i) !== id) logEvent("poll:appeared", { index: i, id, mapping: pad(i)?.mapping });
+  for (const [i, id] of polledSet) if (!seen.has(i)) logEvent("poll:vanished", { index: i, id, mapping: "" });
+  if (seen.size !== polledSet.size || [...seen].some(([i, id]) => polledSet.get(i) !== id)) refreshPadList();
+  polledSet = seen;
+}
+function hpSummary() {
+  const c = state.events.filter(e => e.type === "gamepadconnected");
+  const d = state.events.filter(e => e.type === "gamepaddisconnected");
+  const pa = state.events.filter(e => e.type === "poll:appeared");
+  const ids = {};
+  for (const e of c) (ids[e.id] = ids[e.id] || new Set()).add(e.index);
+  const s = {
+    connectedEvents: c.length,
+    disconnectedEvents: d.length,
+    pollAppeared: pa.length,
+    connectWhileHidden: c.filter(e => e.hidden).length,
+    reconnectSameIndex: Object.values(ids).every(set => set.size === 1),
+    idsSeen: Object.keys(ids),
+  };
+  state.hotplug = s;
+  $("hp-summary").innerHTML = `<div class="mono">connected events: ${s.connectedEvents}, disconnected events: ${s.disconnectedEvents}, polling saw ${s.pollAppeared} appearances, connects while hidden: ${s.connectWhileHidden}, same index on reconnect: ${s.reconnectSameIndex}</div>`;
+}
+
+// ---------- pad list ----------
+function refreshPadList() {
+  const sel = $("pad-select");
+  const list = pads();
+  const cur = state.selected;
+  sel.innerHTML = list.map(gp => `<option value="${gp.index}">${gp.index}: ${escapeHtml(gp.id.slice(0, 50))}</option>`).join("") || '<option value="">(none yet)</option>';
+  if (cur != null && list.some(g => g.index === cur)) sel.value = String(cur);
+  else if (list.length) { state.selected = list[0].index; sel.value = String(list[0].index); }
+  else state.selected = null;
+  $("pads").innerHTML = list.map(gp => {
+    const d = describe(gp); record(gp);
+    const std = d.mapping === "standard";
+    return `<div class="mono" style="margin-top:6px">#${d.index} ${escapeHtml(d.id)}<br>mapping: <span class="${std ? "ok" : "bad"}">"${d.mapping}"</span>, buttons ${d.buttons}, axes ${d.axes}, rumble: <span class="${d.vibrationActuator ? "ok" : "bad"}">${d.vibrationActuator ? (d.vibrationActuator.type || "") + " " + JSON.stringify(d.vibrationActuator.effects) : "none"}</span></div>`;
+  }).join("");
+  rumbleCaps();
+}
+$("pad-select").onchange = (e) => { state.selected = e.target.value === "" ? null : Number(e.target.value); rumbleCaps(); };
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+// ---------- live view ----------
+let liveBuilt = null;
+function renderLive(gp) {
+  const el = $("live");
+  if (!gp) { el.className = "dim"; el.textContent = "Press any button on a controller. Browsers hide pads until a button is pressed."; liveBuilt = null; return; }
+  const key = gp.index + gp.id + gp.buttons.length + gp.axes.length;
+  if (liveBuilt !== key) {
+    el.className = "";
+    el.innerHTML = `<div class="mono dim" id="live-ts"></div><div class="btns">${gp.buttons.map((_, i) => `<div class="b" id="lb${i}"><div class="fill"></div><span>${i}${STANDARD_BUTTONS[i] ? " " + STANDARD_BUTTONS[i][1] : ""}<br><em>0</em></span></div>`).join("")}</div>
+      <div class="axes">${gp.axes.map((_, i) => `<div class="axis">axis ${i}: <em id="la${i}v">0</em><div class="bar"><i id="la${i}"></i></div></div>`).join("")}</div>`;
+    liveBuilt = key;
+  }
+  $("live-ts").textContent = `timestamp ${gp.timestamp.toFixed(2)}  age ${(now() - gp.timestamp).toFixed(1)} ms`;
+  gp.buttons.forEach((b, i) => {
+    const n = $("lb" + i); if (!n) return;
+    n.classList.toggle("on", b.pressed);
+    n.querySelector(".fill").style.height = (b.value * 100) + "%";
+    n.querySelector("em").textContent = b.value.toFixed(2);
+  });
+  gp.axes.forEach((a, i) => {
+    const bar = $("la" + i); if (!bar) return;
+    bar.style.left = `calc(${((a + 1) / 2) * 100}% - 1px)`;
+    $("la" + i + "v").textContent = a.toFixed(3);
+  });
+}
+
+// ---------- mapping check ----------
+let mapRun = null;
+function mapSteps() {
+  const steps = STANDARD_BUTTONS.map((n, i) => ({ label: `${n[0]}  (Xbox ${n[1]} / PlayStation ${n[2]} / Switch ${n[3]})`, expect: { type: "button", index: i }, optional: i === 16 }));
+  return steps.concat(EXTRA_STEPS, STICK_STEPS);
+}
+$("map-start").onclick = () => {
+  const gp = pad(state.selected); if (!gp) return alertBox("map-prompt", "No pad selected. Press a button first.");
+  mapRun = { idx: gp.index, steps: mapSteps(), i: 0, results: [], phase: "wait-release", baseline: snap(gp) };
+  showMapStep();
+};
+$("map-skip").onclick = () => { if (!mapRun) return; finishMapStep({ skipped: true }); };
+$("map-stop").onclick = () => { if (mapRun) { mapRun.stopped = true; summarizeMapping(); mapRun = null; } };
+function showMapStep() {
+  const s = mapRun.steps[mapRun.i];
+  $("map-prompt").className = "prompt";
+  $("map-prompt").textContent = `${mapRun.i + 1}/${mapRun.steps.length}: ${s.expect.type === "button" ? "Press " : ""}${s.label}`;
+}
+function alertBox(id, msg) { $(id).className = "prompt bad"; $(id).textContent = msg; }
+function mapTick() {
+  if (!mapRun) return;
+  const gp = pad(mapRun.idx); if (!gp) return;
+  const cur = snap(gp), base = mapRun.baseline;
+  if (mapRun.phase === "wait-release") {
+    // wait until everything is near rest before arming
+    const busy = cur.p.some(Boolean) || cur.a.some((a, i) => Math.abs(a - (base.a[i] ?? 0)) > 0.3 && Math.abs(a) > 0.3);
+    if (!busy) { mapRun.phase = "armed"; mapRun.baseline = cur; mapRun.armedAt = now(); }
+    return;
+  }
+  // detect changes vs baseline
+  const changed = [];
+  cur.b.forEach((v, i) => { if (v - (base.b[i] ?? 0) > 0.5) changed.push({ type: "button", index: i, value: r3(v) }); });
+  cur.a.forEach((v, i) => { const d = v - (base.a[i] ?? 0); if (Math.abs(d) > 0.5) changed.push({ type: "axis", index: i, sign: Math.sign(d), value: r3(v) }); });
+  if (!changed.length) return;
+  // wait a few frames so multi-input hits (e.g. trigger as button AND axis) are captured together
+  if (!mapRun.hitAt) { mapRun.hitAt = now(); mapRun.hit = changed; return; }
+  for (const c of changed) if (!mapRun.hit.some(h => h.type === c.type && h.index === c.index)) mapRun.hit.push(c);
+  if (now() - mapRun.hitAt < 120) return;
+  finishMapStep({ hits: mapRun.hit });
+}
+function finishMapStep(r) {
+  const s = mapRun.steps[mapRun.i];
+  const hits = r.hits || [];
+  const primary = hits.find(h => h.type === s.expect.type && h.index === s.expect.index && (s.expect.sign == null || h.sign === s.expect.sign));
+  const res = { control: s.label.split("  (")[0], expect: s.expect, hits, ok: r.skipped ? null : !!primary, extraInputs: hits.filter(h => h !== primary).length, skipped: !!r.skipped, optional: !!s.optional };
+  mapRun.results.push(res);
+  mapRun.i++; mapRun.hitAt = null; mapRun.hit = null; mapRun.phase = "wait-release";
+  if (mapRun.i >= mapRun.steps.length) { summarizeMapping(); mapRun = null; $("map-prompt").className = "prompt ok"; $("map-prompt").textContent = "Done."; }
+  else showMapStep();
+  renderMapResults(mapRun ? mapRun.results : state.mapping.results);
+}
+function summarizeMapping() {
+  const res = mapRun.results;
+  const gp = pad(mapRun.idx);
+  state.mapping = {
+    pad: gp ? { index: gp.index, id: gp.id, mapping: gp.mapping } : null,
+    results: res,
+    required: res.filter(r => !r.optional).length,
+    matched: res.filter(r => r.ok === true).length,
+    mismatched: res.filter(r => r.ok === false).map(r => ({ control: r.control, expect: r.expect, got: r.hits })),
+    skipped: res.filter(r => r.skipped).map(r => r.control),
+    crossTalk: res.filter(r => r.extraInputs > 0).map(r => ({ control: r.control, hits: r.hits })),
+    stopped: !!mapRun.stopped,
+  };
+  renderMapResults(res);
+}
+function renderMapResults(res) {
+  $("map-result").innerHTML = `<table><thead><tr><th>control</th><th>expected</th><th>got</th></tr></thead><tbody>${res.map(r => `<tr><td>${escapeHtml(r.control)}</td><td class="mono">${fmtIn(r.expect)}</td><td class="mono ${r.skipped ? "dim" : r.ok ? (r.extraInputs ? "warn" : "ok") : "bad"}">${r.skipped ? "skipped" : r.hits.map(fmtIn).join(", ")}</td></tr>`).join("")}</tbody></table>`;
+}
+function fmtIn(h) { return h.type === "button" ? `btn ${h.index}` : `axis ${h.index}${h.sign != null ? (h.sign > 0 ? "+" : "-") : ""}`; }
+
+// ---------- axis test ----------
+let axisRun = null;
+$("axis-start").onclick = () => {
+  const gp = pad(state.selected); if (!gp) return alertBox("axis-prompt", "No pad selected.");
+  axisRun = { idx: gp.index, t0: now(), dur: 8000, restFrom: 6000, n: gp.axes.length, min: gp.axes.map(() => Infinity), max: gp.axes.map(() => -Infinity), rest: gp.axes.map(() => []), trig: { 6: new Set(), 7: new Set() }, trigMax: { 6: 0, 7: 0 }, octL: new Array(8).fill(0), octR: new Array(8).fill(0), maxMagL: 0, maxMagR: 0, axisDistinct: gp.axes.map(() => new Set()) };
+  clearStick("stickL"); clearStick("stickR");
+};
+function clearStick(id) {
+  const c = $(id), g = c.getContext("2d"); g.fillStyle = "#0c0c0c"; g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = "#444"; g.beginPath(); g.arc(80, 80, 70, 0, Math.PI * 2); g.stroke(); g.strokeRect(10, 10, 140, 140);
+  g.beginPath(); g.moveTo(80, 10); g.lineTo(80, 150); g.moveTo(10, 80); g.lineTo(150, 80); g.stroke();
+}
+function plot(id, x, y) { const g = $(id).getContext("2d"); g.fillStyle = "#4fb3ff"; g.fillRect(80 + x * 70 - 1, 80 + y * 70 - 1, 2, 2); }
+function octant(x, y) { return (Math.round(Math.atan2(y, x) / (Math.PI / 4)) + 8) % 8; }
+function axisTick() {
+  if (!axisRun) return;
+  const gp = pad(axisRun.idx); if (!gp) return;
+  const el = now() - axisRun.t0;
+  const a = gp.axes;
+  $("axis-prompt").className = "prompt";
+  $("axis-prompt").textContent = el < axisRun.restFrom ? `Roll sticks and squeeze triggers... ${((axisRun.restFrom - el) / 1000).toFixed(1)} s` : `Let go of everything... ${((axisRun.dur - el) / 1000).toFixed(1)} s`;
+  if (el < axisRun.restFrom) {
+    a.forEach((v, i) => { axisRun.min[i] = Math.min(axisRun.min[i], v); axisRun.max[i] = Math.max(axisRun.max[i], v); axisRun.axisDistinct[i].add(Math.round(v * 10000)); });
+    if (a.length >= 4) {
+      const mL = Math.hypot(a[0], a[1]), mR = Math.hypot(a[2], a[3]);
+      if (mL > 0.5) { const o = octant(a[0], a[1]); axisRun.octL[o] = Math.max(axisRun.octL[o], mL); }
+      if (mR > 0.5) { const o = octant(a[2], a[3]); axisRun.octR[o] = Math.max(axisRun.octR[o], mR); }
+      axisRun.maxMagL = Math.max(axisRun.maxMagL, mL); axisRun.maxMagR = Math.max(axisRun.maxMagR, mR);
+      plot("stickL", a[0], a[1]); plot("stickR", a[2], a[3]);
+    }
+    for (const t of [6, 7]) if (gp.buttons[t]) { const v = gp.buttons[t].value; axisRun.trig[t].add(Math.round(v * 1000)); axisRun.trigMax[t] = Math.max(axisRun.trigMax[t], v); }
+  } else {
+    a.forEach((v, i) => axisRun.rest[i].push(v));
+  }
+  if (el >= axisRun.dur) {
+    const R = axisRun;
+    const restStats = R.rest.map(arr => { const m = arr.reduce((s, v) => s + v, 0) / (arr.length || 1); return { mean: r3(m), maxAbs: r3(Math.max(0, ...arr.map(Math.abs))) }; });
+    state.axes = {
+      pad: { index: gp.index, id: gp.id, mapping: gp.mapping },
+      axes: R.min.map((mn, i) => ({ index: i, min: r3(mn), max: r3(R.max[i]), distinctValues: R.axisDistinct[i].size, rest: restStats[i] })),
+      stickLeft: { maxMagnitude: r3(R.maxMagL), octantMax: R.octL.map(r3) },
+      stickRight: { maxMagnitude: r3(R.maxMagR), octantMax: R.octR.map(r3) },
+      triggers: [6, 7].map(t => ({ button: t, distinctValues: R.trig[t].size, max: r3(R.trigMax[t]), analog: R.trig[t].size > 3 })),
+    };
+    axisRun = null;
+    $("axis-prompt").className = "prompt ok"; $("axis-prompt").textContent = "Done.";
+    renderAxes();
+  }
+}
+function renderAxes() {
+  const A = state.axes;
+  const gate = (s) => { const d = [1, 3, 5, 7].map(i => s.octantMax[i]).filter(Boolean); const c = [0, 2, 4, 6].map(i => s.octantMax[i]).filter(Boolean); if (!d.length || !c.length) return "not enough coverage"; const dm = d.reduce((a, b) => a + b) / d.length; return `diagonal mag ${dm.toFixed(2)} (${dm > 1.15 ? "square gate, needs radial clamp" : dm < 0.9 ? "under-reaching diagonals" : "circular"})`; };
+  $("axis-result").innerHTML = `<table><thead><tr><th>axis</th><th>min</th><th>max</th><th>rest mean</th><th>rest max|v|</th><th>distinct</th></tr></thead><tbody>${A.axes.map(x => `<tr><td>${x.index}</td><td class="${x.min > -0.98 ? "warn" : ""}">${x.min}</td><td class="${x.max < 0.98 ? "warn" : ""}">${x.max}</td><td>${x.rest.mean}</td><td class="${x.rest.maxAbs > 0.1 ? "warn" : ""}">${x.rest.maxAbs}</td><td>${x.distinctValues}</td></tr>`).join("")}</tbody></table>
+  <div class="mono">left stick: ${gate(A.stickLeft)}<br>right stick: ${gate(A.stickRight)}<br>${A.triggers.map(t => `trigger btn ${t.button}: ${t.analog ? '<span class="ok">analog</span>' : '<span class="warn">digital</span>'} (${t.distinctValues} distinct, max ${t.max})`).join("<br>")}</div>`;
+}
+
+// ---------- latency test ----------
+let latRun = null, hiTimer = null;
+$("lat-start").onclick = () => {
+  const gp = pad(state.selected); if (!gp) return alertBox("lat-prompt", "No pad selected.");
+  latRun = { idx: gp.index, t0: now(), dur: 10000, raf: [], hi: [], lastHiTs: null, lastRafTs: null, sameObject: 0, newObject: 0, prevObj: null, raw: 0, rawFirst: [] };
+  // high-rate sampler: as fast as the browser lets a timer run
+  const hiLoop = () => {
+    if (!latRun) return;
+    const g = pad(latRun.idx);
+    if (g && g.timestamp !== latRun.lastHiTs) { latRun.hi.push({ ts: g.timestamp, seen: now(), a0: g.axes[0] }); latRun.lastHiTs = g.timestamp; }
+    hiTimer = setTimeout(hiLoop, 0);
+  };
+  hiLoop();
+  if ("ongamepadrawinputchanged" in window) {
+    latRun.rawHandler = (e) => { if (latRun) { latRun.raw++; if (latRun.rawFirst.length < 2000) latRun.rawFirst.push({ ts: e.gamepadSnapshot ? e.gamepadSnapshot.timestamp : null, seen: now() }); } };
+    window.addEventListener("gamepadrawinputchanged", latRun.rawHandler);
+  }
+};
+function latTick(rafTime) {
+  if (!latRun) return;
+  const g = pad(latRun.idx); if (!g) return;
+  const t = now();
+  const el = t - latRun.t0;
+  $("lat-prompt").className = "prompt";
+  $("lat-prompt").textContent = `Wiggle the left stick and tap buttons... ${((latRun.dur - el) / 1000).toFixed(1)} s`;
+  if (latRun.prevObj) { if (g === latRun.prevObj) latRun.sameObject++; else latRun.newObject++; }
+  latRun.prevObj = g;
+  latRun.raf.push({ t, rafTime, ts: g.timestamp, changed: g.timestamp !== latRun.lastRafTs });
+  latRun.lastRafTs = g.timestamp;
+  if (el >= latRun.dur) finishLatency();
+}
+function stats(arr) {
+  const a = arr.filter(x => isFinite(x)).sort((x, y) => x - y);
+  if (!a.length) return null;
+  const q = (p) => a[Math.min(a.length - 1, Math.floor(p * a.length))];
+  return { n: a.length, min: r3(a[0]), p50: r3(q(0.5)), p95: r3(q(0.95)), max: r3(a[a.length - 1]), mean: r3(a.reduce((s, v) => s + v, 0) / a.length) };
+}
+function finishLatency() {
+  const R = latRun; latRun = null; clearTimeout(hiTimer);
+  if (R.rawHandler) window.removeEventListener("gamepadrawinputchanged", R.rawHandler);
+  const g = pad(R.idx);
+  const frameIntervals = R.raf.slice(1).map((f, i) => f.t - R.raf[i].t);
+  const hiTs = R.hi.map(h => h.ts);
+  const updIntervals = hiTs.slice(1).map((ts, i) => ts - hiTs[i]).filter(d => d > 0);
+  // staleness: how old the state is when the frame reads it (only for frames that got new state)
+  const changedFrames = R.raf.filter(f => f.changed);
+  const staleAtRead = changedFrames.map(f => f.t - f.ts);
+  // browser pipeline: time between the pad's timestamp and the first moment any script could see it
+  const pipeline = R.hi.map(h => h.seen - h.ts);
+  // added by once-per-frame polling: first seen by hi-rate sampler vs first frame that saw it
+  const rafFirst = new Map(); for (const f of R.raf) if (!rafFirst.has(f.ts)) rafFirst.set(f.ts, f.t);
+  const addedByFrame = R.hi.map(h => rafFirst.has(h.ts) ? rafFirst.get(h.ts) - h.seen : NaN);
+  const missed = R.hi.filter(h => !rafFirst.has(h.ts)).length;
+  const sameClock = staleAtRead.length > 0 && stats(staleAtRead).p50 >= 0 && stats(staleAtRead).p50 < 1000;
+  const fi = stats(frameIntervals);
+  const st = stats(staleAtRead);
+  state.latency = {
+    pad: g ? { index: g.index, id: g.id, mapping: g.mapping } : null,
+    durationMs: R.dur,
+    frames: R.raf.length,
+    frameIntervalMs: fi,
+    distinctStatesHiRate: R.hi.length,
+    distinctStatesSeenByFrames: rafFirst.size,
+    updatesMissedByFramePolling: missed,
+    padUpdateIntervalMs: stats(updIntervals),
+    padUpdateRateHz: updIntervals.length ? r3(1000 / stats(updIntervals).p50) : null,
+    timestampOnPerformanceClock: sameClock,
+    stalenessAtFrameReadMs: sameClock ? st : null,
+    pipelineDelayMs: sameClock ? stats(pipeline) : null,
+    addedByFramePollingMs: stats(addedByFrame),
+    getGamepadsReturnsSameObject: R.sameObject > R.newObject,
+    rawInputEvents: R.rawHandler ? { count: R.raw, sample: R.rawFirst.slice(0, 50) } : null,
+    verdictUnderOneFrame: sameClock && fi ? st.p95 <= fi.p50 : null,
+  };
+  $("lat-prompt").className = "prompt ok"; $("lat-prompt").textContent = "Done.";
+  renderLatency();
+}
+function renderLatency() {
+  const L = state.latency;
+  const f = (s) => s ? `p50 ${s.p50}, p95 ${s.p95}, max ${s.max} (n=${s.n})` : "n/a";
+  $("lat-result").innerHTML = `<div class="mono">
+    frame interval ms: ${f(L.frameIntervalMs)}<br>
+    pad update interval ms: ${f(L.padUpdateIntervalMs)} (~${L.padUpdateRateHz} Hz)<br>
+    distinct states: ${L.distinctStatesHiRate} seen by fast sampler, ${L.distinctStatesSeenByFrames} seen by frames, ${L.updatesMissedByFramePolling} never seen by a frame<br>
+    timestamp on performance clock: <span class="${L.timestampOnPerformanceClock ? "ok" : "warn"}">${L.timestampOnPerformanceClock}</span><br>
+    staleness at frame read ms: ${f(L.stalenessAtFrameReadMs)}<br>
+    browser pipeline delay ms: ${f(L.pipelineDelayMs)}<br>
+    added by per-frame polling ms: ${f(L.addedByFramePollingMs)}<br>
+    getGamepads returns live object: ${L.getGamepadsReturnsSameObject}<br>
+    verdict (p95 staleness under one frame): <span class="${L.verdictUnderOneFrame ? "ok" : "bad"}">${L.verdictUnderOneFrame}</span></div>`;
+}
+
+// ---------- rumble ----------
+function rumbleCaps() {
+  const gp = pad(state.selected);
+  if (!gp) { $("rumble-caps").textContent = "No pad selected."; return; }
+  const va = gp.vibrationActuator;
+  $("rumble-caps").innerHTML = `vibrationActuator: ${va ? `<span class="ok">present</span>, type "${va.type}", effects ${JSON.stringify(va.effects ? Array.from(va.effects) : null)}` : '<span class="bad">absent</span>'}<br>hapticActuators: ${gp.hapticActuators ? gp.hapticActuators.length : "absent"}`;
+}
+document.querySelectorAll("[data-rumble]").forEach(btn => btn.onclick = () => rumble(btn.dataset.rumble));
+async function rumble(kind) {
+  const gp = pad(state.selected);
+  const entry = { effect: kind, t: r3(now()), result: null, error: null, felt: null, ms: null, pad: gp ? gp.id : null };
+  state.rumble.push(entry);
+  const row = document.createElement("tr");
+  row.innerHTML = `<td>${kind}</td><td class="mono">...</td><td><button>yes</button> <button>no</button></td>`;
+  const [yes, no] = row.querySelectorAll("button");
+  yes.onclick = () => { entry.felt = true; row.cells[2].textContent = "yes"; };
+  no.onclick = () => { entry.felt = false; row.cells[2].textContent = "no"; };
+  $("rumble-log").tBodies[0].prepend(row);
+  const t0 = now();
+  try {
+    if (!gp) throw new Error("no pad");
+    const va = gp.vibrationActuator;
+    let p;
+    if (kind === "legacy") {
+      if (!gp.hapticActuators || !gp.hapticActuators.length) throw new Error("hapticActuators absent");
+      p = gp.hapticActuators[0].pulse(1.0, 600);
+    } else {
+      if (!va) throw new Error("vibrationActuator absent");
+      if (kind === "reset") p = va.reset();
+      else if (kind === "trigger") p = va.playEffect("trigger-rumble", { duration: 600, startDelay: 0, strongMagnitude: 0, weakMagnitude: 0, leftTrigger: 1.0, rightTrigger: 1.0 });
+      else if (kind === "preempt") {
+        const first = va.playEffect("dual-rumble", { duration: 3000, strongMagnitude: 1.0, weakMagnitude: 1.0 });
+        await new Promise(r => setTimeout(r, 400));
+        const second = va.playEffect("dual-rumble", { duration: 300, strongMagnitude: 0.3, weakMagnitude: 0.3 });
+        const firstRes = await first.catch(e => "rejected: " + e);
+        p = second.then(r => `first=${firstRes}, second=${r}`);
+      } else {
+        const m = { strong: [1, 0], weak: [0, 1], both: [0.5, 0.5] }[kind];
+        p = va.playEffect("dual-rumble", { duration: 600, startDelay: 0, strongMagnitude: m[0], weakMagnitude: m[1] });
+      }
+    }
+    entry.result = String(await p);
+  } catch (e) { entry.error = String(e && e.message || e); }
+  entry.ms = r3(now() - t0);
+  row.cells[1].textContent = entry.error ? "error: " + entry.error : `${entry.result} (${entry.ms.toFixed(0)} ms)`;
+  row.cells[1].className = "mono " + (entry.error ? "bad" : "ok");
+}
+
+// ---------- export ----------
+function report() {
+  return {
+    schema: SCHEMA,
+    generatedAt: new Date().toISOString(),
+    startedAt: state.startedAt,
+    tester: { controller: $("f-pad").value, connection: $("f-conn").value, os: $("f-os").value, browser: $("f-browser").value, notes: $("f-notes").value },
+    environment: E,
+    padsSeen: Object.values(state.pads),
+    mapping: state.mapping,
+    axes: state.axes,
+    latency: state.latency,
+    rumble: state.rumble,
+    hotplug: { summary: state.hotplug || null, marks: state.hotplugMarks },
+    events: state.events,
+  };
+}
+function fileName() {
+  const s = (x) => (x || "unknown").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return `s6-${s($("f-browser").value)}-${s($("f-os").value)}-${s($("f-pad").value)}-${s($("f-conn").value)}.json`;
+}
+$("export").onclick = () => {
+  const blob = new Blob([JSON.stringify(report(), null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = fileName();
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  $("export-status").textContent = "saved " + fileName();
+};
+$("copy").onclick = async () => {
+  try { await navigator.clipboard.writeText(JSON.stringify(report(), null, 2)); $("export-status").textContent = "copied"; }
+  catch (e) { $("export-status").textContent = "copy failed: " + e; }
+};
+
+// ---------- main loop ----------
+let lastPreview = 0;
+function frame(rafTime) {
+  pollPresence();
+  // auto-select the pad that last pressed something, if none selected
+  for (const gp of pads()) {
+    record(gp);
+    if (gp.buttons.some(b => b.pressed)) { state.lastActive = gp.index; if (state.selected == null) { state.selected = gp.index; refreshPadList(); } }
+  }
+  renderLive(pad(state.selected));
+  mapTick(); axisTick(); latTick(rafTime);
+  if (rafTime - lastPreview > 1000) { lastPreview = rafTime; $("preview").textContent = JSON.stringify(report(), null, 2).slice(0, 6000); }
+  requestAnimationFrame(frame);
+}
+refreshPadList();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
