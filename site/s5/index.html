@@ -131,7 +131,12 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     </div>
   </header>
 
-  <section class="panel">
+  <section class="panel" role="status" style="border-left:4px solid var(--bad)">
+    <h2>Handling is being rebuilt</h2>
+    <p>The car model that ran on this page has been taken down while it is rebuilt from scratch from written behaviour notes. Driving is off until the new build lands, and ratings from the old build no longer count. Ratings already saved in this browser are kept, and you can still download them and submit them on GitHub.</p>
+  </section>
+
+  <section class="panel" inert style="opacity:.5">
     <h2>Your data files</h2>
     <p class="muted">The handling constants are read from your own copy of the game. Files stay in this browser; nothing is uploaded. Until you load them, the car runs on invented placeholder values that are not the original's.</p>
     <div class="drop" id="drop">
@@ -145,7 +150,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     </div>
   </section>
 
-  <section class="bench">
+  <section class="bench" inert style="opacity:.5">
     <div class="panel">
       <div class="row" style="justify-content:space-between">
         <h2>Drive</h2>
@@ -246,7 +251,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     </div>
   </section>
 
-  <details class="panel" id="tuneBox">
+  <details class="panel" id="tuneBox" inert style="opacity:.5">
     <summary>Tune the current car</summary>
     <p class="muted">Changes apply instantly. These are the <span class="mono">.gci</span> fields in file order plus the sprite geometry from the <span class="mono">.sty</span>. Use this if the rating fails and the plan falls back to tuning by hand.</p>
     <div class="tune" id="tune"></div>
@@ -269,9 +274,10 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
 
   // ---------- WASM ----------
   async function boot() {
-    const res = await fetch("handling.wasm");
-    const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), {});
-    ex = instance.exports; mem = ex.memory;
+    // The handling build was withdrawn while it is rebuilt; nothing to load yet.
+    $("hashText").textContent = "Handling being rebuilt";
+    $("focusHint").textContent = "Handling being rebuilt";
+    return;
     ex.init();
     const h = (ex.selfTest() >>> 0).toString(16).padStart(8, "0");
     const ok = h === "b23b1606";
@@ -571,7 +577,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     const scores = {};
     for (const [k] of ASPECTS) { const c = document.querySelector(`input[name="s_${k}"]:checked`); scores[k] = c ? +c.value : null; }
     const rec = { name, know: $("rKnow").value, scores, verdict, notes: $("rNotes").value.trim(),
-      source: ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", at: Date.now() };
+      source: ex && ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", at: Date.now() };
     if (db) {
       try { await db.collection("ratings").add(rec); setRateMsg("Saved."); }
       catch (err) { setRateMsg("Could not save to the shared store (" + (err && err.code || "error") + "). Kept on this page; copy the Markdown before leaving.", true); ratings.push(rec); render(); }
@@ -614,11 +620,11 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
   });
 
   async function connectStore() {
-    const timer = setTimeout(() => { if (!db) $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and then <b>Submit on GitHub</b>."; }, 10000);
+    const timer = setTimeout(() => { if (!db) $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and then Submit on GitHub."; }, 10000);
     try {
       db = window.claude && window.claude.use ? await window.claude.use("db") : null;
     } catch { db = null; }
-    if (!db) { clearTimeout(timer); $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and then <b>Submit on GitHub</b>."; return; }
+    if (!db) { clearTimeout(timer); $("storeMsg").textContent = "Ratings are kept in this browser. Press Download results and then Submit on GitHub."; return; }
     db.collection("ratings").orderBy("at").onSnapshot((snap) => {
       clearTimeout(timer);
       ratings = snap.docs.map((d) => d.data());
@@ -647,14 +653,11 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
 <script>
 window.TESTER = {
   spike: "s5", title: "Does this car feel like GTA2?", time: "15 minutes per rater",
-  intro: "This is a re-creation of GTA2's car handling, driven from the game's own handling file. We need people who know the game to say whether it feels right.",
-  needs: "your own copy of GTA2 (<code>nyc.gci</code> and a <code>.sty</code> such as <code>wil.sty</code> from its <code>data</code> folder), a keyboard or gamepad, and ideally a video clip of the original game driving. Your files and video stay in this browser and are never uploaded.",
+  intro: "Not open right now. The car handling is being rebuilt from scratch, so there is nothing to drive on this page until the new build is up.",
+  needs: "nothing for now. When the new build lands this guide will list what to bring again.",
   steps: [
-    "Under <b>Your data files</b>, choose <code>nyc.gci</code> and a <code>.sty</code> file. The chip at the top should change from Placeholder constants. Ratings on placeholder constants do not count.",
-    "Pick a car you know well, and if you have a clip of the original, open it under <b>Original footage</b>.",
-    "Click the driving view and drive for about five minutes: arrows or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Space</kbd> handbrake, <kbd>R</kbd> reset. Do a straight run to top speed, the block circuits, handbrake turns in the open lot, and hit a few walls.",
-    "Fill in the <b>Rating sheet</b> on your own, without looking at anyone else's answers, and press <b>Save rating</b>. More than one person can rate on the same computer.",
-    "Press <b>Download results</b> and then <b>Submit on GitHub</b>.",
+    "Check back later. The notice at the top of the page goes away when the handling is back.",
+    "If you saved ratings here earlier, press <b>Download results</b> and then <b>Submit on GitHub</b> so they are not lost. They were made on the old build.",
   ],
   fields: [
     { id: "footage", label: "What did you compare against?", type: "radio", options: ["A video clip", "Playing the original just before", "Memory only"] },
