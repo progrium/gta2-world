@@ -84,7 +84,8 @@ void main() {
   uint sprite = i_look.x;
   uvec4 r = texelFetch(u_sprites, ivec2(int(sprite % 64u), int(sprite / 64u)), 0);
   vec2 size = vec2(float(r.w & 255u), float(r.w >> 8u));
-  // Sprites face up (-y) in the image; the sim's heading 0 is +x.
+  // Draws the image's top along the angle; list.zig turns GTA2 sprites,
+  // which face down (+y), half round. The sim's heading 0 is +x.
   float a = i_pose.w;
   vec2 right = vec2(-sin(a), cos(a));
   vec2 down = vec2(-cos(a), -sin(a));
