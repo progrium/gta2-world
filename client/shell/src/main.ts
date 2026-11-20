@@ -9,6 +9,7 @@ import type { HostSession } from "./host/hostSession.ts";
 import { InputSystem } from "./input/system.ts";
 import type { RtcPeer } from "./net/rtc.ts";
 import { parseJoinHash } from "./net/signal.ts";
+import "./net/signal-ws.ts";
 import { sessionIdFromUrl } from "./session.ts";
 import { gameScreen } from "./ui/gameScreen.ts";
 import { hostPanel, hostScreen } from "./ui/hostScreen.ts";

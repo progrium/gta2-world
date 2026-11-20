@@ -6,7 +6,7 @@ import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { hostFiles } from "../lobby/assets.ts";
 import type { LoopbackEnd } from "../net/connection.ts";
 import { joinHash } from "../net/signal.ts";
-import { createSignaller, newRoom } from "../net/signaller.ts";
+import { openSignaller, newRoom } from "../net/signaller.ts";
 import { HostPeers, type HostWorkerLike, type PeerView, type Ready, createHostWorker } from "./hostPeers.ts";
 
 export const HOST_MAX_PLAYERS = 16;
@@ -14,7 +14,7 @@ export const HOST_MAX_PLAYERS = 16;
 export class HostSession {
   share: boolean;
   readonly map: MapChoice;
-  readonly room: string;
+  room: string;
   peers: HostPeers | null = null;
   ready: Ready | null = null;
   error = "";
@@ -29,7 +29,9 @@ export class HostSession {
   /** Opens the room and starts the host Worker on `map`. */
   static async start(store: AssetStore, map: MapChoice, share: boolean, worker?: HostWorkerLike): Promise<HostSession> {
     const s = new HostSession(map, share, newRoom());
-    const sig = await createSignaller("host", s.room);
+    const opened = await openSignaller("host", s.room);
+    s.room = opened.room;
+    const sig = opened.signaller;
     let w: HostWorkerLike;
     try {
       w = worker ?? createHostWorker();

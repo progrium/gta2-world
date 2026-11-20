@@ -13,7 +13,8 @@ import type { Signaller } from "./signal.ts";
 export const SIGNAL_URL: string | null = null;
 
 export type Role = "host" | "peer";
-export type SignallerFactory = (role: Role, room: string, url: string) => Signaller | Promise<Signaller>;
+/** For "host", a service that assigns room ids returns the room it made (the `room` passed in is only a suggestion). */
+export type SignallerFactory = (role: Role, room: string, url: string) => Promise<Signaller | { room: string; signaller: Signaller }>;
 
 const factories = new Map<string, SignallerFactory>();
 
@@ -30,12 +31,18 @@ export function signalSetting(search: string = typeof location === "undefined" ?
 }
 
 export async function createSignaller(role: Role, room: string, search?: string): Promise<Signaller> {
+  return (await openSignaller(role, room, search)).signaller;
+}
+
+/** Like createSignaller, and also says which room was opened: a hosted room's id may come from the service. */
+export async function openSignaller(role: Role, room: string, search?: string): Promise<{ room: string; signaller: Signaller }> {
   const url = signalSetting(search);
-  if (!url) return role === "host" ? BcSignaller.host(room) : BcSignaller.peer(room);
+  if (!url) return { room, signaller: role === "host" ? BcSignaller.host(room) : BcSignaller.peer(room) };
   const kind = /^wss?:/i.test(url) ? "ws" : url.split(":")[0]!;
   const f = factories.get(kind);
   if (!f) throw new Error(`no signalling client for ${url} in this build`);
-  return f(role, room, url);
+  const r = await f(role, room, url);
+  return "signaller" in r ? r : { room, signaller: r };
 }
 
 /** A new room name: 8 characters of base32 (a-z, 2-7), as parseJoinHash expects. */

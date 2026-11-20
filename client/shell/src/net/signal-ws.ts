@@ -8,6 +8,7 @@
 // them), so `signaller.ice` is ready to pass to RTCPeerConnection.
 
 import type { IceConfig, SignalMsg, SignalPeer, Signaller } from "./signal.ts";
+import { registerSignaller } from "./signaller.ts";
 
 /** Server -> client messages. */
 type ServerMsg =
@@ -178,3 +179,6 @@ export async function joinRoom(base: string, room: string): Promise<Signaller> {
   if (!/^[a-z2-7]{8}$/.test(room)) throw new Error("bad room id");
   return connect(`${wsBase(base)}/r/${room}`);
 }
+
+// The page's signaller factory picks this for ?signal=wss://... or SIGNAL_URL.
+registerSignaller("ws", (role, room, url) => (role === "host" ? hostRoom(url) : joinRoom(url, room)));
