@@ -86,8 +86,12 @@ pub const EventKind = enum(u8) {
     player_joined = 2,
     /// a = slot
     player_left = 3,
-    /// x, y, z of a vehicle explosion; a = vehicle model
+    /// x, y, z of an explosion; a = cause (0 rocket, 1 car)
     explosion = 4,
+    /// a = winner slot; every score has been reset (M3 proposal)
+    round_end = 5,
+    /// x, y, z of a pickup taken; a = slot, b = what (weapon index, 4 health) (M3 proposal)
+    pickup = 6,
     _,
 };
 

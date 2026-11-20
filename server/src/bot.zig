@@ -150,6 +150,10 @@ fn Bot(comptime Sim: type) type {
         inputs_sent: u64 = 0,
         rtt_ms: u32 = 0,
         events: u64 = 0,
+        kills: u64 = 0,
+        deaths: u64 = 0,
+        explosions: u64 = 0,
+        rounds: u64 = 0,
         player_infos: u64 = 0,
         rng: std.Random.DefaultPrng,
         t_start: u64,
@@ -299,7 +303,20 @@ fn Bot(comptime Sim: type) type {
                 },
                 .baseline => self.onSnapshot(body, true),
                 .player_info => self.player_infos += 1,
-                .event => self.events += 1,
+                .event => {
+                    self.events += 1;
+                    const e = wire.Event.decode(&r) catch return;
+                    const own = self.n_slots > 0;
+                    switch (e.kind) {
+                        .kill => if (own) {
+                            if (e.a == self.slots[0] and e.b != e.a) self.kills += 1;
+                            if (e.b == self.slots[0]) self.deaths += 1;
+                        },
+                        .explosion => self.explosions += 1,
+                        .round_end => self.rounds += 1,
+                        else => {},
+                    }
+                },
                 else => {},
             }
         }
@@ -357,12 +374,23 @@ fn Bot(comptime Sim: type) type {
             // Every tick up to t gets exactly one frame, even when clock
             // steering jumps ahead; a gap would make the server drop the
             // whole datagram (seq must match position).
+            const target = self.nearestEnemy();
             while (@as(i32, @bitCast(t -% self.next_gen)) >= 0) : (self.next_gen +%= 1) {
                 var f = input.Frame.neutral(input.seqOf(self.next_gen));
-                // Wander: mostly forward, steer drifting.
-                f.throttle = 100;
-                f.steer = @intCast(@as(i32, self.rng.random().intRangeAtMost(i8, -40, 40)));
-                if (self.rng.random().uintLessThan(u8, 30) == 0) f.buttons = input.Button.fire;
+                if (target) |tg| {
+                    // Fight: run at the nearest other player in direct mode,
+                    // fire when close, switch weapons now and then.
+                    f.buttons = input.Button.direct | input.Button.run;
+                    f.aim = tg.aim;
+                    f.throttle = if (tg.dist < 2.5) 0 else 110;
+                    if (tg.dist < 9 and self.rng.random().uintLessThan(u8, 3) != 0) f.buttons |= input.Button.fire;
+                    if (self.rng.random().uintLessThan(u16, 400) == 0) f.buttons |= input.Button.weapon_next;
+                } else {
+                    // Wander: mostly forward, steer drifting.
+                    f.throttle = 100;
+                    f.steer = @intCast(@as(i32, self.rng.random().intRangeAtMost(i8, -40, 40)));
+                    if (self.rng.random().uintLessThan(u8, 30) == 0) f.buttons = input.Button.fire;
+                }
                 self.frames[self.next_gen % 64] = f;
             }
 
@@ -386,6 +414,37 @@ fn Bot(comptime Sim: type) type {
             self.sendWs(0, w.written());
             self.inputs_sent += 1;
         }
+        fn pedPos(self: *Self, slot: u8) ?[2]f64 {
+            const row = self.mirror.component(abi.PlayerRow, 15, slot, 0xFFFF) orelse return null;
+            if (row.ped.isNone()) return null;
+            const t = self.mirror.component(abi.Transform, row.ped.kind(), row.ped.index(), 1) orelse return null;
+            return .{ @as(f64, @floatFromInt(t.x)) / 65536.0, @as(f64, @floatFromInt(t.y)) / 65536.0 };
+        }
+
+        /// Aim heading and distance to the nearest other player on foot.
+        const Enemy = struct { aim: u16, dist: f64 };
+        fn nearestEnemy(self: *Self) ?Enemy {
+            if (self.n_slots == 0) return null;
+            const me = self.pedPos(self.slots[0]) orelse return null;
+            var best: ?Enemy = null;
+            var slot: u8 = 0;
+            while (slot < 16) : (slot += 1) {
+                var mine = false;
+                for (self.slots[0..self.n_slots]) |s| mine = mine or s == slot;
+                if (mine) continue;
+                const p = self.pedPos(slot) orelse continue;
+                const dx = p[0] - me[0];
+                const dy = p[1] - me[1];
+                const d = @sqrt(dx * dx + dy * dy);
+                if (best != null and best.?.dist <= d) continue;
+                const a = std.math.atan2(dy, dx); // -pi..pi, 0 = +x
+                const turns = a / (2 * std.math.pi);
+                const units: i64 = @intFromFloat(@round(turns * 65536.0));
+                best = .{ .aim = @truncate(@as(u64, @bitCast(units))), .dist = d };
+            }
+            return best;
+        }
+
         fn sendBye(self: *Self) void {
             if (self.closed) return;
             self.sendWs(1, &.{ @intFromEnum(wire.Msg.bye), 0 });
@@ -404,8 +463,8 @@ fn Bot(comptime Sim: type) type {
             }
             const ok = self.welcomed and self.have_baseline and self.decode_errors == 0 and self.snapshots > 0 and self.rejected == null;
             const lag = self.client_tick -% self.input_ack[0];
-            std.debug.print("bot {d}: {s} slots={any} snapshots={d} stale={d} records={d} live={d} decode_errors={d} inputs={d} rtt={d}ms slack_q={d} ack_lag={d} events={d} infos={d} pos=({d:.2},{d:.2})\n", .{
-                self.n,                       if (ok) "ok" else "FAILED", self.slots[0..self.n_slots], self.snapshots, self.stale, self.records, self.mirror.liveCount(), self.decode_errors, self.inputs_sent, self.rtt_ms, self.slack, lag, self.events, self.player_infos, pos[0], pos[1],
+            std.debug.print("bot {d}: {s} slots={any} snapshots={d} stale={d} records={d} live={d} decode_errors={d} inputs={d} rtt={d}ms slack_q={d} ack_lag={d} events={d} kills={d} deaths={d} explosions={d} rounds={d} infos={d} pos=({d:.2},{d:.2})\n", .{
+                self.n,                       if (ok) "ok" else "FAILED", self.slots[0..self.n_slots], self.snapshots, self.stale, self.records, self.mirror.liveCount(), self.decode_errors, self.inputs_sent, self.rtt_ms, self.slack, lag, self.events, self.kills, self.deaths, self.explosions, self.rounds, self.player_infos, pos[0], pos[1],
             });
             return ok;
         }

@@ -1,13 +1,16 @@
 // Screen 3: the game. The map and style come from the player's own files
 // (OPFS cache), the sim runs in WASM (client/wasm) and the WebGL2 renderer
-// (client/render) draws it. M1 is one local player with no server: the
-// browser is the authority, so the handling tuning panel can change the
-// sim's numbers live.
+// (client/render) draws it. Offline the browser is the authority, so the
+// handling tuning panel can change the sim's numbers live; online
+// (?server=) the game server is. M3 adds the deathmatch HUD: weapon and
+// rounds, kill feed, scoreboard (Tab), round winner, and sounds for shots,
+// hits, explosions and pickups.
 
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
-import { GameModule } from "../game/wasm.ts";
+import { type Cue, type GameEvent, GameModule, MAX_PLAYERS, WEAPON_NAMES } from "../game/wasm.ts";
+import type { Cue as CueName } from "../audio/cues.ts";
 import { Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
 import { Effects, rumbleSettings, rumbleSupport } from "../input/rumble.ts";
@@ -49,6 +52,12 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const playLine = h("div", { class: "mono" });
   const frameLine = h("div", { class: "mono frame small muted" });
   const fpsLine = h("span", { class: "mono small muted" });
+  const weaponLine = h("div", { class: "weaponhud" });
+  const feed = h("div", { class: "feed" });
+  const banner = h("div", { class: "banner hidden" });
+  const scores = h("div", { class: "scores hidden" });
+  let showScores = false;
+  let bannerUntil = 0;
   let paused = false;
   let overlay: HTMLElement | null = null;
   let game: GameModule | null = null;
@@ -149,7 +158,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     const pads = [...input.pads.pads.values()];
     if (!("getGamepads" in navigator)) padsLine.append(h("span", { class: "muted" }, "This browser has no Gamepad API; keyboard only."));
     else if (!isSecureContext) padsLine.append(h("span", { class: "warn" }, "Controllers need https or localhost."));
-    else if (pads.length === 0) padsLine.append(h("span", { class: "prompt" }, "Keyboard: arrows/WASD, Enter/F get in or out, Space handbrake or jump, Shift run. Press a button on a controller to use it."));
+    else if (pads.length === 0) padsLine.append(h("span", { class: "prompt" }, "Keyboard: arrows/WASD, Enter/F get in or out, Ctrl/J fire, Z/X weapons, Space handbrake or jump, Shift run, Tab scores. Press a button on a controller to use it."));
     for (const p of pads) {
       const owner = input.players.find((pl) => pl.pad === p.index);
       padsLine.append(
@@ -166,7 +175,16 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const offInput = input.on(renderPads);
   renderPads();
 
+  const onKeyUp = (e: KeyboardEvent): void => {
+    if (e.code === "Tab") showScores = false;
+  };
+  addEventListener("keyup", onKeyUp);
   const onKey = (e: KeyboardEvent): void => {
+    if (e.code === "Tab") {
+      e.preventDefault();
+      showScores = true;
+      return;
+    }
     if (e.repeat || (e.target instanceof HTMLElement && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName))) return;
     if (e.code === "KeyT") toggleTuning();
     else if (e.code === "KeyN") toggleNight();
@@ -190,6 +208,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       if (paused || !game || online || o.server) return;
       const fr = input.latch(t);
       game.step(fr, t);
+      for (const e of game.takeEvents()) onGameEvent(e);
       afterTick(fr[0]!, 0);
     },
     render: (alpha, now) => {
@@ -237,7 +256,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       const bnames = BUTTON_NAMES.filter(([bit]) => f.buttons & bit).map(([, n]) => n);
       frameLine.textContent = `I2 ${hex(f)}  steer ${f.steer} throttle ${f.throttle} aim ${f.aim} [${bnames.join(" ")}]`;
       const where = p.respawnTimer > 0 ? "dead, respawning" : p.inCar ? `in car · ${(p.speed * 30).toFixed(1)} blocks/s` : `on foot (${input.schemeOf(input.players[0]!)})`;
-      playLine.textContent = `tick ${g.tick} · ${where} · hp ${p.hp} · kills ${p.kills} deaths ${p.deaths}${online ? netLine : ""}`;
+      playLine.textContent = `tick ${g.tick} · ${where} · hp ${p.hp} · score ${p.score} · kills ${p.kills} deaths ${p.deaths}${online ? netLine : ""}`;
+      weaponLine.textContent = p.respawnTimer > 0 ? "" : `${WEAPON_NAMES[p.weapon] ?? "?"}${p.rounds < 0 ? "" : ` · ${p.rounds}`} · ♥ ${Math.max(0, p.hp)} · ${p.score} pts`;
     }
   }
 
@@ -251,8 +271,14 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       camera.update({ x: t.x, y: t.y, z: t.z, speed: Math.hypot(t.vx, t.vy) * 30 }, dt);
       audio.setListener(t.x, t.y, t.z);
     }
-    const list = game.renderList(paused ? 1 : alpha);
+    const list = game.renderList(paused ? 1 : alpha, now);
     renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
+    for (const c of game.takeCues()) playCue(c);
+    if (bannerUntil && now > bannerUntil) {
+      bannerUntil = 0;
+      banner.classList.add("hidden");
+    }
+    renderScores();
     frames++;
     if (now - fpsT >= 1000) {
       fpsLine.textContent = `${((frames * 1000) / (now - fpsT)).toFixed(0)} fps`;
@@ -317,7 +343,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
             if (p.flags & 1) names.set(p.slot, p.name || `player ${p.slot + 1}`);
             else names.delete(p.slot);
           },
-          event: () => {},
+          event: (e) => onGameEvent({ kind: e.kind, a: e.a, b: e.b, c: e.c, x: e.x / 65536, y: e.y / 65536, z: e.z / 65536 }),
           reject: (_code, message) => {
             status.textContent = `The server refused: ${message}`;
             status.classList.add("bad");
@@ -336,7 +362,104 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     });
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, status), hud);
+  // ---------------------------------------------------------------- M3 HUD
+
+  const nameOf = (slot: number): string => {
+    if (slot === 0xff) return "the city";
+    if (!online && !o.server) return slot === 0 ? "You" : `Player ${slot + 1}`;
+    if (slot === ownSlot) return "You";
+    return names.get(slot) ?? `Player ${slot + 1}`;
+  };
+  const weaponWord = (c: number): string => (c === 0x80 ? "a car" : c === 0x81 ? "fire" : (WEAPON_NAMES[c] ?? "?").toLowerCase());
+  const SHOT_CUES: CueName[] = ["pistol", "machine_gun", "shotgun", "rocket_launch"];
+
+  function feedLine(text: string, mine = false): void {
+    const line = h("div", { class: mine ? "mine" : "" }, text);
+    feed.prepend(line);
+    while (feed.childElementCount > 5) feed.lastElementChild?.remove();
+    setTimeout(() => line.remove(), 6000);
+  }
+
+  function onGameEvent(e: GameEvent): void {
+    const g = game;
+    const now = performance.now();
+    switch (e.kind) {
+      case 1: {
+        // kill: a killer (0xFF none), b victim, c weapon
+        const victim = nameOf(e.b);
+        const mine = e.a === ownSlot || e.b === ownSlot;
+        if (e.a === e.b) feedLine(`${victim} ${e.b === ownSlot ? "killed yourself" : "died by their own hand"}`, mine);
+        else if (e.a === 0xff) feedLine(`${victim} ${e.b === ownSlot ? "were" : "was"} killed by ${weaponWord(e.c)}`, mine);
+        else feedLine(`${nameOf(e.a)} killed ${victim === "You" ? "you" : victim} with ${weaponWord(e.c)}`, mine);
+        if (e.b === ownSlot) {
+          audio.play("ped_death");
+          input.rumble(0, Effects.collisionHeavy);
+        }
+        break;
+      }
+      case 2:
+        if (e.a !== ownSlot) feedLine(`${nameOf(e.a)} joined`);
+        break;
+      case 3:
+        feedLine(`${nameOf(e.a)} left`);
+        break;
+      case 4: {
+        g?.explosion(e.x, e.y, e.z, now);
+        audio.play("explosion", e.x, e.y, e.z);
+        const t = g?.camera(1, ownSlot);
+        if (t?.found && Math.hypot(t.x - e.x, t.y - e.y) < 6) input.rumble(0, Effects.collisionHeavy);
+        break;
+      }
+      case 5:
+        banner.textContent = e.a === ownSlot ? "You win the round!" : `${nameOf(e.a)} wins the round`;
+        banner.classList.remove("hidden");
+        bannerUntil = now + 6000;
+        feedLine(`Round over: ${nameOf(e.a)} won. Scores reset.`, e.a === ownSlot);
+        break;
+      case 6:
+        if (e.a === ownSlot) {
+          audio.play("pickup", e.x, e.y, e.z);
+          feedLine(e.b === 4 ? "Health" : `${WEAPON_NAMES[e.b] ?? "Weapon"}`, true);
+        }
+        break;
+    }
+  }
+
+  function playCue(c: Cue): void {
+    if (c.kind === 1) audio.play(SHOT_CUES[c.a] ?? "pistol", c.x, c.y, c.z);
+    else if (c.kind === 2) audio.play("ped_hurt", c.x, c.y, c.z);
+    else if (c.kind === 3) audio.play("bullet_hit", c.x, c.y, c.z);
+    else if (c.kind === 4) audio.play("weapon_switch");
+  }
+
+  let scoresKey = "";
+  function renderScores(): void {
+    const g = game;
+    const show = (showScores || bannerUntil > 0) && !!g;
+    scores.classList.toggle("hidden", !show);
+    if (!show || !g) return;
+    const rows: { slot: number; score: number; kills: number; deaths: number }[] = [];
+    for (let s = 0; s < MAX_PLAYERS; s++) {
+      const p = g.player(s);
+      if (p.active) rows.push({ slot: s, score: p.score, kills: p.kills, deaths: p.deaths });
+    }
+    rows.sort((a, b) => b.score - a.score || a.deaths - b.deaths || a.slot - b.slot);
+    const key = JSON.stringify(rows) + [...names.entries()].join();
+    if (key === scoresKey) return;
+    scoresKey = key;
+    clear(scores);
+    scores.append(
+      h(
+        "table",
+        {},
+        h("tr", {}, h("th", {}, "Player"), h("th", {}, "Score"), h("th", {}, "Kills"), h("th", {}, "Deaths")),
+        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, nameOf(r.slot)), h("td", {}, String(r.score)), h("td", {}, String(r.kills)), h("td", {}, String(r.deaths)))),
+      ),
+      h("div", { class: "muted small" }, "First to 10 wins the round. Hold Tab for scores."),
+    );
+  }
+
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, status, weaponLine, feed, banner, scores), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();
@@ -351,6 +474,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     audio.stopAll();
     offInput();
     removeEventListener("keydown", onKey);
+    removeEventListener("keyup", onKeyUp);
     input.inVehicle = () => false;
     clear(root);
   };

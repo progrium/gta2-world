@@ -259,6 +259,29 @@ export fn gameStep() void {
     for (&frames) |*f| f.* = f.sanitize();
     game.step(&frames, pending[0..pending_len]);
     pending_len = 0;
+    // Offline, the sim's game events go to JavaScript (online they come
+    // from the server as I3 events).
+    for (game.events()) |e| {
+        if (sim_events_len == sim_events.len) break;
+        sim_events[sim_events_len] = .{ .kind = @intFromEnum(e.kind), .a = e.a, .b = e.b, .c = e.c, .x = e.x, .y = e.y, .z = e.z };
+        sim_events_len += 1;
+    }
+}
+
+/// Game events from offline steps since the last `simEventsTake`, in the
+/// I3 event layout: kind, a, b, c as u8, then x, y, z as fx i32.
+pub const SimEvent = extern struct { kind: u8, a: u8, b: u8, c: u8, x: i32, y: i32, z: i32 };
+var sim_events: [64]SimEvent = undefined;
+var sim_events_len: usize = 0;
+var sim_events_out: [64]SimEvent = undefined;
+export fn simEventsTake() usize {
+    const n = sim_events_len;
+    @memcpy(sim_events_out[0..n], sim_events[0..n]);
+    sim_events_len = 0;
+    return n;
+}
+export fn simEventsPtr() [*]const u8 {
+    return @ptrCast(&sim_events_out);
 }
 
 export fn gameTick() u32 {
@@ -274,8 +297,9 @@ export fn gameHash() [*]const u32 {
     return &hash_buf;
 }
 
-/// [active, in_car, hp, kills, deaths, respawn_timer, speed (fx), z (fx)]
-var player_buf: [8]i32 = undefined;
+/// [active, in_car, hp, kills, deaths, respawn_timer, speed (fx), z (fx),
+///  weapon, rounds (-1 unlimited), score]
+var player_buf: [11]i32 = undefined;
 export fn playerInfo(slot: u32) [*]const i32 {
     player_buf = @splat(0);
     if (slot >= max_players) return &player_buf;
@@ -284,6 +308,7 @@ export fn playerInfo(slot: u32) [*]const i32 {
     player_buf[0] = @intFromBool(row.flags & abi.PlayerRow.flag_active != 0);
     player_buf[1] = @intFromBool(!row.car.isNone());
     player_buf[3] = row.kills;
+    player_buf[10] = row.score;
     player_buf[4] = row.deaths;
     player_buf[5] = @bitCast(row.respawn_timer);
     const t = list.target(&layout, g.stateBytes(), slot);
@@ -291,7 +316,16 @@ export fn playerInfo(slot: u32) [*]const i32 {
         player_buf[6] = @intFromFloat(@sqrt(t.vx * t.vx + t.vy * t.vy) * @as(f32, abi.fx_one));
         player_buf[7] = @intFromFloat(t.z * @as(f32, abi.fx_one));
     }
-    if (!row.ped.isNone()) player_buf[2] = healthOf(g, row.ped);
+    if (!row.ped.isNone()) {
+        player_buf[2] = healthOf(g, row.ped);
+        if (readComp(sim.c.Weapon, g.stateBytes(), row.ped)) |wp| {
+            var w = wp;
+            const k = @min(w.kind, sim.tuning.weapon_count - 1);
+            player_buf[8] = k;
+            const r = w.rounds()[k];
+            player_buf[9] = if (r == sim.tuning.infinite_ammo) -1 else r;
+        }
+    }
     return &player_buf;
 }
 
@@ -324,13 +358,225 @@ fn bases() list.Bases {
 
 /// Builds the render list between the last two steps at `alpha`. Returns
 /// the instance count.
-export fn buildList(alpha: f32) usize {
+export fn buildList(alpha: f32, now_ms: f64) usize {
     if (client) |cl| {
         if (!cl.started) return 0;
-        return list.build(&layout, null, cl.renderState(net_now), 1, bases(), &instances);
+        const st = cl.renderState(net_now);
+        const n = list.build(&layout, null, st, 1, bases(), &instances);
+        return decorate(st, n, now_ms, cl.own_slot);
     }
     if (!running) return 0;
-    return list.build(&layout, &prev_state, game.stateBytes(), alpha, bases(), &instances);
+    const n = list.build(&layout, &prev_state, game.stateBytes(), alpha, bases(), &instances);
+    return decorate(game.stateBytes(), n, now_ms, 0);
+}
+
+// ------------------------------------------------------------------ effects
+
+/// Code-object sprite numbers (relative to the style's code_obj group),
+/// picked by eye from the player's own styles; the same in all three
+/// districts. Pickups spin through 8 frames from their first.
+const spr = struct {
+    const bullet: u16 = 15;
+    const rocket: u16 = 403;
+    const explosion_first: u16 = 327;
+    const explosion_frames: u16 = 15;
+    const explosion_ms: f64 = 900;
+    const fire_first: u16 = 380;
+    const fire_frames: u16 = 10;
+    /// Machine gun, shotgun, rockets, health; index 0 (pistol) is unused.
+    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 223 };
+    const pickup_frames: u16 = 8;
+};
+
+const Effect = struct { x: f32, y: f32, z: f32, t0: f64 };
+var effects: [32]Effect = undefined;
+var effects_next: usize = 0;
+var effects_len: usize = 0;
+
+/// Adds an explosion at fx position (x, y, z), from an I3 or offline event.
+export fn effectExplosion(x: i32, y: i32, z: i32, now_ms: f64) void {
+    const f: f32 = 1.0 / @as(f32, abi.fx_one);
+    effects[effects_next] = .{ .x = @as(f32, @floatFromInt(x)) * f, .y = @as(f32, @floatFromInt(y)) * f, .z = @as(f32, @floatFromInt(z)) * f, .t0 = now_ms };
+    effects_next = (effects_next + 1) % effects.len;
+    effects_len = @min(effects_len + 1, effects.len);
+}
+
+fn columnOf(kind: abi.Kind, comp: abi.ComponentId) ?abi.ColumnDesc {
+    for (Sim.views()) |v| {
+        if (v.kind == @intFromEnum(kind) and v.component == @intFromEnum(comp)) return v;
+    }
+    return null;
+}
+
+/// A component of entity `id` read from a state buffer (sim or render).
+fn readComp(comptime C: type, state: []const u8, id: abi.EntityId) ?C {
+    if (id.isNone() or id.kind() > @intFromEnum(abi.Kind.map_object)) return null;
+    const v = columnOf(@enumFromInt(id.kind()), C.id) orelse return null;
+    return readAt(C, state, v, id.index());
+}
+fn readAt(comptime C: type, state: []const u8, v: abi.ColumnDesc, i: u32) ?C {
+    if (i >= v.count) return null;
+    const off = v.offset + i * v.stride;
+    if (off + @sizeOf(C) > state.len) return null;
+    return std.mem.bytesToValue(C, state[off..][0..@sizeOf(C)]);
+}
+
+/// Sprites the plain list cannot know: rounds by weapon, spinning pickups,
+/// fire on burning cars, dark wrecks, explosions. Also watches for shots,
+/// hits and weapon changes, for sound.
+fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
+    const s = &(style orelse return n_in);
+    const code = s.sprite_base.base(.code_obj);
+    var n = n_in;
+    const frame16: u16 = @truncate(@as(u64, @intFromFloat(@max(0, now_ms))) / 70);
+    const proj_col = columnOf(.projectile, .projectile);
+    const pick_col = columnOf(.pickup, .appearance);
+    const veh_col = columnOf(.car, .vehicle);
+    for (instances[0..n_in]) |*in| {
+        switch (in.kind) {
+            @intFromEnum(abi.Kind.projectile) => {
+                const p = readAt(sim.c.Projectile, state, proj_col orelse continue, in.index) orelse continue;
+                in.sprite = @intCast(code + if (p.weapon == sim.tuning.weapon_rocket) spr.rocket else spr.bullet);
+                in.flags |= list.Instance.flag_glow;
+                in.palette = list.Instance.own_palette;
+            },
+            @intFromEnum(abi.Kind.pickup) => {
+                const a = readAt(abi.Appearance, state, pick_col orelse continue, in.index) orelse continue;
+                const what = @min(a.sprite, sim.tuning.pickup_kinds - 1);
+                in.sprite = @intCast(code + spr.pickup_first[what] + frame16 / 2 % spr.pickup_frames);
+                in.angle = 0;
+                in.flags |= list.Instance.flag_glow;
+            },
+            @intFromEnum(abi.Kind.car) => {
+                const v = readAt(sim.c.Vehicle, state, veh_col orelse continue, in.index) orelse continue;
+                if (v.flags & sim.c.Vehicle.flag_wrecked != 0) {
+                    in.flags |= list.Instance.flag_dark;
+                    in.palette = list.Instance.own_palette;
+                }
+                if (v.flags & sim.c.Vehicle.flag_burning != 0 and n < instances.len) {
+                    instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
+                    n += 1;
+                }
+            },
+            else => {},
+        }
+    }
+    for (effects[0..effects_len]) |e| {
+        const age = now_ms - e.t0;
+        if (age < 0 or age >= spr.explosion_ms or n >= instances.len) continue;
+        const fr: u16 = @intFromFloat(age / spr.explosion_ms * @as(f64, spr.explosion_frames));
+        instances[n] = .{ .x = e.x, .y = e.y, .z = e.z, .angle = 0, .sprite = @intCast(code + spr.explosion_first + fr), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
+        n += 1;
+    }
+    watch(state, own_slot);
+    return n;
+}
+
+// ------------------------------------------------------------------ sound cues
+
+/// What the watcher saw since the last `cuesTake`: kind, a (weapon), and a
+/// position in blocks.
+pub const Cue = extern struct { kind: u32, a: u32, x: f32, y: f32, z: f32, _pad: u32 = 0 };
+pub const cue_shot: u32 = 1;
+pub const cue_hurt_ped: u32 = 2;
+pub const cue_hurt_car: u32 = 3;
+pub const cue_switch: u32 = 4;
+var cues: [64]Cue = undefined;
+var cues_len: usize = 0;
+var cues_out: [64]Cue = undefined;
+export fn cuesTake() usize {
+    const n = cues_len;
+    @memcpy(cues_out[0..n], cues[0..n]);
+    cues_len = 0;
+    return n;
+}
+export fn cuesPtr() [*]const u8 {
+    return @ptrCast(&cues_out);
+}
+fn cue(kind: u32, a: u32, t: abi.Transform) void {
+    if (cues_len == cues.len) return;
+    const f: f32 = 1.0 / @as(f32, abi.fx_one);
+    cues[cues_len] = .{ .kind = kind, .a = a, .x = @as(f32, @floatFromInt(t.x)) * f, .y = @as(f32, @floatFromInt(t.y)) * f, .z = @as(f32, @floatFromInt(t.z)) * f };
+    cues_len += 1;
+}
+
+var seen_proj_gen: [Sim.config.projectile_capacity]u16 = @splat(0xFFFF);
+var seen_hp: [2][@max(Sim.config.car_capacity, Sim.config.ped_capacity)]i32 = @splat(@splat(0));
+var seen_gen: [2][@max(Sim.config.car_capacity, Sim.config.ped_capacity)]u16 = @splat(@splat(0xFFFF));
+var own_cooldown: u16 = 0;
+var own_weapon: u8 = 0;
+var own_ped: abi.EntityId = .none;
+
+fn watch(state: []const u8, own_slot: u32) void {
+    var own: abi.EntityId = .none;
+    if (own_slot < max_players) {
+        const pr_off = for (Sim.views()) |v| {
+            if (v.component == abi.ColumnDesc.Special.player_rows) break v;
+        } else null;
+        if (pr_off) |v| if (readAt(abi.PlayerRow, state, v, own_slot)) |row| {
+            own = row.ped;
+        };
+    }
+    // Own shots and weapon changes, from the own ped's weapon.
+    if (readComp(sim.c.Weapon, state, own)) |w| {
+        const same = sim.ecs.eql(own, own_ped);
+        if (same and w.cooldown > own_cooldown) {
+            if (readComp(abi.Transform, state, own)) |t| cue(cue_shot, w.kind, t);
+        }
+        if (same and w.kind != own_weapon) {
+            if (readComp(abi.Transform, state, own)) |t| cue(cue_switch, w.kind, t);
+        }
+        own_cooldown = w.cooldown;
+        own_weapon = w.kind;
+    }
+    own_ped = own;
+    // Everyone else's shots: projectiles that appeared, one cue per shooter.
+    if (columnOf(.projectile, .projectile)) |pc| if (columnOf(.projectile, .transform)) |tc| {
+        const gens = for (Sim.views()) |v| {
+            if (v.kind == @intFromEnum(abi.Kind.projectile) and v.component == abi.ColumnDesc.Special.generation) break v;
+        } else null;
+        const slots = for (Sim.views()) |v| {
+            if (v.kind == @intFromEnum(abi.Kind.projectile) and v.component == abi.ColumnDesc.Special.slot) break v;
+        } else null;
+        var last_owner: abi.EntityId = .none;
+        if (gens != null and slots != null) for (0..Sim.config.projectile_capacity) |i| {
+            const alive = state[slots.?.offset + i] == 1;
+            if (!alive) {
+                seen_proj_gen[i] = 0xFFFF;
+                continue;
+            }
+            const g = readAt(u16, state, gens.?, @intCast(i)) orelse continue;
+            if (g == seen_proj_gen[i]) continue;
+            seen_proj_gen[i] = g;
+            const p = readAt(sim.c.Projectile, state, pc, @intCast(i)) orelse continue;
+            if (sim.ecs.eql(p.owner, own) or sim.ecs.eql(p.owner, last_owner)) continue;
+            last_owner = p.owner;
+            if (readAt(abi.Transform, state, tc, @intCast(i))) |t| cue(cue_shot, p.weapon, t);
+        };
+    };
+    // Hits: health that dropped on a car or a ped.
+    inline for (.{ abi.Kind.car, abi.Kind.ped }, 0..) |kind, ki| {
+        const hc = columnOf(kind, .health);
+        const tc = columnOf(kind, .transform);
+        const gens = for (Sim.views()) |v| {
+            if (v.kind == @intFromEnum(kind) and v.component == abi.ColumnDesc.Special.generation) break v;
+        } else null;
+        const slots = for (Sim.views()) |v| {
+            if (v.kind == @intFromEnum(kind) and v.component == abi.ColumnDesc.Special.slot) break v;
+        } else null;
+        if (hc != null and tc != null and gens != null and slots != null) {
+            for (0..hc.?.count) |i| {
+                if (state[slots.?.offset + i] != 1) continue;
+                const g = readAt(u16, state, gens.?, @intCast(i)) orelse continue;
+                const hp = (readAt(abi.Health, state, hc.?, @intCast(i)) orelse continue).hp;
+                if (g == seen_gen[ki][i] and hp < seen_hp[ki][i] - 4) {
+                    if (readAt(abi.Transform, state, tc.?, @intCast(i))) |t| cue(if (ki == 0) cue_hurt_car else cue_hurt_ped, 0, t);
+                }
+                seen_gen[ki][i] = g;
+                seen_hp[ki][i] = hp;
+            }
+        }
+    }
 }
 export fn instancePtr() [*]const u8 {
     return @ptrCast(&instances);
@@ -550,7 +796,7 @@ test "a player joins the test map, walks, gets in a car and drives" {
     }
     const moved = list.target(&layout, game.stateBytes(), 0);
     try std.testing.expect(@abs(moved.x - start.x) + @abs(moved.y - start.y) > 0.5);
-    try std.testing.expect(buildList(0.5) > 0);
+    try std.testing.expect(buildList(0.5, 0) > 0);
 }
 
 test "tuning round trip" {

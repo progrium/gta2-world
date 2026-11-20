@@ -37,9 +37,16 @@ pub const Instance = extern struct {
     palette: u16,
     kind: u8,
     flags: u8,
-    _pad: u16 = 0,
+    /// Entity index within its kind (for hosts that decorate the list).
+    index: u16 = 0,
 
     pub const own_palette: u16 = 0xFFFF;
+    /// Drawn darker (a burnt-out wreck).
+    pub const flag_dark: u8 = 1;
+    /// Drawn at full brightness whatever the lighting (fire, explosions).
+    pub const flag_glow: u8 = 2;
+    /// `kind` of effect sprites a host adds after `build` (drawn on top).
+    pub const kind_effect: u8 = 5;
 };
 
 comptime {
@@ -181,6 +188,7 @@ pub fn build(lay: *const Layout, prev: ?[]const u8, cur: []const u8, alpha: f32,
                 .palette = if (look.remap == Appearance.no_remap) Instance.own_palette else @intCast(bases.remap_palette[kind] + look.remap),
                 .kind = @intCast(kind),
                 .flags = 0,
+                .index = @intCast(i),
             };
             n += 1;
         }

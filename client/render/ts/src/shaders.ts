@@ -79,6 +79,7 @@ uniform uint u_spriteBase;
 out vec2 v_uv;
 flat out uint v_layer;
 flat out uint v_virt;
+flat out uint v_flags;
 void main() {
   uint sprite = i_look.x;
   uvec4 r = texelFetch(u_sprites, ivec2(int(sprite % 64u), int(sprite / 64u)), 0);
@@ -91,11 +92,12 @@ void main() {
   vec2 xy = i_pose.xy + right * local.x + down * local.y;
   // Lift sprites off the surface; cars above peds above items.
   uint kind = i_look.z & 255u;
-  float lift = 0.02 + (kind == 0u ? 0.03 : kind == 1u ? 0.02 : 0.01);
+  float lift = 0.02 + (kind == 5u ? 0.06 : kind == 0u ? 0.03 : kind == 1u ? 0.02 : 0.01);
   gl_Position = u_vp * vec4(xy.x, i_pose.z + lift, xy.y, 1.0);
   v_uv = vec2(r.xy) + (a_corner + 0.5) * size;
   v_layer = r.z;
   v_virt = i_look.y == 65535u ? u_spriteBase + sprite : i_look.y;
+  v_flags = i_look.z >> 8u;
 }`;
 
 export const spriteFS = `#version 300 es
@@ -105,11 +107,14 @@ ${common}
 in vec2 v_uv;
 flat in uint v_layer;
 flat in uint v_virt;
+flat in uint v_flags;
 out vec4 o;
 void main() {
   ivec2 p = ivec2(floor(v_uv));
   uint idx = texelFetch(u_idx, ivec3(p, int(v_layer)), 0).r;
   if (idx == 0u) discard;
   vec3 c = paletteColour(physPalette(v_virt), idx);
-  o = vec4(c * u_ambient, 1.0);
+  // flags: 1 dark (burnt-out wreck), 2 glow (fire, explosions).
+  if ((v_flags & 1u) != 0u) c *= 0.28;
+  o = vec4((v_flags & 2u) != 0u ? c : c * u_ambient, 1.0);
 }`;

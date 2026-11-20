@@ -504,6 +504,11 @@ pub fn Session(comptime Sim: type) type {
             }
             const cmds = self.cmds.items;
             self.sim.step(&frames, cmds);
+            // Game events (kills, explosions, round ends, pickups) go to
+            // every client on the reliable stream.
+            if (comptime @hasDecl(Sim, "events")) {
+                for (self.sim.events()) |e| self.broadcastEvent(.{ .tick = self.sim.tick(), .kind = @enumFromInt(@intFromEnum(e.kind)), .a = e.a, .b = e.b, .c = e.c, .x = e.x, .y = e.y, .z = e.z }, null);
+            }
             const h = if (self.replay != null) self.sim.hash() else 0;
             if (self.replay) |rw| rw.tick(T, cmds, &frames, &present, h);
             self.cmds.clearRetainingCapacity();

@@ -19,7 +19,35 @@ export interface PlayerInfo {
   /** Blocks per tick. */
   speed: number;
   z: number;
+  /** Weapon in hand: 0 pistol, 1 machine gun, 2 shotgun, 3 rocket launcher. */
+  weapon: number;
+  /** Rounds for it; -1 never runs out. */
+  rounds: number;
+  score: number;
 }
+
+/** A game event: offline from the sim, online from the server (I3 `event`). */
+export interface GameEvent {
+  kind: number;
+  a: number;
+  b: number;
+  c: number;
+  /** Blocks. */
+  x: number;
+  y: number;
+  z: number;
+}
+
+/** Something the client saw for sound: 1 shot (a = weapon), 2 ped hurt, 3 car hit, 4 weapon change (a = weapon). */
+export interface Cue {
+  kind: number;
+  a: number;
+  x: number;
+  y: number;
+  z: number;
+}
+
+export const WEAPON_NAMES = ["Pistol", "Machine gun", "Shotgun", "Rocket launcher"] as const;
 
 export interface CameraTarget {
   x: number;
@@ -137,7 +165,7 @@ export class GameModule {
   }
 
   player(slot: number): PlayerInfo {
-    const a = new Int32Array(this.buf, this.w.playerInfo!(slot), 8);
+    const a = new Int32Array(this.buf, this.w.playerInfo!(slot), 11);
     return {
       active: a[0] !== 0,
       inCar: a[1] !== 0,
@@ -147,12 +175,44 @@ export class GameModule {
       respawnTimer: a[5]! >>> 0,
       speed: a[6]! / 65536,
       z: a[7]! / 65536,
+      weapon: a[8]!,
+      rounds: a[9]!,
+      score: a[10]!,
     };
   }
 
+  /** Offline game events since the last call. */
+  takeEvents(): GameEvent[] {
+    const n = this.w.simEventsTake!();
+    const dv = new DataView(this.buf, this.w.simEventsPtr!(), n * 16);
+    const out: GameEvent[] = [];
+    for (let i = 0; i < n; i++) {
+      const o = i * 16;
+      out.push({ kind: dv.getUint8(o), a: dv.getUint8(o + 1), b: dv.getUint8(o + 2), c: dv.getUint8(o + 3), x: dv.getInt32(o + 4, true) / 65536, y: dv.getInt32(o + 8, true) / 65536, z: dv.getInt32(o + 12, true) / 65536 });
+    }
+    return out;
+  }
+
+  /** Sound cues the render pass saw since the last call. */
+  takeCues(): Cue[] {
+    const n = this.w.cuesTake!();
+    const dv = new DataView(this.buf, this.w.cuesPtr!(), n * 24);
+    const out: Cue[] = [];
+    for (let i = 0; i < n; i++) {
+      const o = i * 24;
+      out.push({ kind: dv.getUint32(o, true), a: dv.getUint32(o + 4, true), x: dv.getFloat32(o + 8, true), y: dv.getFloat32(o + 12, true), z: dv.getFloat32(o + 16, true) });
+    }
+    return out;
+  }
+
+  /** Shows an explosion at (x, y, z) in blocks. */
+  explosion(x: number, y: number, z: number, nowMs: number): void {
+    this.w.effectExplosion!(Math.round(x * 65536), Math.round(y * 65536), Math.round(z * 65536), nowMs);
+  }
+
   /** Render list at `alpha` between the last two ticks: bytes and count. */
-  renderList(alpha: number): { bytes: Uint8Array; count: number } {
-    const count = this.w.buildList!(alpha);
+  renderList(alpha: number, nowMs = performance.now()): { bytes: Uint8Array; count: number } {
+    const count = this.w.buildList!(alpha, nowMs);
     return { bytes: this.u8(this.w.instancePtr!(), count * INSTANCE_BYTES), count };
   }
 

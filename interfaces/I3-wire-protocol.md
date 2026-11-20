@@ -132,7 +132,7 @@ Entities outside the predict radius are drawn interpolated between the two most 
 | Message | Body |
 | --- | --- |
 | `chat` / `chat_from` | `u8 slot`, `str text` |
-| `event` | `u32 tick`, `u8 kind`, `u8 a, b, c`, `svarint x, y, z`. Kinds: 1 kill (a = killer slot or 0xFF, b = victim, c = weapon), 2 joined (a = slot), 3 left (a = slot), 4 explosion (x, y, z, a = model). |
+| `event` | `u32 tick`, `u8 kind`, `u8 a, b, c`, `svarint x, y, z`. Kinds: 1 kill (a = killer slot or 0xFF, b = victim, c = weapon: 0-3 the sim's weapon index, 0x80 a car, 0x81 fire or a blast with no shooter), 2 joined (a = slot), 3 left (a = slot), 4 explosion (x, y, z, a = cause: 0 rocket, 1 car), 5 round end (a = winner slot; scores have reset), 6 pickup (x, y, z, a = slot, b = what: weapon index, or 4 health). Kinds 5 and 6 and the meaning of c and of explosion's a are M3 proposals; receivers ignore kinds they do not know. |
 | `player_info` | `u8 slot`, `u8 flags` (1 present, 2 bot), `str name`. Sent on join and when a name or presence changes. |
 | `bye` | `u8 reason`: 0 leaving, 1 timeout, 2 kicked, 3 shutting down. |
 
