@@ -9,6 +9,9 @@ type Exports = Record<string, (...a: number[]) => number> & { memory: WebAssembl
 
 export const MAX_PLAYERS = 16;
 
+/** Exports the page relies on that older builds of game.wasm lack. */
+const REQUIRED_EXPORTS = ["gameStep", "buildList", "playerInfo", "simEventsTake", "cuesTake", "effectExplosion"] as const;
+
 export interface PlayerInfo {
   active: boolean;
   inCar: boolean;
@@ -75,9 +78,12 @@ export class GameModule {
   }
 
   static async load(url: URL | string = new URL("./game.wasm", import.meta.url)): Promise<GameModule> {
-    const res = await fetch(url);
+    // no-cache revalidates, so a new page never runs against a cached old module.
+    const res = await fetch(url, { cache: "no-cache" });
     if (!res.ok) throw new Error(`game.wasm: HTTP ${res.status}`);
     const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), {});
+    const missing = REQUIRED_EXPORTS.filter((n) => typeof (instance.exports as Record<string, unknown>)[n] !== "function");
+    if (missing.length) throw new Error(`game.wasm is from another version of the page (missing ${missing.join(", ")}). Reload the page; if that doesn't help, clear the site's cached data.`);
     return new GameModule(instance.exports as unknown as Exports);
   }
 

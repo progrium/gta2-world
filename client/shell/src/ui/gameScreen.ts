@@ -59,6 +59,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   let showScores = false;
   let bannerUntil = 0;
   let paused = false;
+  let crashed = false;
   let overlay: HTMLElement | null = null;
   let game: GameModule | null = null;
   let renderer: Renderer | null = null;
@@ -212,8 +213,18 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       afterTick(fr[0]!, 0);
     },
     render: (alpha, now) => {
-      if (online && game && !paused) netFrame(now);
-      draw(online ? 1 : alpha, now);
+      if (crashed) return;
+      try {
+        if (online && game && !paused) netFrame(now);
+        draw(online ? 1 : alpha, now);
+      } catch (e) {
+        // Say so instead of leaving a frozen grey canvas.
+        crashed = true;
+        console.error("[game]", e);
+        status.textContent = `The game stopped: ${(e as Error).message ?? e}. Reload the page; "Files & maps" has a button to clear cached files.`;
+        status.classList.remove("hidden");
+        status.classList.add("bad");
+      }
     },
   });
 

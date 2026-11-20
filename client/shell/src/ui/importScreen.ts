@@ -17,6 +17,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
   const bar = h("progress", { max: 1, value: 0, hidden: true });
   const mapsBox = h("div", { class: "maps" });
   const filesBox = h("details", { class: "files" });
+  const clearBox = h("div", { class: "row" });
   const errorsBox = h("div", { class: "errors" });
 
   const dirInput = h("input", { type: "file", multiple: true, hidden: true }) as HTMLInputElement;
@@ -85,6 +86,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
   const render = (): void => {
     clear(mapsBox);
     clear(filesBox);
+    clear(clearBox);
     const maps = o.store.maps();
     const files = o.store.manifest.files;
     if (maps.length === 0) {
@@ -105,6 +107,22 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
       mapsBox.append(h("h2", {}, "Pick a map to drive"), list);
     }
     if (files.length) {
+      clearBox.append(
+        h(
+          "button",
+          {
+            class: "danger",
+            onclick: async () => {
+              if (!confirm("Remove every cached GTA2 file from this browser? You can import them again.")) return;
+              await o.store.clear();
+              status.textContent = "Cache cleared. Choose your GTA2 folder again to play.";
+              render();
+            },
+          },
+          "Clear cached files",
+        ),
+        h("span", { class: "muted small" }, " Removes your imported files from this browser, so you can import them again."),
+      );
       const total = files.reduce((n, f) => n + f.size, 0);
       filesBox.append(
         h("summary", {}, `${files.length} cached files, ${fmtBytes(total)}`),
@@ -123,18 +141,6 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
             ),
           ),
         ),
-        h(
-          "button",
-          {
-            class: "danger",
-            onclick: async () => {
-              await o.store.clear();
-              status.textContent = "Cache cleared.";
-              render();
-            },
-          },
-          "Forget cached files",
-        ),
       );
     }
   };
@@ -150,6 +156,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
       errorsBox,
       mapsBox,
       filesBox,
+      clearBox,
       dirInput,
       fileInput,
     ),

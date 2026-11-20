@@ -13,4 +13,10 @@ mkdir -p "$out/dist"
 cp "$here/shell/index.html" "$here/shell/styles.css" "$out/"
 cp "$here/shell/dist/main.js" "$here/shell/dist/worker.js" "$out/dist/"
 cp "$here/wasm/zig-out/web/game.wasm" "$out/dist/"
+# Version the URLs so a browser never mixes a new page with a cached old
+# module or worker (GitHub Pages caches for 10 minutes).
+v=$(cat "$out/dist/main.js" "$out/dist/worker.js" "$out/dist/game.wasm" | sha256sum | cut -c1-10)
+sed -i "s#\"\./game\.wasm\"#\"./game.wasm?v=$v\"#g; s#\"\./worker\.js\"#\"./worker.js?v=$v\"#g" "$out/dist/main.js"
+sed -i "s#dist/main\.js\"#dist/main.js?v=$v\"#; s#styles\.css\"#styles.css?v=$v\"#" "$out/index.html"
+grep -q "game.wasm?v=$v" "$out/dist/main.js" && grep -q "worker.js?v=$v" "$out/dist/main.js" || { echo "build-web: could not version the URLs in main.js" >&2; exit 1; }
 echo "built $out"
