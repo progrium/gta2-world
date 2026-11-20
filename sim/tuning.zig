@@ -5,6 +5,11 @@
 //! The car numbers are a placeholder handling model of our own, tuned by
 //! feel. Authentic GTA2 handling comes later from clean-room behaviour notes;
 //! nothing here was taken from the original game or its decompilation.
+//!
+//! The car models and the on-foot speeds are `var`s so a local, offline host
+//! (the browser build's tuning panel) can change them between ticks. Every
+//! networked or recorded host must leave them at their defaults: they are
+//! not part of the state, so changing them on one side only would desync.
 
 const fx = @import("fixed.zig");
 const Fx = fx.Fx;
@@ -15,16 +20,16 @@ pub const ped_radius = fx.ratio(3, 16);
 pub const ped_mass: i32 = 1;
 pub const ped_hp: i32 = 100;
 /// Walking and running speed (blocks per tick). 0.06 is 1.8 blocks/s.
-pub const ped_walk = fx.ratio(6, 100);
-pub const ped_run = fx.ratio(11, 100);
+pub var ped_walk = fx.ratio(6, 100);
+pub var ped_run = fx.ratio(11, 100);
 /// Backward walking in tank mode is slower.
-pub const ped_back = fx.ratio(4, 100);
+pub var ped_back = fx.ratio(4, 100);
 /// Tank mode turn rate at full steer (about 230 degrees per second).
-pub const ped_tank_turn: i32 = 1400;
+pub var ped_tank_turn: i32 = 1400;
 /// Direct mode turn rate toward the aim heading (about 650 degrees per second).
-pub const ped_direct_turn: i32 = 4000;
+pub var ped_direct_turn: i32 = 4000;
 /// Jump take-off speed and the ticks before another jump.
-pub const ped_jump_vz = fx.ratio(15, 100);
+pub var ped_jump_vz = fx.ratio(15, 100);
 pub const ped_jump_cooldown: u8 = 20;
 /// How far a ped reaches to get into a car (centre to centre), and the
 /// fastest a car may be moving to be entered.
@@ -84,7 +89,7 @@ pub const CarModel = struct {
 };
 
 /// Model 0: a generic saloon. All cars use it until real handling arrives.
-pub const car_models = [_]CarModel{.{
+pub const default_car_models = [_]CarModel{.{
     .half_len = fx.ratio(56, 100),
     .half_wid = fx.ratio(27, 100),
     .radius = fx.ratio(42, 100),
@@ -105,6 +110,8 @@ pub const car_models = [_]CarModel{.{
     .steer_rate = 40,
     .restitution_8ths = 2,
 }};
+
+pub var car_models = default_car_models;
 
 pub fn carModel(m: u8) *const CarModel {
     return &car_models[if (m < car_models.len) m else 0];

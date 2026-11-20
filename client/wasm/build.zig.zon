@@ -1,0 +1,13 @@
+.{
+    .name = .gta2_client_wasm,
+    .version = "0.1.0",
+    .fingerprint = 0x8f88d15ed9e449ae,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .interfaces = .{ .path = "../../interfaces/zig" },
+        .formats = .{ .path = "../../formats" },
+        .sim = .{ .path = "../../sim" },
+        .render = .{ .path = "../render" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "README.md" },
+}

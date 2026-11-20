@@ -6,6 +6,7 @@ Each spike page is a copy of that spike's web page with two additions: a `window
 
 | Page | Copied from | Notes |
 | --- | --- | --- |
+| `play/` | `client/build-web.sh site/play` on the integration branch | The M1 playable client: shell, `game.wasm` (sim, formats, renderer) and the handling tuning panel. Reads the player's own files. Tuning goes back through a prefilled GitHub issue (label `tuning`). |
 | `s1/` | `spike/s1` @ 88d0abd, `spikes/s1` `zig build` output (`zig-out/web`, Zig 0.17.0) | `fixtures/` is the synthetic showcase, not game data. The page records every load and benchmark. |
 | `s2/` | `spike/s2` @ cd14a18, `spikes/s2/web` | Unchanged apart from the guide. |
 | `s3/` | `spike/s3` @ 97e961e, `spikes/s3/s3.html` | Patched to keep trials in `localStorage` and record the remote-car setting per trial. |

@@ -36,7 +36,7 @@ function showGame(map: MapChoice): void {
     /* ignore */
   }
   teardown?.();
-  teardown = gameScreen(root, { input, sessionId, map, onBack: showImport });
+  teardown = gameScreen(root, { input, store, sessionId, map, onBack: showImport });
 }
 
 async function boot(): Promise<void> {

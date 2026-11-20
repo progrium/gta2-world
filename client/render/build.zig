@@ -2,9 +2,9 @@ const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{ .preferred_optimize_mode = .ReleaseFast });
+    const optimize = b.standardOptimizeOption(.{});
 
-    const mod = moduleFor(b, target, optimize);
+    const mod = moduleFor(b, target, optimize, true);
 
     const tests = b.addTest(.{ .root_module = mod });
     b.step("test", "Run renderer tests").dependOn(&b.addRunArtifact(tests).step);
@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
 
     // WASM for the demo page.
     const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    const wasm_mod = moduleFor(b, wasm_target, optimize);
+    const wasm_mod = moduleFor(b, wasm_target, optimize, false);
     const wasm = b.addExecutable(.{
         .name = "render-demo",
         .root_module = b.createModule(.{
@@ -59,13 +59,13 @@ fn formatsModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.
 }
 
 /// The `render` module, for this build and for hosts (client/wasm) that
-/// depend on this package.
-fn moduleFor(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
-    const name = if (target.result.cpu.arch == .wasm32) "render-wasm-internal" else "render";
-    return b.addModule(name, .{
+/// depend on this package. The demo's own wasm copy is private.
+fn moduleFor(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, public: bool) *std.Build.Module {
+    const opts: std.Build.Module.CreateOptions = .{
         .root_source_file = b.path("src/render.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{ .{ .name = "formats", .module = formatsModule(b, target, optimize) }, .{ .name = "interfaces", .module = interfacesModule(b, target, optimize) } },
-    });
+    };
+    return if (public) b.addModule("render", opts) else b.createModule(opts);
 }

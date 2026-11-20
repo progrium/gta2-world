@@ -20,8 +20,8 @@ The shell imports `ts/src/index.ts` and owns the canvas and the frame loop: `new
 cd client/render
 zig build test                      # Zig 0.17.0
 (cd ts && tsc -p .)                 # TypeScript 5+, no other dependencies
-zig build web --release             # zig-out/web: page, wasm, synthetic fixtures
-zig build --release                 # zig-out/bin/render-tool
+zig build web -Doptimize=ReleaseFast            # zig-out/web: page, wasm, synthetic fixtures
+zig build -Doptimize=ReleaseFast                # zig-out/bin/render-tool
 ```
 
 To view the demo, serve `zig-out/web` with any static server and open `?demo` for the synthetic showcase. It needs no game files: cars, peds, car remaps, road arrows and lights are all generated. To use your own GTA2 copy, pick the `.gmp` and `.sty` files in the panel; they are read in the tab and never uploaded. Keys: F free camera, N night lighting, P pause. `?gmp=URL&sty=URL[&rec=URL][&bench=20][&night]` loads served files.

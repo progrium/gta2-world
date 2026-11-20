@@ -10,9 +10,8 @@
 //! when present `Riding` (peds in a vehicle are not drawn), `Velocity` (for
 //! the camera) and `Appearance` (below).
 //!
-//! Appearance is not in I1 v1. Until it is, a column with component id
-//! `appearance_component` (proposed as id 12) is read if a sim lists it,
-//! and every entity otherwise gets its kind's first sprite. Sprite numbers
+//! Appearance is I1 component 12. It is read if a sim lists it; without it
+//! every entity gets its kind's first sprite. Sprite numbers
 //! in it are relative to the kind's sprite group; the renderer adds the
 //! group base from the style. Mapping a car model to its sprite needs the
 //! style's car info, which waits for the clean-room notes.
@@ -20,16 +19,10 @@
 const std = @import("std");
 const abi = @import("interfaces").abi;
 
-pub const appearance_component: u16 = 12;
+pub const appearance_component: u16 = @intFromEnum(abi.ComponentId.appearance);
 
-/// Proposed I1 component (id 12): what to draw for an entity.
-pub const Appearance = extern struct {
-    /// Sprite number within the kind's sprite group (cars, peds, ...).
-    sprite: u16,
-    /// Remap within the kind's remap palettes, or `no_remap`.
-    remap: u16,
-    pub const no_remap: u16 = 0xFFFF;
-};
+/// I1 component 12 (accepted 2026-11-20): what to draw for an entity.
+pub const Appearance = abi.Appearance;
 
 pub const Instance = extern struct {
     /// Blocks, I1 axes (x east, y south, z up).

@@ -1,8 +1,12 @@
 # client/shell
 
 Workstream E: the browser shell. TypeScript, no framework, bundled with esbuild.
-Owns input and gamepad, asset import, the frame loop and the UI. Renderer (B),
-sim/WASM (A) and transport (C/D) plug into it.
+Owns input and gamepad, asset import, the frame loop and the UI. It loads
+`game.wasm` (client/wasm: the sim, map and render-list builders) and draws with
+the WebGL2 renderer from client/render. Transport (C/D) plugs in at M2.
+
+`client/build-web.sh [out]` builds everything into one static folder; the
+tester site's `play/` page is that folder.
 
 ```sh
 npm install
@@ -22,8 +26,8 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 | `src/assets/` | Folder pick, drag-drop, worker hashing and checks, OPFS cache keyed by SHA-256. |
 | `src/loop.ts` | rAF-driven fixed 30 Hz clock: poll every frame, latch every tick, render with alpha. |
 | `src/session.ts` | Fixed session id `m1-local`, or `#s=<id>` from the link. |
-| `src/sim/stub.ts` | Float toy world to try the controls until the sim lands. Not GTA2 handling. |
-| `src/ui/` | Import screen, game screen with HUD placeholder, controls (remap) overlay. |
+| `src/game/wasm.ts` | Loads `game.wasm`; copies files in, hands buffers to the renderer, steps the sim, reads player info and tuning. |
+| `src/ui/` | Import screen, game screen (real map, sim and renderer, HUD), controls (remap) overlay, handling tuning panel. |
 
 ## Input
 

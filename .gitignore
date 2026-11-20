@@ -26,3 +26,4 @@ gta2.zip
 gta2/
 # Recorded entity buffers (may be recorded on original maps)
 *.grec
+client/web-out/

@@ -1,0 +1,188 @@
+// The game module (client/wasm, game.wasm): sim/ in WASM plus the map,
+// style and render-list builders. This wrapper copies files in, hands the
+// Zig buffers to the renderer and runs ticks. See client/wasm/src/game.zig.
+
+import { CHUNK_BYTES, INSTANCE_BYTES, type MapMeshData, type StyleData, VERTEX_BYTES } from "../../../render/ts/src/index.ts";
+import { FRAME_SIZE, type Frame, encodeFrame } from "../input/i2.ts";
+
+type Exports = Record<string, (...a: number[]) => number> & { memory: WebAssembly.Memory };
+
+export const MAX_PLAYERS = 16;
+
+export interface PlayerInfo {
+  active: boolean;
+  inCar: boolean;
+  hp: number;
+  kills: number;
+  deaths: number;
+  respawnTimer: number;
+  /** Blocks per tick. */
+  speed: number;
+  z: number;
+}
+
+export interface CameraTarget {
+  x: number;
+  y: number;
+  z: number;
+  angle: number;
+  vx: number;
+  vy: number;
+  found: boolean;
+}
+
+export interface TuneEntry {
+  index: number;
+  name: string;
+  /** fx: 16.16 fixed point; int: plain integer; shift: a right-shift count. */
+  unit: "fx" | "int" | "shift";
+  default: number;
+}
+
+export class GameModule {
+  private w: Exports;
+
+  private constructor(w: Exports) {
+    this.w = w;
+  }
+
+  static async load(url: URL | string = new URL("./game.wasm", import.meta.url)): Promise<GameModule> {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`game.wasm: HTTP ${res.status}`);
+    const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), {});
+    return new GameModule(instance.exports as unknown as Exports);
+  }
+
+  private get buf(): ArrayBuffer {
+    return this.w.memory.buffer;
+  }
+  private u8(p: number, n: number): Uint8Array {
+    return new Uint8Array(this.buf, p, n);
+  }
+  private error(): string {
+    return new TextDecoder().decode(this.u8(this.w.errorPtr!(), this.w.errorLen!()));
+  }
+  private withBytes(bytes: Uint8Array, f: (p: number, n: number) => number): void {
+    const p = this.w.alloc!(bytes.length);
+    if (!p) throw new Error("out of WASM memory");
+    this.u8(p, bytes.length).set(bytes);
+    const rc = f(p, bytes.length);
+    this.w.free!(p, bytes.length);
+    if (rc !== 0) throw new Error(this.error());
+  }
+
+  /** Parses a .sty and returns the buffers the renderer uploads (copies). */
+  loadStyle(bytes: Uint8Array): StyleData {
+    this.withBytes(bytes, (p, n) => this.w.loadStyle!(p, n));
+    const w = this.w;
+    const si = new Uint32Array(this.buf, w.styleInfo!(), 18).slice();
+    return {
+      tiles: this.u8(w.tilesPtr!(), w.tilesLen!()).slice(),
+      spritePages: this.u8(w.spritePagesPtr!(), w.spritePagesLen!()).slice(),
+      ppal: this.u8(w.ppalPtr!(), w.ppalLen!()).slice(),
+      palx: new Uint16Array(this.buf, w.palxPtr!(), 16384).slice(),
+      spriteTable: new Uint16Array(this.buf, w.spriteTablePtr!(), w.spriteTableRows!() * 64 * 4).slice(),
+      tilePaletteBase: si[4]!,
+      spritePaletteBase: si[5]!,
+    };
+  }
+
+  /** Parses a .gmp: builds the collision grid for the sim and the map mesh. */
+  loadMap(bytes: Uint8Array, bakeLights = true): MapMeshData & { triangles: number } {
+    this.withBytes(bytes, (p, n) => this.w.loadMap!(p, n, bakeLights ? 1 : 0));
+    const w = this.w;
+    const mi = new Uint32Array(this.buf, w.meshInfo!(), 8);
+    return {
+      vertices: this.u8(w.vertexPtr!(), w.vertexCount!() * VERTEX_BYTES).slice(),
+      chunks: this.u8(w.chunkPtr!(), w.chunkCount!() * CHUNK_BYTES).slice(),
+      anims: new Uint16Array(this.buf, w.animPtr!(), w.animLen!()).slice(),
+      triangles: mi[0]!,
+    };
+  }
+
+  start(seed: number, hint?: { x: number; y: number }): void {
+    const rc = this.w.gameStart!(seed >>> 0, hint ? 1 : 0, hint?.x ?? 0, hint?.y ?? 0);
+    if (rc !== 0) throw new Error(this.error());
+  }
+
+  /** Drops a car in front of the player (offline play only). */
+  spawnCar(slot = 0): boolean {
+    return this.w.gameSpawnCar!(slot) !== 0;
+  }
+
+  join(slot: number): void {
+    this.w.gameJoin!(slot);
+  }
+  leave(slot: number): void {
+    this.w.gameLeave!(slot);
+  }
+
+  /** One sim tick with these frames (by slot; missing slots are neutral). */
+  step(frames: readonly (Frame | null | undefined)[], seq: number): void {
+    const view = new DataView(this.buf, this.w.framesPtr!(), MAX_PLAYERS * FRAME_SIZE);
+    for (let i = 0; i < MAX_PLAYERS; i++) {
+      const f = frames[i] ?? { steer: 0, throttle: 0, buttons: 0, aim: 0, seq: seq & 0xffff };
+      encodeFrame(f, new DataView(this.buf, view.byteOffset + i * FRAME_SIZE, FRAME_SIZE));
+    }
+    this.w.gameStep!();
+  }
+
+  get tick(): number {
+    return this.w.gameTick!() >>> 0;
+  }
+
+  hash(): string {
+    const h = new Uint32Array(this.buf, this.w.gameHash!(), 2);
+    return h[1]!.toString(16).padStart(8, "0") + h[0]!.toString(16).padStart(8, "0");
+  }
+
+  player(slot: number): PlayerInfo {
+    const a = new Int32Array(this.buf, this.w.playerInfo!(slot), 8);
+    return {
+      active: a[0] !== 0,
+      inCar: a[1] !== 0,
+      hp: a[2]!,
+      kills: a[3]!,
+      deaths: a[4]!,
+      respawnTimer: a[5]! >>> 0,
+      speed: a[6]! / 65536,
+      z: a[7]! / 65536,
+    };
+  }
+
+  /** Render list at `alpha` between the last two ticks: bytes and count. */
+  renderList(alpha: number): { bytes: Uint8Array; count: number } {
+    const count = this.w.buildList!(alpha);
+    return { bytes: this.u8(this.w.instancePtr!(), count * INSTANCE_BYTES), count };
+  }
+
+  camera(alpha: number, slot = 0): CameraTarget {
+    const t = new Float32Array(this.buf, this.w.cameraTarget!(alpha, slot), 7);
+    return { x: t[0]!, y: t[1]!, z: t[2]!, angle: t[3]!, vx: t[4]!, vy: t[5]!, found: t[6] !== 0 };
+  }
+
+  // -------------------------------------------------------------- tuning
+
+  private tuneDefaults: number[] | null = null;
+
+  tuning(): TuneEntry[] {
+    const names = new TextDecoder().decode(this.u8(this.w.tuneNamesPtr!(), this.w.tuneNamesLen!())).split(";");
+    if (!this.tuneDefaults) {
+      this.w.tuneReset!();
+      this.tuneDefaults = names.map((_, i) => this.w.tuneGet!(i));
+    }
+    return names.map((s, i) => {
+      const [name, unit] = s.split(":") as [string, TuneEntry["unit"]];
+      return { index: i, name, unit, default: this.tuneDefaults![i]! };
+    });
+  }
+  tuneGet(i: number): number {
+    return this.w.tuneGet!(i);
+  }
+  tuneSet(i: number, raw: number): void {
+    this.w.tuneSet!(i, raw | 0);
+  }
+  tuneReset(): void {
+    this.w.tuneReset!();
+  }
+}
