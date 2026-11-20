@@ -11,4 +11,5 @@ test {
     _ = @import("test/sp.zig");
     _ = @import("test/bodies_void.zig");
     _ = @import("test/police_wanted.zig");
+    _ = @import("test/career.zig");
 }

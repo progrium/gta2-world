@@ -352,12 +352,15 @@ pub fn Sim(comptime cfg: Config) type {
         pub const sysPedStatus = sys_health.sysPedStatus;
         pub const sysHealth = sys_health.sysHealth;
         pub const sysProjectileHits = sys_projectile_hits.sysProjectileHits;
+        pub const countPlayerHit = sys_projectile_hits.countPlayerHit;
         pub const creditKill = sys_scoring.creditKill;
         pub const addPoints = sys_scoring.addPoints;
         pub const creditSlot = sys_scoring.creditSlot;
         pub const nextCombo = sys_scoring.nextCombo;
         pub const scoreKill = sys_scoring.scoreKill;
         pub const scoreWreck = sys_scoring.scoreWreck;
+        pub const scoreHijack = sys_scoring.scoreHijack;
+        pub const deathCause = sys_health.deathCause;
         pub const sysPickups = sys_pickups.sysPickups;
         pub const initPickup = sys_pickups.initPickup;
         pub const givePickup = sys_pickups.givePickup;
