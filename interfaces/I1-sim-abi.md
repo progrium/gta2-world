@@ -164,3 +164,9 @@ S5's lane snapping needs the arrows, and traction needs the ground type. S2's on
 4. **`Shape.water` (4) is deep water,** a surface at the top of its cell that bodies rest on (peds drown, cars sink), where it was "no floor". No map produced it before. Approved within the project under the rule below.
 
 From here on, small additive interface changes are approved within the project and recorded in this section; changes that break compatibility or change the golden replay still go to Jeff.
+
+**2026-11-20, W0 of docs/plan-notes.md (additive, under the rule above).**
+
+1. **`Grid.surface[z][y][x]` of `SurfaceBits = u8`** (0.5 MiB more): bits 0-3 the red road arrows in the green arrows' order (+y, -y, +x, -x), bit 4 an electrified lid, 5-7 reserved. `formats/grid.zig` fills the red arrows from the `.gmp` and electrified lids from a tile set the host passes (`markElectrified`). Hosts that do not fill it must zero it. `sim.map.gridHash` folds the table in only when a bit is set, so recorded replays keep their grid hash.
+2. **Component ids 13-17 reserved** for the sim's single-player components: `object`, `objective`, `car_task`, `group`, `script_tag`. Only `sp` configurations carry them and none is replicated, so `dm16`'s `layout_hash` is unchanged.
+3. **`interfaces/zig/src/level.zig`**: the static `Level` (zones, map objects, lights, script container) handed to the sim with `Sim.attachLevel`. Not part of I1; owned by `sim/`.
