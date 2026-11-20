@@ -8,14 +8,16 @@
 
 Every connection has two channels:
 
-| Channel | Carries | WebTransport | WebSocket fallback |
-| --- | --- | --- | --- |
-| **datagram** (unreliable, unordered) | `input`, `snapshot` | session datagrams | one WS binary message = byte `0x00` + one message |
-| **stream** (reliable, ordered) | everything else | one client-opened bidirectional stream; each message is `uvarint length` + body | one WS binary message = byte `0x01` + one message |
+| Channel | Carries | WebTransport | WebSocket fallback | WebRTC (browser host) |
+| --- | --- | --- | --- | --- |
+| **datagram** (unreliable, unordered) | `input`, `snapshot` | session datagrams | one WS binary message = byte `0x00` + one message | data channel `d`, `ordered: false, maxRetransmits: 0`; one channel message = one I3 message |
+| **stream** (reliable, ordered) | everything else | one client-opened bidirectional stream; each message is `uvarint length` + body | one WS binary message = byte `0x01` + one message | data channel `s`, ordered and reliable; one channel message = one I3 message |
 
 Each message body starts with its type byte. A datagram is at most **1100 bytes** of I3 payload, and less if the transport reports a smaller maximum. A stream message is at most 1 MiB.
 
 URLs: WebTransport `https://<host>:<port>/s/<session>`, WebSocket `wss://<host>/s/<session>/ws`. The link the player opens names the host and session. The client tries WebTransport first and falls back to WebSocket if the session does not open within 3 s or `WebTransport` is undefined.
+
+**WebRTC** is used when a player's browser tab hosts the game. The host's page opens one peer connection per joining player, set up through a signalling service (outside I3), and the joining player opens the stream channel and sends `hello` as on the other transports. A stream message on WebRTC is limited by the connection's negotiated SCTP maximum message size as well as by 1 MiB. Other data channels on the same connection (for example the lobby's file transfer) are outside I3.
 
 S4 found that the server side is ngtcp2, GnuTLS, nghttp3's QPACK decoder and about 300 lines of Zig for HTTP/3 SETTINGS, extended CONNECT and stream routing. HTTP datagram framing (the quarter stream id) belongs to that layer, below I3.
 
@@ -49,7 +51,7 @@ An unknown type on the stream is a protocol error (`reject` `bad_message`). An u
 ## Join
 
 1. The client opens the stream and sends **`hello`**:
-   `u32 magic "G2W1"`, `u16 protocol`, `u16 abi`, `u64 layout_hash`, `[32] map_hash` (SHA-256 of the `.gmp` file), `[16] resume_token` (zero for a new join), `u8 transport`, `u8 n`, then `n` names (1–4 local players).
+   `u32 magic "G2W1"`, `u16 protocol`, `u16 abi`, `u64 layout_hash`, `[32] map_hash` (SHA-256 of the `.gmp` file), `[16] resume_token` (zero for a new join), `u8 transport` (0 WebTransport, 1 WebSocket, 2 WebRTC), `u8 n`, then `n` names (1–4 local players).
 2. The server checks, in order: protocol, then `abi` and `layout_hash`, then map hash, then capacity. Any failure sends **`reject`** (`u8 code`, `str message`) and closes. Codes: 1 protocol, 2 layout, 3 map, 4 full, 5 no such session, 6 bad message, 7 shutting down, 8 resume expired. The shell shows the message as is. For example, code 3 says that the player's map file differs from the server's.
 3. Otherwise the server sends **`welcome`**:
    `u16 protocol`, `u32 client_id`, `[16] resume_token`, `u32 server_tick`, `u8 tick_hz` (30), `u8 snapshot_hz` (20), `u8 input_buffer_ticks` (2), `u8 redundancy` (8), `u16 max_players`, `str config_name`, `u8 n`, `n × u8 slot`.
@@ -139,3 +141,7 @@ Entities outside the predict radius are drawn interpolated between the two most 
 ## Timeouts
 
 The client sends `input` every tick. With no datagram from the client for 5 s, the server treats the connection as lost: the character stays in the world for 10 s, then the server issues `Command.leave`. With no snapshot for 3 s, the client shows "reconnecting" and opens a new connection with its resume token.
+
+## Accepted changes since the v1 freeze
+
+- 2026-11-20: `transport` value 2, WebRTC, and the WebRTC column of the channel table, for browser-hosted games. Additive; no version bump, because only WebRTC peers send it.

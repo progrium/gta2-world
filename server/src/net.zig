@@ -12,7 +12,7 @@ const std = @import("std");
 
 pub const PeerId = u64;
 
-pub const TransportKind = enum(u8) { webtransport = 0, websocket = 1 };
+pub const TransportKind = enum(u8) { webtransport = 0, websocket = 1, webrtc = 2 };
 
 /// What a session can do to a connection. Bodies are whole I3 messages
 /// (starting with the type byte); the transport adds its own framing.

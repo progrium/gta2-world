@@ -25,7 +25,7 @@ export const Msg = {
 export const isDatagram = (type: number): boolean => type >= 0x10;
 
 export const WsChannel = { datagram: 0, stream: 1 } as const;
-export const Transport = { webtransport: 0, websocket: 1 } as const;
+export const Transport = { webtransport: 0, websocket: 1, webrtc: 2 } as const;
 export const RejectCode = {
   protocolMismatch: 1, layoutMismatch: 2, mapMismatch: 3, sessionFull: 4,
   sessionNotFound: 5, badMessage: 6, shuttingDown: 7, resumeExpired: 8,
