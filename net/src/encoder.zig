@@ -59,8 +59,8 @@ pub fn History(comptime S: type) type {
 }
 
 pub const Options = struct {
-    /// Bytes per snapshot, on average. 30 kbit/s at 20 Hz.
-    budget: u32 = 187,
+    /// Bytes per snapshot, on average. 64 kbit/s at 20 Hz (M2 bot soak, soak-results.md).
+    budget: u32 = 400,
     /// Unused budget carries over, up to this many snapshots' worth.
     carry: u32 = 2,
     /// Interest radius in blocks; entities beyond it are removed. Larger

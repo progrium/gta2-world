@@ -69,7 +69,7 @@ The I3 wire format is from `interfaces/zig/src/wire.zig`; the policy here is the
 - Each client has its own per-entity state: creates and removes are resent until a snapshot containing them is acked; updates name the newest acked snapshot holding the entity (`base_age`), and an entity whose base would be older than 63 is sent as a create.
 - An entity unchanged since its acked base, with nothing newer in flight, is skipped until the base is 40 seqs old, then refreshed.
 - Interest: entities within 40 blocks (Chebyshev) of any of the client's players (`--interest`, 0 = all).
-- Priority: removes, then creates (nearest first), then updates by staleness over distance. Filled up to 187 bytes (`--budget`), never over 1100 or the transport's limit.
+- Priority: removes, then creates (nearest first), then updates by staleness over distance. Filled up to 400 bytes (`--budget`, 64 kbit/s at 20 Hz; set from the M2 bot soak, net/soak-results-dm16.md), never over 1100 or the transport's limit.
 - The baseline goes on the reliable stream after the step that applies the join, so it includes the player's own ped. Datagram snapshots to a client start once it acks the baseline.
 
 This is the part workstream C (netcode) is most likely to tune; it is kept in one file for that reason.

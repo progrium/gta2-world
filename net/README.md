@@ -7,6 +7,7 @@ cd net
 zig build test                                  # unit and round-trip tests
 zig build wasm                                  # the netcode builds for wasm32
 zig build -Doptimize=ReleaseFast && zig-out/bin/soak 120   # headless soak, 120 s per case
+zig build -Dsim=real -Doptimize=ReleaseFast && zig-out/bin/soak 120 [--map file.gmp]   # same soak on sim/ (dm16)
 ```
 
 ## Pieces
@@ -20,9 +21,11 @@ zig build -Doptimize=ReleaseFast && zig-out/bin/soak 120   # headless soak, 120 
 | `src/client.zig` | client | Ring of 64 predicted states and frames; on each snapshot loads the state at its tick, applies records, picks the Predicted set (own entities plus cars and peds within 6 blocks, leave at 8), replays to the present, and turns each drawn entity's jump into a fading offset. Interpolates everything else 100 ms in the past, dead-reckoning up to 8 ticks past the newest sample. Clock steering on `slack_q`. A frame gap over 250 ms (background tab) runs one tick and lets the next snapshot pull the clock forward, so there is no fast-forward burst (S3's bug). `renderState()` hands the renderer one state with display transforms written in, which B's `render.list.build(.., null, state, 1, ..)` takes. |
 | `src/link.zig` | test | Fake datagram link: latency, jitter that reorders, loss, optional bursts. Seeded. |
 | `src/testsim.zig` | test | Stand-in I1 sim: S3's drift handling in I1 units, car contacts, 24 AI cars and 100 peds on `abi.rand`, spawns and despawns so generations churn, `.predict` mode. Replace with `sim/` once A's branch merges. |
-| `tools/soak.zig` | test | One server, one predicting client, bot players, scripted drifting. Deterministic. |
+| `tools/soak.zig` | test | One server, one predicting client, bot players, scripted drifting. Deterministic. Its world is `tools/soak_testsim.zig` (the arena) or, with `-Dsim=real`, `tools/soak_realsim.zig` (sim/ dm16 on the test map or a `--map`). |
 
 ## Soak results
+
+This table is the arena sim at the old 187-byte default; the sim/ (dm16) run is in [soak-results-dm16.md](soak-results-dm16.md).
 
 120 s per case, scripted full-throttle drifting with handbrake, 16-slot arena with 24 AI cars and 100 peds. Distances in blocks (a car is 0.9 long, a block is 64 px in the original). "Corr" is the size of the jump the snapshot caused in the drawn position before fading, which is what S3 reported. "Gap at contact" is the drawn distance between two cars at the moment they touch in the predicted world. "Jerk" is the frame-to-frame change in drawn velocity at 60 fps: the snapping a player would see. Full table with counts, replay depth and timing: [soak-results.md](soak-results.md).
 
@@ -49,7 +52,7 @@ zig build -Doptimize=ReleaseFast && zig-out/bin/soak 120   # headless soak, 120 
 1. **The own car is solid at 150 ms and 2% loss.** Corrections are 0.024 blocks at p95, about 1.5 px, and own-car jerk is within 30% of the zero-latency run. Replay depth settles at 7 ticks (max 8) and costs about 11 µs per snapshot natively for this sim.
 2. **Predicting nearby cars fixes S3's contact problem.** Drawn gap when cars touch is 0.05 blocks at p99. With only the own car predicted it is 2.8 blocks (about three car lengths, as S3 found), and own corrections grow fifteenfold.
 3. **The tell in Jeff's blind trials was the remote cars' corrections, and it can be smoothed below the zero-latency level.** With S3's 100 ms fade, near-car jerk is 1.9 times the zero-latency run. Fading others over 250 ms and capping the fade at 4 blocks/s brings it to 1.08 times (chasers), and cuts it 3 to 3.5 times for human-like flick steering and wandering bots. That is the new default. The cost: a car that mispredicts badly just before touching you can be drawn up to a few blocks off at contact (flickers p99 4.2 vs 1.5, from only 26 contacts). Snapping the fade to the own rate near the own car undoes most of the jerk gain, so it is an option, off by default. This needs a new blind run to settle.
-4. **187 bytes per snapshot (30 kbit/s) is too tight for a crowded scene.** A moving car costs about 21 bytes per update against a base 2 to 4 snapshots old. With 3 chasers, everything near the player still updates every snapshot because priority falls off with distance squared, and only far entities wait (up to 1.8 s). With all 16 players chasing in one spot, own corrections jump to 0.82 blocks at p95. 300 bytes (48 kbit/s) brings that to 0.11 and 400 bytes (64 kbit/s) to 0.07. I suggest a 400-byte default and measuring real crowding with bots at M2, as the I3 draft already proposed.
+4. **187 bytes per snapshot (30 kbit/s) is too tight for a crowded scene.** A moving car costs about 21 bytes per update against a base 2 to 4 snapshots old. With 3 chasers, everything near the player still updates every snapshot because priority falls off with distance squared, and only far entities wait (up to 1.8 s). With all 16 players chasing in one spot, own corrections jump to 0.82 blocks at p95. 300 bytes (48 kbit/s) brings that to 0.11 and 400 bytes (64 kbit/s) to 0.07. I suggest a 400-byte default and measuring real crowding with bots at M2, as the I3 draft already proposed. **Settled at M2:** the same soak on sim/ (dm16), on the test map and on wil, gives the same ordering, so the default is now 400 bytes ([soak-results-dm16.md](soak-results-dm16.md)).
 5. **A 3 s background tab recovers with no catch-up burst**: the first snapshots after it jump the clock forward (5 resync events in the run), at the price of one visible glide of the own car when the clock is pulled forward (max offset 3.7 blocks).
 
 ### Things to know

@@ -128,6 +128,11 @@ pub const player_ammo: u32 = 99;
 // --- Health and respawn ---------------------------------------------------
 
 pub const respawn_ticks: u32 = 90;
+/// A player (joining or respawning) appears on pavement within this many
+/// blocks of another active player, and at least `spawn_near_min` away,
+/// when such a spot exists; otherwise anywhere on pavement.
+pub const spawn_near_radius: i32 = 12;
+pub const spawn_near_min: i32 = 3;
 pub const wreck_driver_damage: i32 = 60;
 /// Closing speed above which a contact hurts, and damage per block/tick.
 pub const impact_threshold = fx.ratio(1, 10);

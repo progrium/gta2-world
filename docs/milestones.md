@@ -28,7 +28,7 @@ How to play it locally:
 ```sh
 cd server && scripts/build-deps.sh && zig build -Doptimize=ReleaseSafe
 scripts/gen-cert.sh certs
-zig-out/bin/gta2-server serve --data ~/gta2/data --cert certs/cert.pem --key certs/key.pem --interest 0
+zig-out/bin/gta2-server serve --data ~/gta2/data --cert certs/cert.pem --key certs/key.pem
 # then open, in two browser windows:
 #   https://progrium.github.io/gta2-world/play/?server=http://127.0.0.1:8080#s=party1
 ```
@@ -38,6 +38,6 @@ Chrome may ask to allow the page to reach devices on your local network; allow i
 Open for M2:
 
 - **A public host** for "different networks" and for Firefox and Safari (Jeff: not now).
-- **Spawning near each other.** With the default interest radius (40 blocks) two players spawned at random on a full district often cannot see each other. `--interest 0` sends everything for now; a spawn rule near other players is the better fix.
-- **Snapshot budget.** The netcode soak suggests 400 bytes (64 kbit/s) instead of 187; measure with bots on a real map.
-- Blind feel trials of online driving, and a CI two-bot soak.
+- **Spawning near each other.** Done: a player joining without a spawn hint lands on pavement 3 to 12 blocks from the first player already in the world (sim/tuning.zig `spawn_near_*`), so the default interest radius works and `--interest 0` is no longer needed.
+- **Snapshot budget.** Done: 400 bytes (64 kbit/s), from the bot soak on sim/ on the test map and wil (net/soak-results-dm16.md). The soak on sim/ runs in CI (net.yml).
+- Blind feel trials of online driving. (CI already runs the server bot soak with replay checks, server.yml, and the netcode soak on sim/, net.yml.)

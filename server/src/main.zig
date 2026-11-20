@@ -54,7 +54,7 @@ const usage =
     \\      --no-cert-hash      do not offer serverCertificateHashes in /config (CA-signed cert)
     \\      --replay-dir DIR    record every session's inputs to DIR/<session>-<time>.g2wr
     \\      --no-create         do not create sessions on first join (only POST /sessions)
-    \\      --budget BYTES      snapshot byte budget per client (default 187)
+    \\      --budget BYTES      snapshot byte budget per client (default 400)
     \\      --interest BLOCKS   interest radius in blocks, 0 = everything (default 40)
     \\      --idle-close SECS   close a session this long after its last player (default 60)
     \\      --seed N            fixed sim seed for every session (tests)

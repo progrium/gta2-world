@@ -413,3 +413,36 @@ test "bottomless columns act as walls; ceilings stop a jump" {
     try std.testing.expect(top > fx.one);
     try std.testing.expect(top + map.body_height <= fx.fromInt(2) + T.ped_jump_vz);
 }
+
+test "a player joining without a hint spawns near someone already playing" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    // Seat slot 0 somewhere on the test map, then let several others join
+    // with no hint: each lands on pavement near an active player.
+    h.join(0, 52, 56);
+    const p0 = h.sim.transformOf(h.sim.pedOf(0).?).?.*;
+    var joined: u8 = 0;
+    for (1..4) |slot| {
+        h.sim.step(&h.frames, &.{.{ .op = .join, .slot = @intCast(slot), .arg = 0 }});
+        const id = h.sim.pedOf(@intCast(slot)) orelse continue;
+        const t = h.sim.transformOf(id).?.*;
+        const d = @max(@abs(fx.toInt(t.x) - fx.toInt(p0.x)), @abs(fx.toInt(t.y) - fx.toInt(p0.y)));
+        try std.testing.expect(d <= T.spawn_near_radius and d >= T.spawn_near_min);
+        joined += 1;
+    }
+    try std.testing.expect(joined == 3);
+}
+
+test "players joining in the same tick spawn near the first of them" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    var joins: [4]abi.Command = undefined;
+    for (&joins, 0..) |*j, i| j.* = .{ .op = .join, .slot = @intCast(i), .arg = 0 };
+    h.sim.step(&h.frames, &joins);
+    const p0 = h.sim.transformOf(h.sim.pedOf(0).?).?.*;
+    for (1..4) |slot| {
+        const t = h.sim.transformOf(h.sim.pedOf(@intCast(slot)).?).?.*;
+        const d = @max(@abs(fx.toInt(t.x) - fx.toInt(p0.x)), @abs(fx.toInt(t.y) - fx.toInt(p0.y)));
+        try std.testing.expect(d <= T.spawn_near_radius and d >= T.spawn_near_min);
+    }
+}

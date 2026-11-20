@@ -34,8 +34,8 @@ const Special = abi.ColumnDesc.Special;
 pub const history_len = 64;
 
 pub const Policy = struct {
-    /// Bytes per snapshot datagram, I3 payload. 30 kbit/s at 20 Hz.
-    budget: usize = 187,
+    /// Bytes per snapshot datagram, I3 payload. 64 kbit/s at 20 Hz (M2 bot soak, net/soak-results.md).
+    budget: usize = 400,
     /// Entities farther than this (blocks, Chebyshev) from every one of the
     /// client's players are not sent. 0 = no interest filter.
     interest_radius: i32 = 40,

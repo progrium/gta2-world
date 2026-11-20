@@ -20,6 +20,20 @@ pub fn build(b: *std.Build) void {
     const tests = b.addTest(.{ .root_module = net });
     b.step("test", "Run netcode tests").dependOn(&b.addRunArtifact(tests).step);
 
+    // The soak's world: the stand-in arena (default) or sim/ (-Dsim=real).
+    const sim_choice = b.option([]const u8, "sim", "soak world: test (net/ arena sim, default) or real (sim/ dm16)") orelse "test";
+    const world = if (std.mem.eql(u8, sim_choice, "real")) blk: {
+        const sim = b.createModule(.{ .root_source_file = b.path("../sim/sim.zig"), .target = target, .optimize = optimize, .imports = &.{.{ .name = "interfaces", .module = itf }} });
+        const formats = b.createModule(.{ .root_source_file = b.path("../formats/formats.zig"), .target = target, .optimize = optimize, .imports = &.{.{ .name = "interfaces", .module = itf }} });
+        break :blk b.createModule(.{ .root_source_file = b.path("tools/soak_realsim.zig"), .target = target, .optimize = optimize, .imports = &.{
+            .{ .name = "interfaces", .module = itf },
+            .{ .name = "sim", .module = sim },
+            .{ .name = "formats", .module = formats },
+        } });
+    } else b.createModule(.{ .root_source_file = b.path("tools/soak_testsim.zig"), .target = target, .optimize = optimize, .imports = &.{
+        .{ .name = "interfaces", .module = itf },
+        .{ .name = "net", .module = net },
+    } });
     const soak = b.addExecutable(.{
         .name = "soak",
         .root_module = b.createModule(.{
@@ -29,6 +43,7 @@ pub fn build(b: *std.Build) void {
             .imports = &.{
                 .{ .name = "interfaces", .module = itf },
                 .{ .name = "net", .module = net },
+                .{ .name = "soak_world", .module = world },
             },
         }),
     });

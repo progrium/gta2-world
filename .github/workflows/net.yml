@@ -1,18 +1,23 @@
 name: Netcode
 
 # Workstream C: snapshot coding round trips, client and server units, a
-# wasm32 build of the netcode, and a short headless network soak.
+# wasm32 build of the netcode, and short headless network soaks on the
+# stand-in arena sim and on sim/ (dm16, synthetic test map).
 
 on:
   push:
     paths:
       - 'net/**'
       - 'interfaces/zig/**'
+      - 'sim/**'
+      - 'formats/**'
       - '.github/workflows/net.yml'
   pull_request:
     paths:
       - 'net/**'
       - 'interfaces/zig/**'
+      - 'sim/**'
+      - 'formats/**'
       - '.github/workflows/net.yml'
   workflow_dispatch:
 
@@ -46,3 +51,8 @@ jobs:
           zig build -Doptimize=ReleaseSafe
           zig-out/bin/soak 30 | tee soak.md
           echo '```' >> "$GITHUB_STEP_SUMMARY"; cat soak.md >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Soak on sim/ dm16 (30 s per case)
+        run: |
+          zig build -Dsim=real -Doptimize=ReleaseSafe
+          zig-out/bin/soak 30 | tee soak-real.md
+          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat soak-real.md >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"

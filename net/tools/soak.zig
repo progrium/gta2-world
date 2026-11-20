@@ -3,7 +3,11 @@
 //! wander. Prints correction sizes, drawn gap at contact, frame-to-frame
 //! jerk, replay depth and bandwidth per case. Deterministic per seed.
 //!
-//!   zig build -Doptimize=ReleaseFast && zig-out/bin/soak [seconds]
+//!   zig build -Doptimize=ReleaseFast && zig-out/bin/soak [seconds] [--only TEXT]
+//!   zig build -Dsim=real -Doptimize=ReleaseFast && zig-out/bin/soak [seconds] [--map file.gmp]
+//!
+//! `-Dsim=real` runs sim/ (dm16) on the synthetic test map or a real map;
+//! the default is the stand-in arena sim.
 
 const std = @import("std");
 const itf = @import("interfaces");
@@ -11,18 +15,11 @@ const net = @import("net");
 const abi = itf.abi;
 const wire = itf.wire;
 const input = itf.input;
-const ts = net.testsim;
+const world = @import("soak_world");
 
-pub const cfg: abi.Config = .{
-    .name = "arena16",
-    .max_players = 16,
-    .car_capacity = 64,
-    .ped_capacity = 128,
-    .projectile_capacity = 0,
-    .ambient_cars = 24,
-    .ambient_peds = 100,
-};
-const S = ts.Sim(cfg);
+pub const cfg = world.cfg;
+const S = world.S;
+var map_path: ?[]const u8 = null;
 const Sc = net.schema.Schema(S);
 const Cl = net.client.Client(S);
 const Enc = net.encoder.ClientEncoder(S);
@@ -40,7 +37,7 @@ pub const Case = struct {
     burst: f64 = 0,
     bots: u32 = 3,
     bot_mode: enum { chase, wander, flick } = .chase,
-    budget: u32 = 187,
+    budget: u32 = 400,
     predict_radius: f32 = 6,
     smooth_own: f32 = 100,
     smooth_other: f32 = 250,
@@ -84,11 +81,11 @@ fn botFrame(s: *S, slot: u32, mode: anytype, tick: u32) input.Frame {
         },
         else => {
             const r = abi.rand(99, tick / 45, row.car, 7);
-            tx = @intCast(4 * abi.fx_one + @as(i64, r % 88) * abi.fx_one);
-            ty = @intCast(4 * abi.fx_one + @as(i64, (r >> 10) % 56) * abi.fx_one);
+            tx = @intCast(world.wander_lo * abi.fx_one + @as(i64, r % world.wander_x) * abi.fx_one);
+            ty = @intCast(world.wander_lo * abi.fx_one + @as(i64, (r >> 10) % world.wander_y) * abi.fx_one);
         },
     }
-    const want = ts.atan2(ty - me.y, tx - me.x);
+    const want = world.atan2(ty - me.y, tx - me.x);
     const diff: i16 = @bitCast(want -% me.heading);
     var steer = std.math.clamp(@divTrunc(@as(i32, diff), 40), -127, 127);
     if (mode == .flick) {
@@ -134,6 +131,7 @@ const Result = struct {
 fn run(gpa: std.mem.Allocator, c: Case, seconds: f64, seed: u64) !Result {
     const grid = try gpa.create(abi.Grid);
     defer gpa.destroy(grid);
+    try world.buildGrid(gpa, g_io, grid, map_path);
     const srv = try gpa.create(S);
     defer gpa.destroy(srv);
     srv.init(grid, .{ .seed = seed, .mode = .authoritative });
@@ -169,6 +167,14 @@ fn run(gpa: std.mem.Allocator, c: Case, seconds: f64, seed: u64) !Result {
     var joins: [cfg.max_players]abi.Command = undefined;
     for (0..c.bots + 1) |p| joins[p] = .{ .op = .join, .slot = @intCast(p), .arg = 0 };
     srv.step(&frames, joins[0 .. c.bots + 1]);
+    world.seatPlayers(srv, &frames, c.bots + 1);
+    if (debug) {
+        var seated: u32 = 0;
+        for (0..c.bots + 1) |p| {
+            if (!Sc.playerRow(srv.stateBytes(), @intCast(p)).car.isNone()) seated += 1;
+        }
+        print("  seated {d}/{d}\n", .{ seated, c.bots + 1 });
+    }
     for (0..150) |_| srv.step(&frames, &.{});
 
     var buf: [65536]u8 = undefined;
@@ -237,6 +243,15 @@ fn run(gpa: std.mem.Allocator, c: Case, seconds: f64, seed: u64) !Result {
             up.send(now, d);
         }
 
+        if (debug and @mod(@as(u64, @intFromFloat(now / frame_ms)), 300) == 0) {
+            const st = srv.stateBytes();
+            for (0..@min(c.bots + 1, 4)) |p| {
+                const row = Sc.playerRow(st, @intCast(p));
+                if (row.car.isNone()) continue;
+                const t = Sc.transform(st, 0, row.car.index()).?;
+                print("  t={d:.0} p{d} car ({d:.1},{d:.1})\n", .{ now, p, @as(f32, @floatFromInt(t.x)) / 65536, @as(f32, @floatFromInt(t.y)) / 65536 });
+            }
+        }
         // Measurements after warm-up.
         if (now < 5000) continue;
         const own = cl.ownEntity() orelse continue;
@@ -266,9 +281,9 @@ fn run(gpa: std.mem.Allocator, c: Case, seconds: f64, seed: u64) !Result {
                 best_d = di;
                 best = i;
             }
-            if (dd <= 2.05 * @as(f64, @floatFromInt(ts.car_r))) {
+            if (dd <= 2.05 * @as(f64, @floatFromInt(world.car_r))) {
                 const p = cl.displayPose(0, i, now).?;
-                const gap = std.math.hypot(p.x - op.x, p.y - op.y) - 2 * @as(f32, @floatFromInt(ts.car_r)) / 65536.0;
+                const gap = std.math.hypot(p.x - op.x, p.y - op.y) - 2 * @as(f32, @floatFromInt(world.car_r)) / 65536.0;
                 try gaps.append(gpa, @max(gap, 0));
             }
         }
@@ -403,8 +418,21 @@ pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
     g_io = init.io;
     const args = try init.minimal.args.toSlice(init.arena.allocator());
-    const seconds: f64 = if (args.len > 1) try std.fmt.parseFloat(f64, args[1]) else 120;
-    debug = args.len > 2;
+    var seconds: f64 = 120;
+    var only: ?[]const u8 = null;
+    var i: usize = 1;
+    while (i < args.len) : (i += 1) {
+        const a = args[i];
+        if (std.mem.eql(u8, a, "--map") and i + 1 < args.len) {
+            map_path = args[i + 1];
+            i += 1;
+        } else if (std.mem.eql(u8, a, "--only") and i + 1 < args.len) {
+            only = args[i + 1];
+            i += 1;
+        } else if (std.mem.eql(u8, a, "--debug")) {
+            debug = true;
+        } else seconds = try std.fmt.parseFloat(f64, a);
+    }
     const cases = [_]Case{
         .{ .name = "0 ms, 0% loss, 3 chasers", .rtt = 0, .jitter = 0, .loss = 0 },
         .{ .name = "150 ms +-10, 2%, 3 chasers", .rtt = 150 },
@@ -416,16 +444,17 @@ pub fn main(init: std.process.Init) !void {
         .{ .name = "same, S3 smoothing", .rtt = 150, .bot_mode = .flick, .smooth_other = 100, .fade_speed = 0 },
         .{ .name = "150 ms, 2%, 7 wanderers", .rtt = 150, .bots = 7, .bot_mode = .wander },
         .{ .name = "same, S3 smoothing", .rtt = 150, .bots = 7, .bot_mode = .wander, .smooth_other = 100, .fade_speed = 0 },
-        .{ .name = "150 ms, 2%, 15 chasers, 187 B", .rtt = 150, .bots = 15 },
+        .{ .name = "150 ms, 2%, 15 chasers, 187 B", .rtt = 150, .bots = 15, .budget = 187 },
         .{ .name = "same, 300 B (48 kbit/s)", .rtt = 150, .bots = 15, .budget = 300 },
         .{ .name = "same, 400 B (64 kbit/s)", .rtt = 150, .bots = 15, .budget = 400 },
         .{ .name = "250 ms +-30, 5% bursty, 3 chasers", .rtt = 250, .jitter = 30, .loss = 0.05, .burst = 0.5 },
         .{ .name = "150 ms, 2%, 3 s background tab", .rtt = 150, .hitch_ms = 3000 },
     };
-    print("{d} s per case, 60 fps frames, car is 0.9 blocks long; errors in blocks\n\n", .{seconds});
+    print("{s}{s}{s}: {d} s per case, 60 fps frames; errors in blocks\n\n", .{ world.name, if (map_path != null) " on " else "", map_path orelse "", seconds });
     print("| case | own corr n | own p95 | own max | other pred corr n | p95 | max | gap at contact p50 | p99 | contacts | own jerk p99 | own jerk >0.075 | near-car jerk p99 | >0.075 | max own offset | replay avg/max | replay us | kbit/s | max B | B/record | stalest upd avg | srv repeats | snaps | hitch/resync |\n", .{});
     print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n", .{});
     for (cases) |c| {
+        if (only) |o| if (std.mem.indexOf(u8, c.name, o) == null) continue;
         const r = try run(gpa, c, seconds, 1);
         print("| {s} | {d} | {d:.3} | {d:.3} | {d} | {d:.3} | {d:.3} | {d:.3} | {d:.3} | {d} | {d:.4} | {d} | {d:.4} | {d} | {d:.3} | {d:.1}/{d} | {d:.0} | {d:.1} | {d} | {d:.1} | {d:.2} | {d} | {d} | {d}/{d} |\n", .{
             c.name,       r.own_n,         r.own_p95,      r.own_max,     r.pred_n,      r.pred_p95,   r.pred_max,

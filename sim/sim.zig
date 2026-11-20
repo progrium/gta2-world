@@ -56,6 +56,8 @@ pub fn spawnHint(x: u8, y: u8) u32 {
 // Salts for abi.rand, one per call site.
 const salt_spawn_x: u32 = 0x100;
 const salt_spawn_y: u32 = 0x200;
+const salt_near_x: u32 = 0x500;
+const salt_near_y: u32 = 0x580;
 const salt_ai_timer: u32 = 0x300;
 const salt_ai_turn: u32 = 0x301;
 const salt_car_model: u32 = 0x400;
@@ -421,6 +423,43 @@ pub fn Sim(comptime cfg: Config) type {
             return null;
         }
 
+        /// Like `findSpot`, but within `radius` blocks (Chebyshev) of block
+        /// (`ox`, `oy`), and at least `min_dist` away from it.
+        fn findSpotNear(self: *Self, key: EntityId, ground: u2, clearance: Fx, ox: i32, oy: i32, radius: i32, min_dist: i32) ?Spot {
+            const span: u32 = @intCast(2 * radius + 1);
+            var attempt: u32 = 0;
+            while (attempt < 64) : (attempt += 1) {
+                const dx = @as(i32, @intCast(self.randBelow(key, salt_near_x + attempt, span))) - radius;
+                const dy = @as(i32, @intCast(self.randBelow(key, salt_near_y + attempt, span))) - radius;
+                if (@max(@abs(dx), @abs(dy)) < min_dist) continue;
+                const cx = ox + dx;
+                const cy = oy + dy;
+                if (cx < 0 or cy < 0 or cx >= map.size_x or cy >= map.size_y) continue;
+                const f = self.columnFloor(cx, cy) orelse continue;
+                if (map.groundOf(f.cell) != ground) continue;
+                const x = fx.fromInt(cx) + fx.half;
+                const y = fx.fromInt(cy) + fx.half;
+                const z = fx.fromInt(f.z);
+                if (self.circleBlocked(x, y, z, clearance, T.ped_step)) continue;
+                return .{ .x = x, .y = y, .z = z, .heading = headingFromArrows(map.arrowsOf(f.cell), attempt) };
+            }
+            return null;
+        }
+
+        /// Block position of the lowest-numbered other active player who has
+        /// a body in the world (their car if driving, else their ped).
+        fn otherPlayerBlock(self: *Self, slot: u32) ?struct { x: i32, y: i32 } {
+            const w = &self.state.world;
+            for (self.state.players, 0..) |row, i| {
+                if (i == slot or row.flags & abi.PlayerRow.flag_active == 0) continue;
+                // `get`, not `isAlive`: a ped spawned earlier this tick (players
+                // joining together) is not alive until the next applyPending.
+                const t = w.get(row.car, c.Transform) orelse w.get(row.ped, c.Transform) orelse continue;
+                return .{ .x = fx.toInt(t.x), .y = fx.toInt(t.y) };
+            }
+            return null;
+        }
+
         fn headingFromArrows(arrows: u4, fallback: u32) u16 {
             if (arrows & map.Arrow.pos_x != 0) return 0;
             if (arrows & map.Arrow.pos_y != 0) return 16384;
@@ -462,6 +501,11 @@ pub fn Sim(comptime cfg: Config) type {
                 const cx: i32 = @intCast(hint & 0xFF);
                 const cy: i32 = @intCast((hint >> 8) & 0xFF);
                 if (self.columnFloor(cx, cy)) |f| spot = .{ .x = fx.fromInt(cx) + fx.half, .y = fx.fromInt(cy) + fx.half, .z = fx.fromInt(f.z), .heading = 0 };
+            }
+            // Players spawn near someone already playing (M2: on a full
+            // district, random spots are usually out of each other's sight).
+            if (spot == null and player != c.Controller.no_player) {
+                if (self.otherPlayerBlock(player)) |o| spot = self.findSpotNear(id, map.Ground.pavement, T.ped_radius, o.x, o.y, T.spawn_near_radius, T.spawn_near_min);
             }
             if (spot == null) spot = self.findSpot(id, map.Ground.pavement, T.ped_radius);
             const sp = spot orelse {
