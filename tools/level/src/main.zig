@@ -118,6 +118,9 @@ pub fn main(init: std.process.Init) !void {
             continue;
         };
         defer m.deinit();
+        // Zero first: tables the builder does not fill (a later addition
+        // such as surface flags) must read as empty.
+        @memset(std.mem.asBytes(&grid), 0);
         formats.grid.build(&m, &grid);
         const ok = try runMap(io, init.gpa, arena, &report, name, o);
         failed = failed or !ok;
