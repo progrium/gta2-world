@@ -462,7 +462,7 @@ pub fn Sim(comptime cfg: Config) type {
                 const cell = map.cellAt(self.grid, cx, cy, z);
                 const sh = map.shapeOf(cell);
                 if (sh == map.Shape.air or sh == map.Shape.water) continue;
-                if (sh != map.Shape.solid or map.codeOf(cell) != 0) return null;
+                if ((sh != map.Shape.solid and sh != map.Shape.slab) or map.codeOf(cell) != 0) return null;
                 if (map.shapeOf(map.cellAt(self.grid, cx, cy, z + 1)) != map.Shape.air) return null;
                 return .{ .z = z + 1, .cell = cell };
             }

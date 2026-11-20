@@ -54,6 +54,7 @@ Done, checked locally:
 
 - I3 sign-off recorded: event kinds `round_end` (5) and `pickup` (6), the kill's weapon in `c` and the explosion's cause in `a`.
 - Fixed from play-testing: cars were drawn back to front (car sprites face down in the style, unlike the other kinds).
+- Fixed from play-testing: cars could not drive under overpasses. A ground block with no wall faces (an overpass deck) is now a `slab` (I1 shape 5): a floor you can pass under. Checked natively by driving a car under 40 overpasses on wil, ste and bil.
 
 Open for M3:
 

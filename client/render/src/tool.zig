@@ -103,6 +103,6 @@ fn inspect(gpa: std.mem.Allocator, io: Io, out: *Io.Writer, path: []const u8) !v
         shapes[@intFromEnum(formats.grid.cellShape(c))] += 1;
         if (c & 0x7800 != 0) arrows += 1;
     }
-    try out.print("  grid: air {d}, solid {d}, slope {d}, partial {d}; cells with arrows {d}\n", .{ shapes[0], shapes[1], shapes[2], shapes[3], arrows });
+    try out.print("  grid: air {d}, solid {d}, slope {d}, partial {d}, slab {d}; cells with arrows {d}\n", .{ shapes[0], shapes[1], shapes[2], shapes[3], shapes[5], arrows });
     try out.flush();
 }

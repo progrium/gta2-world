@@ -128,7 +128,7 @@ The server records commands with frames, so a replay reproduces joins. Clients i
 
 | Bits | Field |
 | --- | --- |
-| 0–2 | shape: air 0, solid 1, slope 2, partial 3, water 4 |
+| 0–2 | shape: air 0, solid 1, slope 2, partial 3, water 4, slab 5 (M3: a wall-less floor such as an overpass deck; only a thin top layer is matter, so bodies pass under it) |
 | 3–8 | GTA2 slope code 0–63 (0 = none) |
 | 9–10 | ground: none 0, road 1, pavement 2, field 3 |
 | 11–14 | lid road arrows: +y, −y, +x, −x |

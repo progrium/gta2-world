@@ -6,8 +6,9 @@
 //!     diagonal walls 45-48, diagonal slopes 49-52),
 //!   - codes 53-61 become `partial` with the code kept,
 //!   - any other block (including code 63) is `solid` if it has a
-//!     wall-flagged side face or a ground type other than air, otherwise
-//!     air. A lid alone does not make a block solid: lid-only blocks with
+//!     wall-flagged side face, else `slab` (a thin floor bodies pass
+//!     under, added in M3 for overpasses) if its ground type is not air,
+//!     otherwise air. A lid alone does not make a block solid: lid-only blocks with
 //!     ground air are overhead graphics, and ground-typed blocks with no
 //!     lid are real floors. (Revised after workstream A's 10,000-tick soak
 //!     on wil, ste, bil and the mp maps: code 63 blocks hold up ramps.)
@@ -82,7 +83,10 @@ pub fn cellOf(b: gmp.Block) abi.Cell {
     const shape: abi.Shape = switch (code) {
         1...52 => .slope,
         53...61 => .partial,
-        else => if (hasWallSide(b) or b.ground() != .air) .solid else .air,
+        // A ground block with no wall faces is a floor you can pass under
+        // (an overpass deck): a slab. Its sides are not walls, so only its
+        // top surface matters.
+        else => if (hasWallSide(b)) .solid else if (b.ground() != .air) .slab else .air,
     };
     if (shape == .air) return encode(.air, 0, .none, arrowsOf(b));
     return encode(shape, if (shape == .solid) 0 else code, ground, arrowsOf(b));
@@ -132,7 +136,7 @@ test "cell mapping" {
     // Road with an east arrow.
     const road: gmp.Block = .{ .lid = face(5, false), .slope_type = 1, .arrows = gmp_arrow_pos_x };
     const c = cellOf(road);
-    try testing.expectEqual(abi.Shape.solid, cellShape(c));
+    try testing.expectEqual(abi.Shape.slab, cellShape(c));
     try testing.expectEqual(abi.Ground.road, cellGround(c));
     try testing.expectEqual(arrow_pos_x, c & 0x7800);
 
@@ -153,7 +157,7 @@ test "cell mapping" {
     try testing.expectEqual(abi.Shape.solid, cellShape(cellOf(.{ .left = face(3, true), .slope_type = (63 << 2) | 3 })));
     // Lid with ground air: overhead graphics, air. Ground with no lid: floor.
     try testing.expectEqual(abi.Shape.air, cellShape(cellOf(.{ .lid = face(1, false) })));
-    try testing.expectEqual(abi.Shape.solid, cellShape(cellOf(.{ .slope_type = 2 })));
+    try testing.expectEqual(abi.Shape.slab, cellShape(cellOf(.{ .slope_type = 2 })));
     try testing.expectEqual(@as(abi.Cell, 0), cellOf(.{ .lid = face(1, false), .arrows = 0xFF }) & 0x8000);
 }
 
@@ -171,7 +175,7 @@ test "grid from a synthetic map" {
     defer testing.allocator.destroy(grid);
     build(&map, grid);
     const c = grid.blocks[1][20][10];
-    try testing.expectEqual(abi.Shape.solid, cellShape(c));
+    try testing.expectEqual(abi.Shape.slab, cellShape(c));
     try testing.expectEqual(arrow_neg_y, c & 0x7800);
     try testing.expectEqual(abi.Shape.solid, cellShape(grid.blocks[2][20][11]));
     try testing.expectEqual(@as(abi.Cell, 0), grid.blocks[0][0][0]);

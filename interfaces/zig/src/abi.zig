@@ -202,7 +202,10 @@ pub const map_z = 8;
 ///   15    reserved, zero
 pub const Cell = u16;
 
-pub const Shape = enum(u3) { air = 0, solid = 1, slope = 2, partial = 3, water = 4, _ };
+/// `slab` (added in M3): a floor with no walls, such as an overpass deck.
+/// Only a thin layer at the top of the cell is matter, so bodies pass under
+/// it; its top is a floor like a solid block's.
+pub const Shape = enum(u3) { air = 0, solid = 1, slope = 2, partial = 3, water = 4, slab = 5, _ };
 pub const Ground = enum(u2) { none = 0, road = 1, pavement = 2, field = 3 };
 
 /// z-major: blocks[z][y][x]. x grows east, y grows south, z up. 1 MiB.

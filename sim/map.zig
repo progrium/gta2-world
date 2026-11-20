@@ -40,6 +40,9 @@ pub const Shape = struct {
     pub const slope: u3 = 2;
     pub const partial: u3 = 3;
     pub const water: u3 = 4;
+    /// A floor with no walls (an overpass deck): matter only in its top
+    /// `slab_thickness`, so bodies pass under it.
+    pub const slab: u3 = 5;
 };
 
 pub const Ground = struct {
@@ -188,6 +191,7 @@ pub fn topInCell(c: Cell, x: Fx, y: Fx) ?Fx {
             if (code >= 49 and code <= 52) return if (inDiagonal(@truncate(code - 49), u, v)) fx.one else null;
             return fx.one;
         },
+        Shape.slab => return fx.one,
         Shape.partial => {
             if (code >= 53 and code <= 61) return if (inPartial(code - 53, u, v)) fx.one else null;
             return fx.one;
@@ -211,6 +215,8 @@ pub const ped_step = fx.ratio(5, 16);
 /// whose top is above z + step blocks. Half a block, so a ped walks up a
 /// ramp under a one-block ceiling.
 pub const body_height = fx.half;
+/// Matter in a slab cell: the top eighth.
+pub const slab_thickness = fx.one >> 3;
 
 /// Does matter at (x, y) block a body standing at height z?
 pub fn blocks(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) bool {
@@ -218,7 +224,8 @@ pub fn blocks(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) bool {
     // Layers whose base is strictly below the top of the body.
     while (l <= fx.toInt(z + body_height - 1)) : (l += 1) {
         if (topAt(g, x, y, l)) |top| {
-            if (top > z + step) return true;
+            const bottom = if (shapeOf(cellAt(g, fx.toInt(x), fx.toInt(y), l)) == Shape.slab) top - slab_thickness else fx.fromInt(l);
+            if (top > z + step and bottom < z + body_height) return true;
         }
     }
     return false;
@@ -308,4 +315,25 @@ test "floors and walls" {
     try std.testing.expectEqual(fx.fromInt(2), floorAt(g, fx.fromInt(11) + fx.half, p, fx.fromInt(2), ped_step));
     // Nothing under (5, 5).
     try std.testing.expectEqual(-fx.one, floorAt(g, fx.fromInt(5), fx.fromInt(5), fx.one, ped_step));
+}
+
+test "slabs are floors you pass under" {
+    const g = try std.testing.allocator.create(Grid);
+    defer std.testing.allocator.destroy(g);
+    @memset(std.mem.asBytes(g), 0);
+    // Road at layer 0, an overpass deck at layer 1 over (11, 10).
+    set(g, 10, 10, 0, makeCell(Shape.solid, 0, Ground.road, 0));
+    set(g, 11, 10, 0, makeCell(Shape.solid, 0, Ground.road, 0));
+    set(g, 11, 10, 1, makeCell(Shape.slab, 0, Ground.road, 0));
+    const p = fx.fromInt(10) + fx.half;
+    const under = fx.fromInt(11) + fx.half;
+    const car_step = fx.ratio(7, 10);
+    // On the road below: the deck neither blocks nor counts as the floor.
+    try std.testing.expect(!blocks(g, under, p, fx.one, car_step));
+    try std.testing.expect(!blocks(g, under, p, fx.one, ped_step));
+    try std.testing.expectEqual(fx.one, floorAt(g, under, p, fx.one, car_step));
+    // On the deck: its top is the floor.
+    try std.testing.expectEqual(fx.fromInt(2), floorAt(g, under, p, fx.fromInt(2), ped_step));
+    // A body whose height reaches the deck's underside is stopped by it.
+    try std.testing.expect(blocks(g, under, p, fx.fromInt(1) + fx.half, ped_step));
 }
