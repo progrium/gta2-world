@@ -116,6 +116,41 @@ pub fn build(map: *const gmp.Map, out: *abi.Grid) void {
     for (map.cells, flat) |bi, *c| c.* = cellOf(map.blocks[bi]);
     const walls: *[gmp.cell_count]abi.WallBits = @ptrCast(&out.walls);
     for (map.cells, walls) |bi, *w| w.* = wallsOf(map.blocks[bi]);
+    const surface: *[gmp.cell_count]abi.SurfaceBits = @ptrCast(&out.surface);
+    for (map.cells, surface) |bi, *s| s.* = surfaceOf(map.blocks[bi]);
+}
+
+/// Lid tiles that electrify a floor (ped-movement.md 3.7), indexed by tile
+/// number. The flag lives in the style's tile data; a host that has it
+/// passes the set to `markElectrified`.
+pub const TileSet = std.StaticBitSet(1024);
+
+/// gmp `Block.arrows` high nibble: the red arrows, in the green arrows'
+/// bit order (bit 4 -x, 5 +x, 6 -y, 7 +y).
+pub const gmp_red_neg_x: u8 = 0x10;
+pub const gmp_red_pos_x: u8 = 0x20;
+pub const gmp_red_neg_y: u8 = 0x40;
+pub const gmp_red_pos_y: u8 = 0x80;
+
+/// `abi.Grid.surface` bits for one block: the red arrows. Electrified
+/// lids are added by `markElectrified`.
+pub fn surfaceOf(b: gmp.Block) abi.SurfaceBits {
+    var s: abi.SurfaceBits = 0;
+    if (b.arrows & gmp_red_pos_y != 0) s |= abi.surface_red_pos_y;
+    if (b.arrows & gmp_red_neg_y != 0) s |= abi.surface_red_neg_y;
+    if (b.arrows & gmp_red_pos_x != 0) s |= abi.surface_red_pos_x;
+    if (b.arrows & gmp_red_neg_x != 0) s |= abi.surface_red_neg_x;
+    return s;
+}
+
+/// Set the electrified bit on every cell whose lid tile is in `tiles`.
+pub fn markElectrified(map: *const gmp.Map, out: *abi.Grid, tiles: *const TileSet) void {
+    const surface: *[gmp.cell_count]abi.SurfaceBits = @ptrCast(&out.surface);
+    for (map.cells, surface) |bi, *s| {
+        const b = map.blocks[bi];
+        if (b.lid.isEmpty() or b.lid.tile >= TileSet.bit_length) continue;
+        if (tiles.isSet(b.lid.tile)) s.* |= abi.surface_electrified;
+    }
 }
 
 /// `abi.Grid.walls` bits.
@@ -161,6 +196,13 @@ const synth = @import("synth.zig");
 
 fn face(tile: u10, wall: bool) gmp.Face {
     return .{ .tile = tile, .bit10 = wall, .bit11 = false, .flat = false, .flip = false, .rotation = 0 };
+}
+
+test "red arrows go into the surface table" {
+    const b: gmp.Block = .{ .arrows = 0x81 };
+    try testing.expectEqual(abi.surface_red_pos_y, surfaceOf(b));
+    try testing.expectEqual(abi.surface_red_neg_x, surfaceOf(.{ .arrows = 0x10 }));
+    try testing.expectEqual(arrow_neg_x, arrowsOf(b));
 }
 
 test "cell mapping" {

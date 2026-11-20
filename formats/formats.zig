@@ -8,6 +8,7 @@ pub const synth = @import("synth.zig");
 pub const grid = @import("grid.zig");
 pub const gci = @import("gci.zig");
 pub const cars = @import("cars.zig");
+pub const level = @import("level.zig");
 
 test {
     _ = chunk;
@@ -15,4 +16,5 @@ test {
     _ = sty;
     _ = synth;
     _ = grid;
+    _ = level;
 }

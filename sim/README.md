@@ -28,10 +28,11 @@ s.init(&grid, .{ .seed = seed, .mode = .authoritative });
 s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = 0 }});
 ```
 
-- `sim.Sim(cfg)` for any `abi.Config`; `sim.Sim16` is `dm16`, `sim.config_200` is the 200-player load configuration.
+- `sim.Sim(cfg)` for any `abi.Config`; `sim.Sim16` is `dm16`, `sim.config_200` is the 200-player load configuration, `sim.config_sp` the single-player one (one player, the SP components and state block, the SP systems; see `sys/README.md`).
+- Code layout: one file per system under `sys/`, `ai/`, `sp/` and `script/`, with owners per workstream, in `sys/README.md`.
 - Everything in I1: `init`, `step`, `save`, `load`, `hash`, `tick`, `setTick`, `stateBytes`, `views`, `intents`, `playerRow`, `replicaPut`, `replicaRemove`, `config`, `state_size`, `layout_hash`. `abi.checkSim` runs at compile time.
 - `replicated`: per kind, the components a snapshot carries, in ascending id, never `Predicted` (the shape workstream C asked for).
-- Not in I1, for tools and tests: `spawnCarAt`, `pedOf`, `transformOf`, `spawnHint`.
+- Not in I1, for tools and tests: `spawnCarAt`, `pedOf`, `transformOf`, `spawnHint`, and `attachLevel(*const sim.Level)` (after `init`): the level's zones, map objects, lights and script, built by `formats.level.build`.
 - `sim.testmap.build(&grid)` makes the synthetic test map. `formats.grid.build` (workstream B) makes a grid from a real `.gmp`.
 
 ## What M1 implements
