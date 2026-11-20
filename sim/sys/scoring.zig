@@ -97,6 +97,7 @@ pub fn Sys(comptime Self: type) type {
         /// by method and the killer's combo. Dying by your own hand scores
         /// nothing.
         pub fn scoreKill(self: *Self, victim: EntityId, victim_player: bool, by: EntityId) void {
+            Self.wanted.onKill(self, victim, by); // E: wanted points
             const slot = self.creditSlot(by);
             if (slot == Event.no_slot) return;
             const w = &self.state.world;
@@ -175,6 +176,7 @@ pub fn Sys(comptime Self: type) type {
         /// Points for destroying car `v`, hit last by `by`: its value x 5 x
         /// the car combo (scoring.md 3.3). Not for the car you are in.
         pub fn scoreWreck(self: *Self, v: *const c.Vehicle, by: EntityId) void {
+            Self.wanted.onCarDestroyed(self, v, by, false); // E: wanted points
             const slot = self.creditSlot(by);
             if (slot == Event.no_slot) return;
             const killer = self.state.players[slot].ped;

@@ -2,7 +2,7 @@
 // this for files by name or hash.
 
 import type { AssetRecord, FromWorker, Manifest, ToWorker } from "./protocol.ts";
-import type { MapEntry } from "./kinds.ts";
+import type { LevelEntry, MapEntry } from "./kinds.ts";
 
 export interface ImportResult {
   manifest: Manifest;
@@ -16,6 +16,8 @@ export interface MapChoice extends MapEntry {
   gmpRecord: AssetRecord;
   styRecord: AssetRecord;
   scrRecord: AssetRecord | null;
+  /** A single-player level (story area or bonus stage), not a deathmatch map. */
+  story?: { bonus: boolean; index: number };
 }
 
 type Pending = { resolve: (m: FromWorker & { op: "result" }) => void; reject: (e: Error) => void; progress?: (done: number, total: number, path: string) => void };
@@ -83,6 +85,16 @@ export class AssetStore {
   maps(): MapChoice[] {
     return listMaps(this.manifest.files);
   }
+
+  /** Single-player levels the player can start (see `listLevels`). */
+  levels(): MapChoice[] {
+    return listLevels(this.manifest.files);
+  }
+
+  /** A level's script files: its main .scr and the mission sub-scripts in the folder named after it. */
+  scripts(level: MapChoice): AssetRecord[] {
+    return levelScripts(this.manifest.files, level);
+  }
 }
 
 export function listMaps(files: readonly AssetRecord[]): MapChoice[] {
@@ -107,4 +119,41 @@ export function listMaps(files: readonly AssetRecord[]): MapChoice[] {
     out.push({ description: base, gmp: g.name, sty: s.name, scr: scr?.name ?? null, mmp: null, gmpRecord: g, styRecord: s, scrRecord: scr });
   }
   return out;
+}
+
+/**
+ * Single-player levels: those a .seq file lists, in its order, whose .gmp,
+ * .sty and .scr are present. Without a .seq, every .gmp with a same-named
+ * .sty and .scr is a main area.
+ */
+export function listLevels(files: readonly AssetRecord[]): MapChoice[] {
+  const by = (n: string): AssetRecord | null => files.find((f) => f.name === n.toLowerCase()) ?? null;
+  const ok = (r: AssetRecord | null): r is AssetRecord => !!r && r.info.ok;
+  const out: MapChoice[] = [];
+  const seen = new Set<string>();
+  const add = (e: LevelEntry, mmp: string | null): void => {
+    const g = by(e.gmp);
+    const s = by(e.sty);
+    const c = e.scr ? by(e.scr) : null;
+    if (!ok(g) || !ok(s) || !ok(c) || seen.has(g.name)) return;
+    seen.add(g.name);
+    out.push({ description: e.description, gmp: e.gmp, sty: e.sty, scr: e.scr, mmp, gmpRecord: g, styRecord: s, scrRecord: c, story: { bonus: e.bonus, index: out.length } });
+  };
+  for (const f of files) if (f.kind === "seq" && f.info.ok) for (const e of f.info.levels ?? []) add(e, f.name);
+  if (out.length > 0) return out;
+  for (const g of files) {
+    if (g.kind !== "gmp" || !g.info.ok) continue;
+    const base = g.name.replace(/\.gmp$/, "");
+    add({ description: base, gmp: g.name, sty: `${base}.sty`, scr: `${base}.scr`, bonus: false }, null);
+  }
+  return out;
+}
+
+/** The main .scr, then the .scr files in a folder named after it (its mission sub-scripts). */
+export function levelScripts(files: readonly AssetRecord[], level: MapChoice): AssetRecord[] {
+  if (!level.scrRecord) return [];
+  const base = level.scrRecord.name.replace(/\.scr$/, "");
+  const subs = files.filter((f) => f.kind === "scr" && f !== level.scrRecord && f.path.toLowerCase().split(/[\\/]/).slice(0, -1).includes(base));
+  const names = new Set<string>();
+  return [level.scrRecord, ...subs].filter((f) => (names.has(f.name) ? false : (names.add(f.name), true)));
 }

@@ -85,6 +85,7 @@ pub fn Sys(comptime Self: type) type {
                 self.pushIntent(.spawn, .projectile, shooter, st);
                 return;
             }
+            Self.wanted.onShot(self, shooter); // E: crime report
             const w = &self.state.world;
             const sid = w.spawn(Shot) orelse return;
             w.get(sid, c.Transform).?.* = st;
@@ -139,6 +140,7 @@ pub fn Sys(comptime Self: type) type {
                 self.pushIntent(.spawn, .projectile, id, st);
                 return;
             }
+            Self.wanted.onShot(self, id); // E: crime report
             const w = &self.state.world;
             const sid = w.spawn(Shot) orelse return;
             w.get(sid, c.Transform).?.* = st;
@@ -154,6 +156,7 @@ pub fn Sys(comptime Self: type) type {
         /// line to it. Two hops at most; nobody twice.
         pub fn electro(self: *Self, shooter: EntityId, t: *const c.Transform) void {
             if (self.predicting()) return;
+            Self.wanted.onShot(self, shooter); // E: crime report
             var hit: [12]EntityId = undefined;
             var n: usize = 0;
             hit[0] = shooter;

@@ -76,6 +76,33 @@ export const WEAPON_NAMES = [
 /** Pickup kinds after the weapons (`tuning.pickup_health` on). */
 export const PICKUP_NAMES = ["Health", "Armour", "Invulnerability", "Double damage", "Fast reload"] as const;
 
+/** The single-player state the HUD draws (`spInfo` in game.zig). */
+export interface SpHud {
+  lives: number;
+  multiplier: number;
+  /** Points; in GTA2 cash and points are one number. */
+  points: number;
+  jailCards: number;
+  /** Wanted stars, 0-6. */
+  stars: number;
+  wantedPoints: number;
+  careerFlags: number;
+  /** Wasted or busted and not yet back on the street. */
+  out: boolean;
+  /** Banner message text id (0 none) and ticks left. */
+  banner: number;
+  bannerTicks: number;
+  /** Queued brief text ids, the showing one first. */
+  briefs: number[];
+  /** Countdown in ticks (0 none). */
+  timer: number;
+  counters: [number, number];
+  /** Where the arrow points, in blocks, or null. */
+  arrow: { x: number; y: number; entity: boolean } | null;
+  hudFlags: number;
+  tick: number;
+}
+
 export interface CameraTarget {
   x: number;
   y: number;
@@ -184,6 +211,104 @@ export class GameModule {
   start(seed: number, hint?: { x: number; y: number }): void {
     const rc = this.w.gameStart!(seed >>> 0, hint ? 1 : 0, hint?.x ?? 0, hint?.y ?? 0);
     if (rc !== 0) throw new Error(this.error());
+  }
+
+  // -------------------------------------------------------- single player
+
+  /** Whether this game.wasm has the single-player exports. */
+  get hasSinglePlayer(): boolean {
+    return typeof this.w.spStart === "function";
+  }
+
+  /** Starts a single-player game on the loaded map, with its level data and scripts. */
+  startSp(seed: number, hint?: { x: number; y: number }): void {
+    const rc = this.w.spStart!(seed >>> 0, hint ? 1 : 0, hint?.x ?? 0, hint?.y ?? 0);
+    if (rc !== 0) throw new Error(this.error());
+  }
+
+  /** Forgets the level's script files. */
+  clearScripts(): void {
+    this.w.scriptsClear!();
+  }
+
+  /** Adds one of the level's script files (main .scr or a mission sub-script). */
+  addScript(name: string, bytes: Uint8Array): void {
+    const nm = new TextEncoder().encode(name.toLowerCase());
+    const np = this.w.alloc!(Math.max(1, nm.length));
+    if (!np) throw new Error("out of WASM memory");
+    this.u8(np, nm.length).set(nm);
+    try {
+      this.withBytes(bytes, (p, n) => (this.w.scriptAdd!(np, nm.length, p, n) < 0 ? -1 : 0));
+    } finally {
+      this.w.free!(np, Math.max(1, nm.length));
+    }
+  }
+
+  /** Loads a .gxt text table; returns its entry count. */
+  loadText(bytes: Uint8Array): number {
+    let n = 0;
+    this.withBytes(bytes, (p, len) => {
+      n = this.w.loadText!(p, len);
+      return n < 0 ? n : 0;
+    });
+    return n;
+  }
+
+  private readText(len: number): string | null {
+    if (len < 0) return null;
+    const b = this.u8(this.w.textPtr!(), len * 2);
+    let s = "";
+    for (let i = 0; i < len; i++) s += String.fromCharCode(b[i * 2]! | (b[i * 2 + 1]! << 8));
+    return s;
+  }
+
+  /** The text for a script message number, or null. */
+  text(id: number): string | null {
+    return this.readText(this.w.textById!(id >>> 0));
+  }
+
+  /** The text for a named key ("wasted", "nicked", ...), or null. */
+  textKey(key: string): string | null {
+    const k = new TextEncoder().encode(key);
+    const p = this.w.alloc!(Math.max(1, k.length));
+    if (!p) return null;
+    this.u8(p, k.length).set(k);
+    const len = this.w.textByKey!(p, k.length);
+    const out = this.readText(len);
+    this.w.free!(p, Math.max(1, k.length));
+    return out;
+  }
+
+  spInfo(): SpHud {
+    const a = new Int32Array(this.buf, this.w.spInfo!(), 24);
+    const n = Math.max(0, Math.min(4, a[10]!));
+    return {
+      lives: a[0]!,
+      multiplier: a[1]!,
+      points: a[2]!,
+      jailCards: a[3]!,
+      stars: a[4]!,
+      wantedPoints: a[5]!,
+      careerFlags: a[6]!,
+      out: a[7] !== 0,
+      banner: a[8]! >>> 0,
+      bannerTicks: a[9]!,
+      briefs: Array.from(a.subarray(11, 11 + n), (x) => x >>> 0),
+      timer: a[15]! >>> 0,
+      counters: [a[16]!, a[17]!],
+      arrow: a[18] ? { x: a[19]! / 65536, y: a[20]! / 65536, entity: a[18] === 1 } : null,
+      hudFlags: a[21]!,
+      tick: a[22]! >>> 0,
+    };
+  }
+
+  /**
+   * Offline debug: drives the HUD and career through the sim's APIs, as a
+   * script would (see `spDebug` in game.zig). Does nothing until the
+   * owning workstream fills in that API.
+   */
+  spDebug(op: number, a = 0, b = 0): boolean {
+    return this.w.spDebug!(op, a | 0, b | 0) !== 0;
   }
 
   /** Drops a car in front of the player (offline play only). */

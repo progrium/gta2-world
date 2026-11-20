@@ -235,16 +235,12 @@ pub fn blocks(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) bool {
 }
 
 /// Is the column under (x, y) empty all the way down from height z (no
-/// floor at any depth)? Real maps have such voids at their edges and around
-/// some structures; the original's water may be among them. Bodies treat a
-/// void as a wall rather than falling out of the world.
+/// floor whose top is at or below z)? Real maps have such voids at their
+/// edges and around some structures, often under a deck that floats above
+/// them; matter above z (that deck) is not a floor and does not count.
+/// Bodies treat a void as a wall rather than falling out of the world.
 pub fn isVoid(g: *const Grid, x: Fx, y: Fx, z: Fx) bool {
-    var l = fx.toInt(z);
-    if (l >= size_z) l = size_z - 1;
-    while (l >= 0) : (l -= 1) {
-        if (topAt(g, x, y, l) != null) return false;
-    }
-    return true;
+    return floorAt(g, x, y, z, 0) < 0;
 }
 
 /// `blocks`, or a void below: what stops a ped or a car.

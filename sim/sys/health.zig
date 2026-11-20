@@ -48,6 +48,7 @@ pub fn Sys(comptime Self: type) type {
             const h = w.get(id, c.Health).?;
             h.hp = @intCast(@max(0, h.hp - @min(dmg, T.car_damage_max)));
             if (!by.isNone()) h.last_hit_by = by;
+            Self.wanted.onCarDamaged(self, id, by); // E: crime report
             // Each credited hit scores by how hard it was (scoring.md 3.3);
             // not on the car you are driving.
             const slot = self.creditSlot(by);
