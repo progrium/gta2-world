@@ -1,0 +1,10 @@
+.{
+    .name = .s1,
+    .version = "0.0.0",
+    .fingerprint = 0x141538f0dd8e2c8d,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .formats = .{ .path = "../../formats" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "web" },
+}
