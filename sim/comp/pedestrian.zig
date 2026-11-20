@@ -53,6 +53,17 @@ pub const Pedestrian = extern struct {
     pub const anim_run: u8 = 2;
     pub const anim_jump: u8 = 3;
     pub const anim_down: u8 = 4;
+    // 5-15 reserved by W0 for the knocked-down, falling, drowning and car
+    // door animations (C, D1, D2); the renderer draws them (H).
+    pub const anim_fall: u8 = 5;
+    pub const anim_drown: u8 = 6;
+    pub const anim_get_up: u8 = 7;
+    pub const anim_electrocuted: u8 = 8;
+    pub const anim_enter_car: u8 = 9;
+    pub const anim_exit_car: u8 = 10;
+    pub const anim_punch: u8 = 11;
+    pub const anim_lie: u8 = 12;
+    pub const anim_burning: u8 = 13;
 
     pub const state_up: u8 = 0;
     /// Knocked over: slides, then gets straight up.
@@ -61,6 +72,23 @@ pub const Pedestrian = extern struct {
     pub const state_down: u8 = 2;
     /// Fatally thrown: dies when the body comes to rest.
     pub const state_fatal: u8 = 3;
+    // 4-15 reserved by W0 (owners in brackets).
+    /// Falling from a height; frames counted for fall damage (C).
+    pub const state_falling: u8 = 4;
+    /// Drowning in deep water (C).
+    pub const state_drowning: u8 = 5;
+    /// Getting up after lying down (C).
+    pub const state_getting_up: u8 = 6;
+    /// Held by an electric shock (C, G).
+    pub const state_electrocuted: u8 = 7;
+    /// Walking to a car door, opening it, getting in (D2).
+    pub const state_entering: u8 = 8;
+    /// Getting out of a car (D2).
+    pub const state_exiting: u8 = 9;
+    /// Being pulled out of a car by a carjacker (D2).
+    pub const state_pulled_out: u8 = 10;
+    /// Being arrested (E, G).
+    pub const state_arrested: u8 = 11;
 
     /// Jump was pressed this tick (a fresh press, set by the input system).
     pub const flag_jump_pressed: u8 = 1;

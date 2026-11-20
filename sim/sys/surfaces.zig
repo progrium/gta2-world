@@ -87,5 +87,11 @@ pub fn Sys(comptime Self: type) type {
             w.despawn(id);
             if (cfg.ambient_cars > 0) _ = self.spawnAmbientCar(true, self.randomPlayerBlock(id));
         }
+
+        /// Electrified floors and other per-tick surface effects (ped-movement.md
+        /// 3.7): owner C. W0 stub; deep water is handled during movement.
+        pub fn sysSurfaces(self: *Self) void {
+            _ = self;
+        }
     };
 }

@@ -322,6 +322,29 @@ inline fn spans(a0: Fx, a1: Fx, h: Fx) bool {
 
 /// A ground rectangle: centre, unit axis (cos, sin) of its length, and half
 /// length `a` along it and half width `b` across it.
+// ---------------------------------------------------------------------------
+// Surfaces (`Grid.surface`, W0): red arrows and electrified lids.
+
+pub const Surface = struct {
+    pub const red_pos_y = abi.surface_red_pos_y;
+    pub const red_neg_y = abi.surface_red_neg_y;
+    pub const red_pos_x = abi.surface_red_pos_x;
+    pub const red_neg_x = abi.surface_red_neg_x;
+    pub const red_mask = abi.surface_red_mask;
+    pub const electrified = abi.surface_electrified;
+};
+
+/// Surface bits of cell (cx, cy, cz); 0 outside the map.
+pub inline fn surfaceAt(g: *const Grid, cx: i32, cy: i32, cz: i32) abi.SurfaceBits {
+    if (cx < 0 or cy < 0 or cz < 0 or cx >= size_x or cy >= size_y or cz >= size_z) return 0;
+    return g.surface[@intCast(cz)][@intCast(cy)][@intCast(cx)];
+}
+
+/// The red arrows of a surface byte, in `Arrow` bit order (as `arrowsOf`).
+pub inline fn redArrowsOf(s: abi.SurfaceBits) u4 {
+    return @truncate(s & abi.surface_red_mask);
+}
+
 pub const Rect = struct {
     x: Fx,
     y: Fx,
@@ -423,9 +446,23 @@ pub fn moveHitsWall(g: *const Grid, x0: Fx, y0: Fx, x1: Fx, y1: Fx, z: Fx, shift
 /// Hash of the grid for replay files (FNV-1a over cells and wall faces).
 pub fn gridHash(g: *const Grid) u64 {
     var h: u64 = 0xcbf29ce484222325;
-    for (std.mem.asBytes(g)) |b| {
+    for (std.mem.asBytes(&g.blocks)) |b| {
         h ^= b;
         h *%= 0x100000001b3;
+    }
+    for (std.mem.asBytes(&g.walls)) |b| {
+        h ^= b;
+        h *%= 0x100000001b3;
+    }
+    // `surface` (W0) is folded in only when a bit is set, so a grid with no
+    // surfaces keeps the hash it had before the table existed (recorded
+    // replays carry it).
+    const surf = std.mem.asBytes(&g.surface);
+    if (std.mem.indexOfNone(u8, surf, &.{0}) != null) {
+        for (surf) |b| {
+            h ^= b;
+            h *%= 0x100000001b3;
+        }
     }
     return h;
 }
@@ -532,4 +569,3 @@ test "deep water is a surface, and waterAt finds it" {
     try std.testing.expect(waterAt(g, fx.fromInt(10) + fx.half, y, fx.one));
     try std.testing.expect(!waterAt(g, fx.fromInt(11) + fx.half, y, fx.one));
 }
-

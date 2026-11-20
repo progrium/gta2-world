@@ -92,6 +92,32 @@ pub const EventKind = enum(u8) {
     round_end = 5,
     /// x, y, z of a pickup taken; a = slot, b = what (weapon index, 4 health) (M3)
     pickup = 6,
+    // 7-18: single player, reserved 2026-11-20 (W0 of docs/plan-notes.md).
+    // Text ids are indices into the level's string table, carried in x.
+    /// a = slot, x = text id: a one-line banner message
+    message = 7,
+    /// a = slot, x = text id: a mission brief (pager)
+    brief = 8,
+    /// a = slot, b = stars now, c = stars before
+    wanted = 9,
+    /// a = slot, b = cause (the kill event's weapon numbering)
+    wasted = 10,
+    /// a = slot
+    busted = 11,
+    /// a = slot, x = mission id
+    mission_start = 12,
+    /// a = slot, x = mission id
+    mission_pass = 13,
+    /// a = slot, x = mission id
+    mission_fail = 14,
+    /// x, y, z of the phone; a = 1 ringing, 0 stopped
+    phone_ring = 15,
+    /// x, y, z of the vehicle; a = 1 on, 0 off (cosmetic)
+    siren = 16,
+    /// a = slot: no lives left
+    game_over = 17,
+    /// a = slot: the level's target score was reached
+    level_complete = 18,
     _,
 };
 

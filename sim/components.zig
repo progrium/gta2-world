@@ -31,3 +31,11 @@ pub const Weapon = @import("comp/weapon.zig").Weapon;
 pub const Appearance = abi.Appearance;
 
 pub const Projectile = @import("comp/projectile.zig").Projectile;
+
+// Single-player components (W0 of docs/plan-notes.md). Only `sp`
+// configurations carry them, and none is replicated.
+pub const Object = @import("comp/object.zig").Object;
+pub const Objective = @import("comp/objective.zig").Objective;
+pub const CarTask = @import("comp/car_task.zig").CarTask;
+pub const Group = @import("comp/group.zig").Group;
+pub const ScriptTag = @import("comp/script_tag.zig").ScriptTag;

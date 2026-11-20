@@ -145,7 +145,7 @@ pub fn Table(comptime K: type) type {
 pub fn World(comptime kinds: []const type) type {
     if (kinds.len > 15) @compileError("at most 15 kinds (kind 15 is the I3 player row)");
     for (kinds, 0..) |K, i| {
-        if (@intFromEnum(K.kind) != i) @compileError("kinds must be listed in I1 kind-number order");
+        if (@backingInt(K.kind) != i) @compileError("kinds must be listed in I1 kind-number order");
     }
 
     const Tables = blk: {

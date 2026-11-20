@@ -94,6 +94,13 @@ pub const ComponentId = enum(u8) {
     projectile = 10,
     predicted = 11,
     appearance = 12,
+    // 13-17 reserved by the sim for single-player components (2026-11-20,
+    // W0 of docs/plan-notes.md). Owned by `sim/`, not replicated yet.
+    object = 13,
+    objective = 14,
+    car_task = 15,
+    group = 16,
+    script_tag = 17,
     _,
 };
 
@@ -218,10 +225,28 @@ pub const Ground = enum(u2) { none = 0, road = 1, pavement = 2, field = 3 };
 ///   4-7  bullet wall on the same faces: stops projectiles
 /// A wall bit on either block at a boundary blocks both ways. `formats`
 /// leaves out ramps' own side faces and every face of a partial block.
+///
+/// `surface` (added 2026-11-20, W0 of docs/plan-notes.md) holds per-cell
+/// surface bits that the 16-bit cell has no room for, laid out like
+/// `blocks`. Bits:
+///   0-3  red road arrows on the lid (traffic-and-car-ai.md 2), in the
+///        green arrows' order: bit 0 +y, 1 -y, 2 +x, 3 -x
+///   4    electrified lid (ped-movement.md 3.7)
+///   5-7  reserved, zero
+/// Deep water is `Shape.water`, not a surface bit. A host that does not
+/// fill `surface` must zero it.
 pub const Grid = extern struct {
     blocks: [map_z][map_y][map_x]Cell,
     walls: [map_z][map_y][map_x]WallBits,
+    surface: [map_z][map_y][map_x]SurfaceBits,
 };
+pub const SurfaceBits = u8;
+pub const surface_red_pos_y: SurfaceBits = 1;
+pub const surface_red_neg_y: SurfaceBits = 2;
+pub const surface_red_pos_x: SurfaceBits = 4;
+pub const surface_red_neg_x: SurfaceBits = 8;
+pub const surface_red_mask: SurfaceBits = 0x0F;
+pub const surface_electrified: SurfaceBits = 0x10;
 pub const WallBits = u8;
 pub const wall_left: WallBits = 1;
 pub const wall_right: WallBits = 2;

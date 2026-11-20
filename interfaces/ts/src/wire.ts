@@ -31,7 +31,12 @@ export const RejectCode = {
   sessionNotFound: 5, badMessage: 6, shuttingDown: 7, resumeExpired: 8,
 } as const;
 export const ByeReason = { leaving: 0, timeout: 1, kicked: 2, shuttingDown: 3 } as const;
-export const EventKind = { kill: 1, playerJoined: 2, playerLeft: 3, explosion: 4, roundEnd: 5, pickup: 6 } as const;
+export const EventKind = {
+  kill: 1, playerJoined: 2, playerLeft: 3, explosion: 4, roundEnd: 5, pickup: 6,
+  // Single player, reserved 2026-11-20 (W0 of docs/plan-notes.md).
+  message: 7, brief: 8, wanted: 9, wasted: 10, busted: 11, missionStart: 12, missionPass: 13,
+  missionFail: 14, phoneRing: 15, siren: 16, gameOver: 17, levelComplete: 18,
+} as const;
 export const RecordOp = { update: 0, create: 1, remove: 2 } as const;
 
 export class WireError extends Error {}

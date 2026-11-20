@@ -51,6 +51,34 @@ pub const config_200: Config = .{
     .ambient_peds = 1250,
 };
 
+/// Single player (W0 of docs/plan-notes.md): one player, room for a
+/// scripted city, and the single-player components and state block.
+/// `dm16` keeps its layout.
+pub const config_sp: Config = .{
+    .name = "sp",
+    .max_players = 1,
+    .car_capacity = 256,
+    .ped_capacity = 512,
+    .projectile_capacity = 128,
+    .pickup_capacity = 64,
+    .map_object_capacity = 512,
+    .ambient_cars = 48,
+    .ambient_peds = 160,
+};
+
+/// Is `cfg` a single-player configuration (its name starts with "sp")?
+/// Those carry the SP components and state block and run the SP systems;
+/// shared mechanics run in every configuration.
+pub fn isSinglePlayer(comptime cfg: Config) bool {
+    return std.mem.startsWith(u8, cfg.name, "sp");
+}
+
+pub const ids = @import("ids.zig");
+pub const anim = @import("anim.zig");
+pub const level = ifaces.level;
+pub const Level = level.Level;
+pub const sp_state = @import("sp/state.zig");
+
 /// Spawn hint in `Command.arg` for `join`: 0 lets the sim choose; otherwise
 /// bits 0-7 are the block x and bits 8-15 the block y, and the ped is placed
 /// on the highest floor in that column.
@@ -66,18 +94,21 @@ pub fn Sim(comptime cfg: Config) type {
     return struct {
         const Self = @This();
         pub const config: abi.Config = cfg;
+        /// Single-player configuration: SP components, state block and
+        /// systems (`isSinglePlayer`).
+        pub const single_player = isSinglePlayer(cfg);
 
-        pub const Car = ecs.Kind(.car, cfg.car_capacity, &.{
+        pub const Car = ecs.Kind(.car, cfg.car_capacity, &(.{
             c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Vehicle, c.Predicted, c.Appearance,
-        });
-        pub const Ped = ecs.Kind(.ped, cfg.ped_capacity, &.{
+        } ++ if (single_player) .{ c.CarTask, c.ScriptTag } else .{}));
+        pub const Ped = ecs.Kind(.ped, cfg.ped_capacity, &(.{
             c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Pedestrian, c.Riding, c.Weapon, c.Predicted, c.Appearance,
-        });
+        } ++ if (single_player) .{ c.Objective, c.Group, c.ScriptTag } else .{}));
         pub const Shot = ecs.Kind(.projectile, cfg.projectile_capacity, &.{
             c.Transform, c.Velocity, c.Projectile,
         });
         pub const Pickup = ecs.Kind(.pickup, cfg.pickup_capacity, &.{ c.Transform, c.Weapon, c.Appearance });
-        pub const MapObject = ecs.Kind(.map_object, cfg.map_object_capacity, &.{c.Transform});
+        pub const MapObject = ecs.Kind(.map_object, cfg.map_object_capacity, if (single_player) &.{ c.Transform, c.Object, c.ScriptTag } else &.{c.Transform});
         pub const World = ecs.World(&.{ Car, Ped, Shot, Pickup, MapObject });
 
         /// Components replicated per kind (for I3 codecs, workstream C), in
@@ -90,7 +121,18 @@ pub fn Sim(comptime cfg: Config) type {
             .{ abi.Kind.map_object, .{c.Transform} },
         };
 
-        pub const State = extern struct {
+        pub const SpState = sp_state.SpState(cfg.max_players);
+
+        pub const State = if (single_player) extern struct {
+            tick: u32,
+            seed_lo: u32,
+            seed_hi: u32,
+            _pad: u32 = 0,
+            players: [cfg.max_players]abi.PlayerRow,
+            world: World,
+            /// The single-player block (`sp/state.zig`).
+            sp: SpState,
+        } else extern struct {
             tick: u32,
             seed_lo: u32,
             seed_hi: u32,
@@ -180,6 +222,20 @@ pub fn Sim(comptime cfg: Config) type {
                 round_end = 5,
                 /// a = slot, b = what (weapon index or `tuning.pickup_health`).
                 pickup = 6,
+                // 7-18: single player, reserved by W0; the meanings are in
+                // `wire.EventKind`.
+                message = 7,
+                brief = 8,
+                wanted = 9,
+                wasted = 10,
+                busted = 11,
+                mission_start = 12,
+                mission_pass = 13,
+                mission_fail = 14,
+                phone_ring = 15,
+                siren = 16,
+                game_over = 17,
+                level_complete = 18,
             };
             pub const no_slot: u8 = 0xFF;
             pub const weapon_car: u8 = 0x80;
@@ -189,6 +245,9 @@ pub fn Sim(comptime cfg: Config) type {
         state: State,
         scratch: Scratch,
         grid: *const abi.Grid,
+        /// Static level data (script, zones, map objects), or null: see
+        /// `attachLevel`. Like the grid, not part of the state.
+        level: ?*const Level,
         /// A property of the host, not of the state: a client that loads a
         /// server state stays in predict mode.
         mode: abi.Mode,
@@ -314,12 +373,37 @@ pub fn Sim(comptime cfg: Config) type {
         pub const sysRespawn = sys_respawn.sysRespawn;
 
         // ==================================================================
+        // Cross-workstream APIs (plan-notes.md 5), one namespace per owner.
+        // Call as `Self.objectives.setObjective(self, ...)`. W0 wrote them as
+        // stubs with their final signatures; owners fill them in, callers
+        // never edit them. Single-player ones are safe to call in any
+        // configuration (they do nothing outside `sp`).
+
+        pub const objectives = @import("ai/objectives.zig").Sys(Self); // D1
+        pub const car_tasks = @import("ai/car_tasks.zig").Sys(Self); // F
+        pub const route = @import("ai/route.zig").Sys(Self); // F
+        pub const career = @import("sp/career.zig").Sys(Self); // G
+        pub const wanted = @import("sp/wanted.zig").Sys(Self); // E
+        pub const police = @import("sp/police.zig").Sys(Self); // E
+        pub const gangs = @import("sp/gangs.zig").Sys(Self); // D2
+        pub const objects = @import("sys/objects.zig").Sys(Self); // B
+        pub const lights = @import("sys/lights.zig").Sys(Self); // B
+        pub const hooks = @import("script/hooks.zig").Sys(Self); // A1
+        pub const hud = @import("sp/hud.zig").Sys(Self); // A1
+        pub const script = @import("script/vm.zig").Sys(Self); // A1
+        pub const death = @import("sys/death.zig").Sys(Self); // G
+        pub const car_weapons = @import("sys/car_weapons.zig").Sys(Self); // G
+        pub const spawn = sys_spawn; // F
+        pub const surfaces = sys_surfaces; // C
+
+        // ==================================================================
         // I1
 
         pub fn init(self: *Self, grid: *const abi.Grid, p: abi.InitParams) void {
             @memset(std.mem.asBytes(&self.state), 0);
             @memset(std.mem.asBytes(&self.scratch), 0);
             self.grid = grid;
+            self.level = null;
             self.mode = p.mode;
             const s = &self.state;
             s.seed_lo = @truncate(p.seed);
@@ -340,11 +424,23 @@ pub fn Sim(comptime cfg: Config) type {
             if (!self.predicting()) {
                 for (cmds) |cmd| self.applyCommand(cmd);
             }
+            // The fixed order (plan-notes.md 3.7). Stubs from W0 are marked
+            // with their owner; single-player systems run only in `sp`.
             self.sysInput(frames);
+            if (comptime single_player) {
+                script.sysScript(self); // A1
+                gangs.sysGangs(self); // D2
+                wanted.sysWanted(self); // E
+                police.sysPolice(self); // E
+                objectives.sysObjectives(self); // D1
+            }
             self.sysPedAi();
             self.sysTrafficAi();
+            car_tasks.sysCarTasks(self); // F
+            spawn.sysZoneSpawn(self); // F
             self.sysPedControl();
             self.sysCarControl();
+            car_weapons.sysCarWeapons(self); // G
             self.sysWeapons();
             self.sysExplosions();
             self.sysMoveCars();
@@ -353,12 +449,16 @@ pub fn Sim(comptime cfg: Config) type {
             self.buildBroadphase();
             self.sysContacts();
             self.sysProjectileHits();
+            objects.sysObjects(self); // B
             self.sysPickups();
+            surfaces.sysSurfaces(self); // C
             self.sysPedStatus();
             self.sysRiders();
             self.sysHealth();
+            if (comptime single_player) death.sysDeath(self); // G
             self.sysRespawn();
             self.sysAmbient();
+            if (comptime single_player) lights.sysLights(self); // B
             self.state.world.applyPending();
             self.state.tick +%= 1;
         }
@@ -598,6 +698,14 @@ pub fn Sim(comptime cfg: Config) type {
             self.initPickup(id, x, y, z, kind);
             w.applyPending();
             return id;
+        }
+
+        /// Attach the level's static data (not part of I1, like
+        /// `spawnCarAt`). Call after `init`, which detaches it; with no level
+        /// the sim runs as before. `level` must outlive the sim, and every
+        /// host in a session must attach the same one.
+        pub fn attachLevel(self: *Self, l: *const Level) void {
+            self.level = l;
         }
 
         pub fn pedOf(self: *Self, slot: u32) ?EntityId {

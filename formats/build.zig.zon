@@ -6,5 +6,5 @@
     .dependencies = .{
         .interfaces = .{ .path = "../interfaces/zig" },
     },
-    .paths = .{ "build.zig", "build.zig.zon", "formats.zig", "chunk.zig", "gmp.zig", "sty.zig", "synth.zig", "grid.zig", "README.md" },
+    .paths = .{ "build.zig", "build.zig.zon", "formats.zig", "chunk.zig", "gmp.zig", "sty.zig", "synth.zig", "grid.zig", "level.zig", "README.md" },
 }

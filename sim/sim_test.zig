@@ -8,4 +8,5 @@ test {
     _ = @import("test/traffic.zig");
     _ = @import("test/scoring.zig");
     _ = @import("test/surfaces.zig");
+    _ = @import("test/sp.zig");
 }

@@ -208,5 +208,11 @@ pub fn Sys(comptime Self: type) type {
             }
             return null;
         }
+
+        /// Spawning by zone density (script-declarations.md 2.5, 2.13): owner F.
+        /// W0 stub.
+        pub fn sysZoneSpawn(self: *Self) void {
+            _ = self;
+        }
     };
 }
