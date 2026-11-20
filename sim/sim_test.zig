@@ -9,4 +9,5 @@ test {
     _ = @import("test/scoring.zig");
     _ = @import("test/surfaces.zig");
     _ = @import("test/sp.zig");
+    _ = @import("test/bodies_void.zig");
 }
