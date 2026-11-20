@@ -17,6 +17,6 @@ Rules from [docs/behaviour/script-declarations.md](../behaviour/script-declarati
 | 2.11 Gang info | todo | | |
 | 2.12 Lights | todo | | |
 | 2.13 Trains and radio stations | todo | | |
-| 2.14 Police | todo | | |
+| 2.14 Police | stubbed |  | `wanted.setCap` is the effect; the force-enable-police side of a 0 cap has no switch to set yet. A2 wires the declaration. |
 | 2.15 Ambient sound points | todo | | |
 | 2.16 Mission bookkeeping | todo | | |
