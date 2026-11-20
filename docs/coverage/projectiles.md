@@ -7,4 +7,4 @@ Rules from [docs/behaviour/projectiles.md](../behaviour/projectiles.md). Status:
 | 3.1 Flight | todo | | |
 | 3.2 Hitting a pedestrian | todo | | |
 | 3.3 Hitting a car | todo | | |
-| 3.4 Death causes | todo | | |
+| 3.4 Death causes | ours | sim/test/career.zig "wasted: ..." | `deathCause` in `sys/health.zig`: electrocuted, burning, run over, or the weapon that hit last; carried by the `wasted` event. |

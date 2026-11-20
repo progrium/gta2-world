@@ -26,13 +26,13 @@ pub fn Sys(comptime Self: type) type {
             self.state.world.each(.{ c.Transform, c.Velocity, c.Projectile }, self, struct {
                 fn f(sim: *Self, id: EntityId, t: *c.Transform, vel: *c.Velocity, p: *c.Projectile) void {
                     if (isExplosion(p)) return;
-                    const shot = T.weapons[@min(p.weapon, T.weapon_count - 1)].shot;
+                    const shot = T.shotDef(p.weapon).shot;
                     if (p.damage != c.Projectile.visual and (shot == T.shot_grenade or shot == T.shot_molotov)) return sim.moveThrownShot(id, t, vel, p, shot);
                     // Out of range: gone (a rocket too, without exploding).
                     if (p.ttl == 0) return sim.kill(id);
                     p.ttl -= 1;
                     if (p.damage == c.Projectile.visual) return;
-                    const explosive = p.weapon < T.weapon_count and T.weapons[p.weapon].explosive;
+                    const explosive = T.shotDef(p.weapon).explosive and (p.weapon < T.weapon_count or p.weapon >= T.car_shot_base);
                     const base = t.z - T.shot_height;
                     // Four samples along the move, so a fast round cannot
                     // skip the corner of a block.

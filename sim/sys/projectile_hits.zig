@@ -30,7 +30,7 @@ pub fn Sys(comptime Self: type) type {
             self.state.world.each(.{ c.Transform, c.Velocity, c.Projectile }, self, struct {
                 fn f(sim: *Self, id: EntityId, t: *c.Transform, vel: *c.Velocity, p: *c.Projectile) void {
                     if (isExplosion(p) or p.damage == c.Projectile.visual) return;
-                    const shot = T.weapons[@min(p.weapon, T.weapon_count - 1)].shot;
+                    const shot = T.shotDef(p.weapon).shot;
                     if (shot == T.shot_grenade) return; // grenades go off by their fuse
                     const sc = &sim.scratch;
                     // Swept test: the segment travelled this tick against each
@@ -75,7 +75,8 @@ pub fn Sys(comptime Self: type) type {
                     if (best != nil and p.ttl != 0) {
                         sc.stats.shot_hits += 1;
                         const e = sc.entries[best];
-                        const def = T.weapons[@min(p.weapon, T.weapon_count - 1)];
+                        sim.countPlayerHit(p, e.id);
+                        const def = T.shotDef(p.weapon);
                         const ww = &sim.state.world;
                         // Double damage on the shooter doubles the bullet
                         // and flame figures (projectiles.md 3.2-3.3).
@@ -97,6 +98,7 @@ pub fn Sys(comptime Self: type) type {
                                 if (sim.writable(e.id)) ped.armour -= 1;
                             } else sim.hurt(e.id, mult * @as(i32, if (player) def.damage_player else def.damage_other), p.owner);
                             if (shot == T.shot_flame) sim.ignite(e.id, p.owner);
+                            if (shot == T.shot_water and sim.writable(e.id)) ped.burn = 0;
                             if (def.explosive) sim.explodeAt(e.x, e.y, e.z, p.owner, 0);
                         }
                         if (shot == T.shot_molotov) sim.startFire(e.x, e.y, e.z, p.owner);
@@ -105,6 +107,19 @@ pub fn Sys(comptime Self: type) type {
                     }
                 }
             }.f);
+        }
+
+        /// Accuracy (scoring.md 3.4): a player's projectile hit, counted by
+        /// weapon as on a threat or on someone else. Ours: a threat is a
+        /// ped whose objective targets the shooter (D1 fills objectives).
+        pub fn countPlayerHit(self: *Self, p: *const c.Projectile, victim: EntityId) void {
+            if (comptime !Self.single_player) return;
+            const slot = self.creditSlot(p.owner);
+            if (slot == Self.Event.no_slot) return;
+            const w = &self.state.world;
+            const me = self.state.players[slot].ped;
+            const threat = if (w.get(victim, c.Objective)) |o| eql(o.main_target, me) else false;
+            Self.career.countHit(self, slot, p.weapon, threat);
         }
     };
 }

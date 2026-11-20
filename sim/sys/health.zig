@@ -16,6 +16,7 @@ const EntityId = prelude.EntityId;
 const Frame = prelude.Frame;
 const Button = prelude.Button;
 const eql = prelude.eql;
+const TC = @import("../tuning/career.zig");
 
 pub fn Sys(comptime Self: type) type {
     return struct {
@@ -47,6 +48,7 @@ pub fn Sys(comptime Self: type) type {
             const h = w.get(id, c.Health).?;
             h.hp = @intCast(@max(0, h.hp - @min(dmg, T.car_damage_max)));
             if (!by.isNone()) h.last_hit_by = by;
+            Self.wanted.onCarDamaged(self, id, by); // E: crime report
             // Each credited hit scores by how hard it was (scoring.md 3.3);
             // not on the car you are driving.
             const slot = self.creditSlot(by);
@@ -100,6 +102,19 @@ pub fn Sys(comptime Self: type) type {
             }.f);
         }
 
+        /// How a ped died, in the kill event's weapon numbering (the death
+        /// message picks "wasted", "fried", "shocked" from it): electrocuted
+        /// as the electro gun, burning or fire as `weapon_fire`, else what
+        /// hit him last.
+        pub fn deathCause(self: *Self, p: *const c.Pedestrian, h: *const c.Health) u8 {
+            if (p.shock >= T.shock_threshold) return T.weapon_electro;
+            if (p.burn > 0) return Event.weapon_fire;
+            const w = &self.state.world;
+            if (w.get(h.last_hit_by, c.Vehicle) != null) return Event.weapon_car;
+            if (w.get(h.last_hit_by, c.Weapon)) |wp| return wp.kind;
+            return Event.weapon_fire;
+        }
+
         pub fn sysHealth(self: *Self) void {
             // Cars (explosions-and-damage.md 3.5-3.6): on fire from 16000
             // damage, burning on by itself from 25000, exploding at 32000;
@@ -135,6 +150,14 @@ pub fn Sys(comptime Self: type) type {
                         const dh = w.get(driver, c.Health).?;
                         dh.hp = 0;
                         dh.last_hit_by = h.last_hit_by;
+                        // Single player: an ordinary background driver
+                        // killed by destroying his car pays extra cash
+                        // (scoring.md 3.3).
+                        if (comptime Self.single_player) {
+                            const slot = sim.creditSlot(h.last_hit_by);
+                            const npc = if (w.get(driver, c.Controller)) |dc| dc.player == c.Controller.no_player else false;
+                            if (slot != Event.no_slot and npc) sim.addPoints(slot, TC.points_driver_in_wreck);
+                        }
                     }
                     sim.scratch.stats.car_wrecks += 1;
                     sim.scoreWreck(v, h.last_hit_by);
@@ -149,25 +172,40 @@ pub fn Sys(comptime Self: type) type {
                 }
             }.f);
             self.state.world.eachFiltered(.{ c.Pedestrian, c.Health, c.Controller, c.Riding }, self.predicting(), self, struct {
-                fn f(sim: *Self, id: EntityId, _: *c.Pedestrian, h: *c.Health, ctl: *c.Controller, r: *c.Riding) void {
+                fn f(sim: *Self, id: EntityId, p: *c.Pedestrian, h: *c.Health, ctl: *c.Controller, r: *c.Riding) void {
                     if (h.hp > 0) return;
                     if (sim.predicting()) {
                         sim.kill(id);
                         return;
                     }
+                    // A single-player body double lies dead until its
+                    // countdown ends (power-ups-death-and-arrest.md 3.2).
+                    if (Self.career.isDouble(sim, id)) return;
                     const w = &sim.state.world;
                     if (!r.vehicle.isNone()) sim.releaseCar(r.vehicle);
                     sim.scratch.stats.ped_deaths += 1;
                     sim.scoreKill(id, ctl.player != c.Controller.no_player, h.last_hit_by);
-                    w.despawn(id);
                     if (ctl.player != c.Controller.no_player) {
-                        sim.creditKill(ctl.player, h.last_hit_by, id);
+                        if (comptime Self.single_player) {
+                            // Wasted, with a body double and an immediate
+                            // respawn (sys/death.zig): the body stays.
+                            const slot: u8 = @intCast(ctl.player);
+                            sim.creditKill(ctl.player, h.last_hit_by, id);
+                            if (Self.death.playerDown(sim, slot, id, deathCause(sim, p, h))) return;
+                            w.despawn(id);
+                        } else {
+                            // Despawned first: a death by your own hand reads
+                            // as fire in the kill event.
+                            w.despawn(id);
+                            sim.creditKill(ctl.player, h.last_hit_by, id);
+                        }
                         const pl = &sim.state.players[ctl.player];
                         pl.deaths += 1;
                         pl.ped = .none;
                         pl.car = .none;
                         pl.respawn_timer = T.respawn_ticks;
                     } else {
+                        w.despawn(id);
                         _ = sim.spawnPed(c.Controller.no_player, 0);
                     }
                 }
