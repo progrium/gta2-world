@@ -386,3 +386,30 @@ test "dm16 session with ambient population runs and stays deterministic" {
     }.f);
     try std.testing.expectEqual(@as(u32, 0), below);
 }
+
+test "bottomless columns act as walls; ceilings stop a jump" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    // Dig a void: the whole column at (54, 40) down to the bottom.
+    const vx = 54;
+    const vy = 40;
+    for (0..map.size_z) |z| map.set(h.grid, vx, vy, @intCast(z), 0);
+    h.join(0, vx - 2, vy); // facing +x, toward the void
+    const t = h.ped(0);
+    h.frames[0].throttle = 127;
+    h.run(40);
+    try std.testing.expectEqual(fx.one, t.z);
+    try std.testing.expect(t.x < fx.fromInt(vx));
+    // A one-block-high ceiling over (50, 40): a jump does not enter it.
+    map.set(h.grid, 50, 40, 2, map.makeCell(map.Shape.solid, 0, 0, 0));
+    h.sim.state.world.get(h.sim.pedOf(0).?, c.Transform).?.* = .{ .x = blk(50), .y = blk(40), .z = fx.one, .heading = 0 };
+    h.frames[0] = Frame.neutral(0);
+    h.frames[0].buttons = Button.handbrake_jump;
+    var top: fx.Fx = 0;
+    for (0..30) |_| {
+        h.run(1);
+        top = @max(top, t.z);
+    }
+    try std.testing.expect(top > fx.one);
+    try std.testing.expect(top + map.body_height <= fx.fromInt(2) + T.ped_jump_vz);
+}

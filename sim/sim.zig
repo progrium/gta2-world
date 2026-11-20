@@ -68,10 +68,10 @@ pub fn Sim(comptime cfg: Config) type {
         pub const config: abi.Config = cfg;
 
         pub const Car = ecs.Kind(.car, cfg.car_capacity, &.{
-            c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Vehicle, c.Predicted,
+            c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Vehicle, c.Predicted, c.Appearance,
         });
         pub const Ped = ecs.Kind(.ped, cfg.ped_capacity, &.{
-            c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Pedestrian, c.Riding, c.Weapon, c.Predicted,
+            c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Pedestrian, c.Riding, c.Weapon, c.Predicted, c.Appearance,
         });
         pub const Shot = ecs.Kind(.projectile, cfg.projectile_capacity, &.{
             c.Transform, c.Velocity, c.Projectile,
@@ -83,8 +83,8 @@ pub fn Sim(comptime cfg: Config) type {
         /// Components replicated per kind (for I3 codecs, workstream C), in
         /// ascending component id. `Predicted` is never replicated.
         pub const replicated = .{
-            .{ abi.Kind.car, .{ c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Vehicle } },
-            .{ abi.Kind.ped, .{ c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Pedestrian, c.Riding, c.Weapon } },
+            .{ abi.Kind.car, .{ c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Vehicle, c.Appearance } },
+            .{ abi.Kind.ped, .{ c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Pedestrian, c.Riding, c.Weapon, c.Appearance } },
             .{ abi.Kind.projectile, .{ c.Transform, c.Velocity, c.Projectile } },
             .{ abi.Kind.pickup, .{c.Transform} },
             .{ abi.Kind.map_object, .{c.Transform} },
@@ -450,6 +450,7 @@ pub fn Sim(comptime cfg: Config) type {
             w.get(id, c.Health).?.* = .{ .hp = m.hp, .last_hit_by = .none };
             w.get(id, c.Controller).?.* = .{ .player = c.Controller.no_player, .prev_buttons = 0, .in = Frame.neutral(0) };
             w.get(id, c.Vehicle).?.* = .{ .driver = .none, .model = model, .pedal = 0, .steer = 0, .flags = 0 };
+            w.get(id, c.Appearance).?.* = .{ .sprite = model, .remap = c.Appearance.no_remap };
         }
 
         /// Spawn a ped for `player` (or an ambient ped for no_player).
@@ -475,6 +476,7 @@ pub fn Sim(comptime cfg: Config) type {
             w.get(id, c.Pedestrian).?.* = .{ .ai_timer = 0, .ai_heading = sp.heading, .jump_cooldown = 0, .anim = 0 };
             const is_player = player != c.Controller.no_player;
             w.get(id, c.Weapon).?.* = .{ .cooldown = 0, .kind = 0, .ammo = if (is_player) T.player_ammo else 0 };
+            w.get(id, c.Appearance).?.* = .{ .sprite = 0, .remap = c.Appearance.no_remap };
             return id;
         }
 
@@ -794,13 +796,14 @@ pub fn Sim(comptime cfg: Config) type {
         // Movement against the map
 
         /// Sample points of a circle body: centre, four axis points, four
-        /// diagonals.
+        /// diagonals. A void under the centre also blocks.
         fn circleBlocked(self: *const Self, x: Fx, y: Fx, z: Fx, r: Fx, step_h: Fx) bool {
             const d = fx.mul(r, fx.ratio(70711, 100000));
             const pts = [_][2]Fx{
                 .{ 0, 0 }, .{ r, 0 }, .{ -r, 0 }, .{ 0, r }, .{ 0, -r },
                 .{ d, d }, .{ d, -d }, .{ -d, d }, .{ -d, -d },
             };
+            if (map.isVoid(self.grid, x, y, z + step_h)) return true;
             for (pts) |p| {
                 if (map.blocks(self.grid, x + p[0], y + p[1], z, step_h)) return true;
             }
@@ -816,10 +819,12 @@ pub fn Sim(comptime cfg: Config) type {
                 .{ m.half_len, m.half_wid },  .{ m.half_len, -m.half_wid }, .{ -m.half_len, m.half_wid }, .{ -m.half_len, -m.half_wid },
                 .{ 0, m.half_wid },           .{ 0, -m.half_wid },          .{ m.half_len, 0 },           .{ -m.half_len, 0 },
             };
-            for (pts) |p| {
+            for (pts, 0..) |p, i| {
                 const px = x + fx.mul(p[0], cx) - fx.mul(p[1], sy);
                 const py = y + fx.mul(p[0], sy) + fx.mul(p[1], cx);
                 if (map.blocks(self.grid, px, py, z, T.car_step)) return true;
+                // Voids: checked at the middle of the front and the back.
+                if (i >= 6 and map.isVoid(self.grid, px, py, z + T.car_step)) return true;
             }
             return false;
         }
@@ -839,6 +844,8 @@ pub fn Sim(comptime cfg: Config) type {
                 return;
             }
             vel.vz = @max(vel.vz - T.gravity, -T.max_fall);
+            // Rising into a ceiling stops the rise.
+            if (vel.vz > 0 and map.blocks(self.grid, t.x, t.y, t.z + vel.vz, step_h)) vel.vz = 0;
             t.z += vel.vz;
             if (t.z <= floor) {
                 t.z = floor;

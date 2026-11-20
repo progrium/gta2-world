@@ -59,7 +59,10 @@ fn checkComponent(comptime C: type) void {
     if (@sizeOf(C) % 4 != 0) @compileError(@typeName(C) ++ " size must be a multiple of 4");
 }
 
+/// Column name: the component id's name, or `C.name` for a component whose
+/// id is not (yet) a named `abi.ComponentId`.
 pub fn colName(comptime C: type) []const u8 {
+    if (@hasDecl(C, "name")) return C.name;
     return @tagName(C.id);
 }
 

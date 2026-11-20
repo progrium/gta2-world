@@ -79,12 +79,16 @@ Every number is in `tuning.zig`. Authentic GTA2 handling comes later from clean-
 
 | | Native | WASM (Node 22) |
 | --- | --- | --- |
-| `dm16` step, 16 bots + 100 peds + 24 cars | 0.02 ms | 0.03 ms (bots included) |
-| save + 10-tick replay + load | 0.19 ms | 0.31 ms |
-| `dm200` step, 200 bots | 0.34 ms mean, 0.51 ms p99 | |
-| State size | 35,104 bytes (`dm16`), 280,992 bytes (`dm200`) | |
+| `dm16` step, 16 bots + 100 peds + 24 cars | 0.02 ms | 0.04 ms (bots included) |
+| save + 10-tick replay + load | 0.21 ms | 0.34 ms |
+| `dm200` step, 200 bots | 0.42 ms mean, 0.63 ms p99 | |
+| State size | 36,128 bytes (`dm16`), 291,232 bytes (`dm200`) | |
 
-The design budget is 0.5 ms per step in WASM for a full session.
+The design budget is 0.5 ms per step in WASM for a full session. On real maps (wil, ste, bil, mp1/2/5-comp, through `formats.grid`) a `dm16` step with 16 bots is 14 to 26 µs natively.
+
+## Soak on original maps
+
+A local soak (not committed, since it needs the game files) runs `dm16` with 16 bots for 10,000 ticks on six original maps through `formats.grid.build`, and counts bodies that fall below the world or end up inside matter. It found two grid-mapping errors (now fixed in `formats/`) and two sim gaps (now fixed here): columns with no floor at any depth now act as walls instead of letting bodies fall out of the world, and bodies are half a block tall so they walk up ramps under one-block ceilings, while a jump stops at a ceiling. Result: zero falls on all six maps and zero bodies inside matter on five. On wil one ambient ped stays stuck at a ramp rail made of single wall faces, which needs the per-face wall table (`formats.grid.buildWalls`) that the 16-bit cell has no room for. That is the next collision step after M1.
 
 ## Notes for the interface owners
 
@@ -94,4 +98,5 @@ These are the places where I read the I1 draft a particular way. None changes a 
 2. **`PlayerRow.car`** is the car the player is in now, and none on foot.
 3. **`Controller` on cars.** A driven car's `Controller.player` is its driver's slot and its `in` is the driver's frame, so remote dead reckoning works on cars too. Unused cars have `no_player` and a neutral frame.
 4. **Kind tables.** `pickup` and `map_object` exist with only a `Transform` until M3 gives them behaviour.
-5. **Sim-owned components are lean.** `Collider` holds only flags (radius and mass come from the kind and model), `Vehicle` is 8 bytes (driver, model, pedal, steer, flags). Pedal and steer must replicate: they are state the next step depends on.
+5. **Proposed component 12, `Appearance { sprite: u16, remap: u16 }`,** on cars and peds, for the renderer (workstream B). It is in the tables, `views()` and `replicated` now, flagged here for the proposal step. `sprite` is the car model for cars and the ped type (0) for peds; the walk cycle comes from `Pedestrian.anim` on the client, so it costs no snapshot bytes. `remap` is `0xFFFF` (none) until we pick colours.
+6. **Sim-owned components are lean.** `Collider` holds only flags (radius and mass come from the kind and model), `Vehicle` is 8 bytes (driver, model, pedal, steer, flags). Pedal and steer must replicate: they are state the next step depends on.
