@@ -1,0 +1,27 @@
+name: Behaviour coverage
+
+# The coverage roll-up in docs/milestones.md must match docs/coverage/
+# (tools/coverage/rollup.mjs). Rows whose status is unknown are reported.
+
+on:
+  push:
+    paths:
+      - 'docs/coverage/**'
+      - 'docs/behaviour/**'
+      - 'docs/milestones.md'
+      - 'tools/coverage/**'
+      - '.github/workflows/coverage.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rollup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/coverage/rollup.mjs --check
