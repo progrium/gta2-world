@@ -1,5 +1,7 @@
 # Spike S2: sim cost and determinism
 
+> **Frozen.** This harness was written against the S2 `sim/` (commit `cd14a18`) and no longer builds against the M1 sim, which moved to the I1 ABI. Check that commit out to rerun it. The golden replay and benches now live in `tools/replay/`, and `check-no-floats.sh` moved to `tools/`.
+
 **Question:** is a fixed-point sim cheap enough to replay, and identical on WASM and native?
 
 **Result: YES on everything measurable here.** Step time is about 50x under the

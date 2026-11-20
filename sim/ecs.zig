@@ -10,54 +10,35 @@
 //!   entity becomes visible to systems only at `applyPending`, which also frees
 //!   despawned slots. The free list lives inside the saved state.
 //!
-//! A component is any `extern struct` that declares `pub const name = "...";`
-//! (the column name) and contains only fixed-size integers or nested extern
-//! structs, so its layout is identical on wasm32 and 64-bit native.
+//! A component is any `extern struct` that declares `pub const id:
+//! abi.ComponentId` (its column is named after the id) and contains only
+//! fixed-size integers or nested extern structs, so its layout is identical on
+//! wasm32 and 64-bit native.
+//!
+//! Entity ids, kind numbers and slot states are the I1 ones (`abi`).
 
 const std = @import("std");
+const abi = @import("interfaces").abi;
 
-/// index (12 bits) | kind (4 bits) | generation (16 bits)
-pub const EntityId = extern struct {
-    raw: u32,
+pub const EntityId = abi.EntityId;
 
-    pub const none: EntityId = .{ .raw = 0xFFFF_FFFF };
+pub inline fn eql(a: EntityId, b: EntityId) bool {
+    return a.raw == b.raw;
+}
 
-    pub inline fn make(kind_idx: u32, idx: u32, generation: u16) EntityId {
-        return .{ .raw = (idx & 0xFFF) | ((kind_idx & 0xF) << 12) | (@as(u32, generation) << 16) };
-    }
-    pub inline fn index(id: EntityId) u32 {
-        return id.raw & 0xFFF;
-    }
-    pub inline fn kind(id: EntityId) u32 {
-        return (id.raw >> 12) & 0xF;
-    }
-    pub inline fn gen(id: EntityId) u16 {
-        return @truncate(id.raw >> 16);
-    }
-    pub inline fn isNone(id: EntityId) bool {
-        return id.raw == none.raw;
-    }
-    pub inline fn eql(a: EntityId, b: EntityId) bool {
-        return a.raw == b.raw;
-    }
-};
-
-pub const max_capacity = 4096;
+pub const max_capacity = abi.max_kind_capacity;
 
 /// Slot states. Only `alive` slots are visited by `each`.
-pub const Slot = struct {
-    pub const free: u8 = 0;
-    pub const alive: u8 = 1;
-    pub const spawning: u8 = 2;
-    pub const dying: u8 = 3;
-};
+pub const Slot = abi.Slot;
 
-/// Declare an entity kind (archetype): a name, a capacity and its components.
-pub fn Kind(comptime kind_name: []const u8, comptime capacity_: u16, comptime components_: []const type) type {
+/// Declare an entity kind (archetype): its I1 kind number, a capacity and its
+/// components. A world's kinds must be listed in kind-number order.
+pub fn Kind(comptime abi_kind: abi.Kind, comptime capacity_: u16, comptime components_: []const type) type {
     if (capacity_ % 4 != 0) @compileError("capacity must be a multiple of 4 so tables have no padding");
     if (capacity_ > max_capacity) @compileError("capacity exceeds entity id index bits");
     return struct {
-        pub const name = kind_name;
+        pub const kind = abi_kind;
+        pub const name = @tagName(abi_kind);
         pub const capacity = capacity_;
         pub const components = components_;
 
@@ -74,8 +55,12 @@ fn checkComponent(comptime C: type) void {
     const info = @typeInfo(C);
     if (info != .@"struct" or info.@"struct".layout != .@"extern")
         @compileError(@typeName(C) ++ " must be an extern struct");
-    if (!@hasDecl(C, "name")) @compileError(@typeName(C) ++ " must declare `pub const name`");
+    if (!@hasDecl(C, "id")) @compileError(@typeName(C) ++ " must declare `pub const id: abi.ComponentId`");
     if (@sizeOf(C) % 4 != 0) @compileError(@typeName(C) ++ " size must be a multiple of 4");
+}
+
+pub fn colName(comptime C: type) []const u8 {
+    return @tagName(C.id);
 }
 
 /// Struct-of-arrays columns for one kind: one `[capacity]C` field per component.
@@ -85,7 +70,7 @@ fn Columns(comptime K: type) type {
     var types: [n]type = undefined;
     for (K.components, 0..) |C, i| {
         checkComponent(C);
-        names[i] = C.name;
+        names[i] = colName(C);
         types[i] = [K.capacity]C;
     }
     return @Struct(.@"extern", null, &names, &types, &@splat(.{}));
@@ -109,10 +94,10 @@ pub fn Table(comptime K: type) type {
         cols: Columns(K),
 
         pub inline fn col(self: *Self, comptime C: type) *[K.capacity]C {
-            return &@field(self.cols, C.name);
+            return &@field(self.cols, colName(C));
         }
         pub inline fn colConst(self: *const Self, comptime C: type) *const [K.capacity]C {
-            return &@field(self.cols, C.name);
+            return &@field(self.cols, colName(C));
         }
 
         /// Reserve a slot. Returns null when the table is full.
@@ -155,7 +140,10 @@ pub fn Table(comptime K: type) type {
 }
 
 pub fn World(comptime kinds: []const type) type {
-    if (kinds.len > 16) @compileError("at most 16 kinds (4 id bits)");
+    if (kinds.len > 15) @compileError("at most 15 kinds (kind 15 is the I3 player row)");
+    for (kinds, 0..) |K, i| {
+        if (@intFromEnum(K.kind) != i) @compileError("kinds must be listed in I1 kind-number order");
+    }
 
     const Tables = blk: {
         var names: [kinds.len][]const u8 = undefined;
@@ -191,7 +179,7 @@ pub fn World(comptime kinds: []const type) type {
             const t = self.table(K);
             const i = t.reserve() orelse return null;
             inline for (K.components) |C| t.col(C)[i] = std.mem.zeroes(C);
-            return EntityId.make(kindIndex(K), i, t.gen[i]);
+            return EntityId.make(K.kind, i, t.gen[i]);
         }
 
         /// Queue a despawn. Safe to call more than once in a tick.
@@ -257,17 +245,30 @@ pub fn World(comptime kinds: []const type) type {
         /// kind that has all components in `query`, in kind order then index
         /// order. Comptime selects the tables; each one becomes a plain loop.
         pub inline fn each(self: *Self, comptime query: anytype, ctx: anytype, comptime f: anytype) void {
-            inline for (kinds, 0..) |K, ki| {
+            self.eachFiltered(query, false, ctx, f);
+        }
+
+        /// As `each`, but with `predicted_only` set it visits only entities
+        /// whose `abi.Predicted.on != 0` (I1 `.predict` mode). Kinds without
+        /// a `Predicted` column are skipped entirely in that case.
+        pub inline fn eachFiltered(self: *Self, comptime query: anytype, predicted_only: bool, ctx: anytype, comptime f: anytype) void {
+            inline for (kinds) |K| {
                 if (comptime hasAll(K, query)) {
                     const t = self.table(K);
+                    const has_pred = comptime K.has(abi.Predicted);
+                    var skip_all = false;
+                    if (!has_pred and predicted_only) skip_all = true;
                     var cols: ColPtrs(K, query) = undefined;
                     inline for (query, 0..) |C, qi| cols[qi] = t.col(C);
                     var i: u32 = 0;
-                    while (i < t.len) : (i += 1) {
+                    while (!skip_all and i < t.len) : (i += 1) {
                         if (t.slot[i] != Slot.alive) continue;
+                        if (has_pred and predicted_only) {
+                            if (t.col(abi.Predicted)[i].on == 0) continue;
+                        }
                         var args: std.meta.ArgsTuple(@TypeOf(f)) = undefined;
                         args[0] = ctx;
-                        args[1] = EntityId.make(ki, i, t.gen[i]);
+                        args[1] = EntityId.make(K.kind, i, t.gen[i]);
                         inline for (query, 0..) |_, qi| args[qi + 2] = &cols[qi][i];
                         @call(.always_inline, f, args);
                     }
@@ -286,15 +287,15 @@ pub fn World(comptime kinds: []const type) type {
 // ---------------------------------------------------------------------------
 
 const T = extern struct {
-    pub const name = "t";
+    pub const id = abi.ComponentId.transform;
     x: i32,
 };
 const V = extern struct {
-    pub const name = "v";
+    pub const id = abi.ComponentId.velocity;
     dx: i32,
 };
-const A = Kind("a", 8, &.{ T, V });
-const B = Kind("b", 4, &.{T});
+const A = Kind(.car, 8, &.{ T, V });
+const B = Kind(.ped, 4, &.{T});
 const W = World(&.{ A, B });
 
 test "spawn, iterate, despawn, reuse" {
