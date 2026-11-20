@@ -378,7 +378,8 @@ pub fn Sys(comptime Self: type) type {
             if (victim.isNone() and !self.predicting()) victim = self.spawnPed(c.Controller.no_player, 0) orelse .none;
             const ctl = w.get(ped, c.Controller).?;
             if (ctl.player != c.Controller.no_player) {
-                self.addPoints(@intCast(ctl.player), T.carModel(v.model).value);
+                // Scoring's hijack payment when G's scoreHijack is there.
+                if (comptime @hasDecl(Self, "scoreHijack")) self.scoreHijack(@intCast(ctl.player), car) else self.addPoints(@intCast(ctl.player), T.carModel(v.model).value);
                 if (comptime Self.single_player) Self.gangs.onHijack(self, car, ped);
             }
             Me.releaseCar(self, car);

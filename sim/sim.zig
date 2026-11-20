@@ -393,6 +393,7 @@ pub fn Sim(comptime cfg: Config) type {
         pub const wanted = @import("sp/wanted.zig").Sys(Self); // E
         pub const police = @import("sp/police.zig").Sys(Self); // E
         pub const gangs = @import("sp/gangs.zig").Sys(Self); // D2
+        pub const groups = @import("ai/groups.zig").Sys(Self); // D2
         pub const objects = @import("sys/objects.zig").Sys(Self); // B
         pub const lights = @import("sys/lights.zig").Sys(Self); // B
         pub const hooks = @import("script/hooks.zig").Sys(Self); // A1

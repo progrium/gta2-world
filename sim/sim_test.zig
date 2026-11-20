@@ -11,4 +11,5 @@ test {
     _ = @import("test/sp.zig");
     _ = @import("test/enter_exit_cars.zig");
     _ = @import("test/gangs_respect.zig");
+    _ = @import("test/gangs_groups.zig");
 }

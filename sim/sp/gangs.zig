@@ -316,8 +316,27 @@ pub fn Sys(comptime Self: type) type {
             return ids.gang_none;
         }
 
+        /// The instant-gang power-up (ped-ai.md 3.11): up to 4 nearby
+        /// peds join the player's group. Returns how many joined.
+        pub fn instantGang(self: *Self, player: u32) u8 {
+            if (comptime !sp) return 0;
+            const ped = self.pedOf(player) orelse return 0;
+            return Self.groups.recruit(self, ped, @import("../ai/groups.zig").instant_gang_recruits);
+        }
+
+        /// The player's own group breaks up (busted,
+        /// power-ups-death-and-arrest.md 3.3).
+        pub fn breakUpGang(self: *Self, player: u32) void {
+            if (comptime !sp) return;
+            const ped = self.pedOf(player) orelse return;
+            Self.groups.disband(self, ped);
+        }
+
+        /// Once a tick, before the objectives: groups (formation and the
+        /// follow and fight leashes).
         pub fn sysGangs(self: *Self) void {
-            _ = self;
+            if (comptime !sp) return;
+            Self.groups.sysGroups(self);
         }
     };
 }
