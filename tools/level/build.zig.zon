@@ -1,0 +1,11 @@
+.{
+    .name = .gta2_level,
+    .version = "0.1.0",
+    .fingerprint = 0xff5370d4cbf9dcae,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .sim = .{ .path = "../../sim" },
+        .formats = .{ .path = "../../formats" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}
