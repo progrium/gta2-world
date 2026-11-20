@@ -70,19 +70,12 @@ pub const Weapon = extern struct {
     ammo: u32,
 };
 
-/// What to draw (proposed I1 component 12, asked for by the renderer). Not
-/// frozen yet: it needs the interface proposal step.
-/// `sprite` is relative to the kind's sprite group: the car model for cars,
-/// the ped type for peds (0 for now; the walk cycle comes from
-/// `Pedestrian.anim` and time on the client, so it costs no snapshot bytes).
-/// `remap` is a palette remap, `no_remap` for none.
-pub const Appearance = extern struct {
-    pub const id: abi.ComponentId = @enumFromInt(12);
-    pub const name = "appearance";
-    pub const no_remap: u16 = 0xFFFF;
-    sprite: u16,
-    remap: u16,
-};
+/// What to draw: I1 component 12, accepted 2026-11-20. The layout is frozen
+/// in `abi.Appearance`. `sprite` is the car model for cars and the ped type
+/// for peds (0 for now; the walk cycle comes from `Pedestrian.anim` and time
+/// on the client, so it costs no snapshot bytes). `remap` is a palette remap,
+/// `no_remap` for none.
+pub const Appearance = abi.Appearance;
 
 pub const Projectile = extern struct {
     pub const id = abi.ComponentId.projectile;

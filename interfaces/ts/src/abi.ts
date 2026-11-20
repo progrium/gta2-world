@@ -42,6 +42,7 @@ export const ComponentId = {
   weapon: 9,
   projectile: 10,
   predicted: 11,
+  appearance: 12,
 } as const;
 
 export const ColumnSpecial = {

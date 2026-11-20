@@ -93,6 +93,7 @@ pub const ComponentId = enum(u8) {
     weapon = 9,
     projectile = 10,
     predicted = 11,
+    appearance = 12,
     _,
 };
 
@@ -147,6 +148,17 @@ pub const Riding = extern struct {
 pub const Predicted = extern struct {
     pub const id = ComponentId.predicted;
     on: u32,
+};
+
+/// What to draw for a car or ped (accepted 2026-11-20, see I1 "Accepted
+/// proposals"). `sprite` is relative to the kind's sprite group: the car
+/// model for cars, the ped type for peds. `remap` is a palette remap of
+/// that group, or `no_remap`.
+pub const Appearance = extern struct {
+    pub const id = ComponentId.appearance;
+    pub const no_remap: u16 = 0xFFFF;
+    sprite: u16,
+    remap: u16,
 };
 
 /// One row per player slot, held in the saved state. I3 replicates it as

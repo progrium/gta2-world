@@ -91,8 +91,9 @@ Component ids are part of the ABI. They are append-only and never reused.
 | 9 | `Weapon` | owned by `sim/` |
 | 10 | `Projectile` | owned by `sim/` |
 | 11 | `Predicted { on: u32 }` | yes |
+| 12 | `Appearance { sprite: u16, remap: u16 }` | yes (accepted 2026-11-20) |
 
-The frozen layouts are the ones other workstreams read: the renderer reads `Transform` and `Riding`, and the netcode reads `Controller` and `Predicted`. Components owned by `sim/` can change without a proposal. Their layout still reaches the other side through `layout_hash`, and their I3 codecs are generated from the type.
+The frozen layouts are the ones other workstreams read: the renderer reads `Transform`, `Riding` and `Appearance`, and the netcode reads `Controller` and `Predicted`. Components owned by `sim/` can change without a proposal. Their layout still reaches the other side through `layout_hash`, and their I3 codecs are generated from the type.
 
 `PlayerRow` (32 bytes) is one per player slot and lives in the state. It has `ped`, `car`, `kills`, `deaths`, `score`, `respawn_timer` and `flags` (`active` = 1, `connected` = 2).
 
@@ -138,3 +139,10 @@ S5's lane snapping needs the arrows, and traction needs the ground type. S2's on
 ## Configurations
 
 `Config { name, max_players, car/ped/projectile/pickup/map_object_capacity, ambient_cars, ambient_peds }`. The named configuration and its capacities go into `layout_hash`, so a client must be built with the server's configuration. `dm16` is the first-release configuration. S2 measured 22.6 KB of state for a similar 16-player mix, so `dm16` stays far under the 256 KB target. Larger configurations, such as S2's `config_200`, are added the same way.
+
+## Accepted proposals
+
+**2026-11-20, approved by Jeff.**
+
+1. **Component 12, `Appearance { sprite: u16, remap: u16 }`**, on cars and peds, asked for by the renderer (workstream B) and added by the sim (workstream A). `sprite` is relative to the kind's sprite group: the car model for cars, the ped type for peds. `remap` is a palette remap of that group, or `Appearance.no_remap` (`0xFFFF`). It is replicated like any other component. It is an addition old readers skip, so `abi_version` stays 1; the column changes `layout_hash`, so old builds are refused anyway.
+2. **Golden replay re-recorded.** Moving to keyed randomness (`abi.rand`, determinism rule 4) changed every state hash, so `tools/replay/golden/` was recorded again from the conforming sim. The new recording is the reference for CI.
