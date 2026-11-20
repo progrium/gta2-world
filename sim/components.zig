@@ -110,6 +110,12 @@ pub const Pedestrian = extern struct {
     fast_reload: u16 = 0,
     /// Throw charge while fire is held with a grenade or molotov.
     charge: u16 = 0,
+    /// Scoring combos (scoring.md 3.2, 3.3): the next multiplier for a kill
+    /// and for a car destroyed, and ticks left in which each still holds.
+    combo: u8 = 0,
+    combo_timer: u8 = 0,
+    car_combo: u8 = 0,
+    car_combo_timer: u8 = 0,
 
     pub const anim_stand: u8 = 0;
     pub const anim_walk: u8 = 1;

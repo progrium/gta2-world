@@ -138,6 +138,9 @@ pub const CarModel = struct {
     inertia: Fx,
     /// Bounce off walls: fraction of the normal speed kept, in 1/8ths.
     restitution_8ths: i32,
+    /// The `.gci` value: points for stealing it, x5 for destroying it
+    /// (scoring.md 3.3). Plain integer.
+    value: i32,
 };
 
 /// What `deriveModel` takes: one `.gci` record's numbers (16.16) and the
@@ -166,6 +169,7 @@ pub const CarSpec = struct {
     rear_wheel_px: i32,
     sprite: i32 = 0,
     ambient: bool = true,
+    value: i32 = default_car_value,
 };
 
 /// The derived per-model values (car-handling.md, "Values derived once per
@@ -211,8 +215,13 @@ pub fn deriveModel(sp: CarSpec) CarModel {
         .rear_axle = sp.rear_wheel_px * 1024 - yc,
         .inertia = @max(inertia, fx.ratio(1, 16)),
         .restitution_8ths = wall_restitution_8ths,
+        .value = sp.value,
     };
 }
+
+/// A car's value without the player's `.gci` (ours, in the range of the
+/// ordinary cars' value bytes).
+pub const default_car_value = 10;
 
 /// Model 0 without the player's files: a mid-range saloon (our numbers, in
 /// the range of the .gci's ordinary cars).
@@ -593,8 +602,28 @@ pub const ambient_moves_per_tick: u32 = 2;
 
 // --- Scoring -----------------------------------------------------------------
 
-/// First to this many kills wins the round; scores then reset.
+/// First to this many frags (kills, less one for each death by your own
+/// hand) wins the round; frags and points then reset.
 pub const frag_limit: i32 = 10;
+
+/// Points (scoring.md; the multiplier is 1 in deathmatch). Another player
+/// killed: by weapon, fire or blast; run over; electrocuted.
+pub const points_player_weapon: i32 = 2000;
+pub const points_player_run_over: i32 = 1000;
+pub const points_player_electro: i32 = 5000;
+/// An ordinary civilian killed by weapon; run over pays half, electrocution
+/// two and a half times; times the kill combo.
+pub const points_civilian: i32 = 20;
+/// Kills (and car destructions) less than this many ticks apart raise the
+/// combo, up to `combo_max`.
+pub const combo_window: u8 = 15;
+pub const combo_max: u8 = 5;
+/// Destroying a car pays its value times this, times the car combo.
+pub const destroy_value_factor: i32 = 5;
+/// Each credited hit on a car: 1 point under 300 damage, 10 under 400,
+/// else 100.
+pub const damage_band_low: i32 = 300;
+pub const damage_band_high: i32 = 400;
 
 // --- Health and respawn ---------------------------------------------------
 

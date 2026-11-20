@@ -16,6 +16,7 @@ export interface PlayerInfo {
   active: boolean;
   inCar: boolean;
   hp: number;
+  /** Frags: kills, less one for each death by your own hand. */
   kills: number;
   deaths: number;
   respawnTimer: number;
@@ -26,6 +27,7 @@ export interface PlayerInfo {
   weapon: number;
   /** Rounds for it; -1 never runs out. */
   rounds: number;
+  /** Points, from the scoring notes. */
   score: number;
   /** Armour charges left. */
   armour: number;

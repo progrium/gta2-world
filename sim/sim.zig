@@ -580,7 +580,7 @@ pub fn Sim(comptime cfg: Config) type {
         }
 
         /// Spawn a ped for `player` (or an ambient ped for no_player).
-        fn spawnPed(self: *Self, player: u32, hint: u32) ?EntityId {
+        pub fn spawnPed(self: *Self, player: u32, hint: u32) ?EntityId {
             const w = &self.state.world;
             const id = w.spawn(Ped) orelse return null;
             var spot: ?Spot = null;
@@ -715,6 +715,9 @@ pub fn Sim(comptime cfg: Config) type {
             pd.turn = 0;
             pd.jump = 0;
             const veh = w.get(car, c.Vehicle).?;
+            // Taking a car from traffic is a hijack: its value in points
+            // (scoring.md 3.3).
+            if (veh.flags & c.Vehicle.flag_ai != 0 and ctl.player != c.Controller.no_player) self.addPoints(@intCast(ctl.player), T.carModel(veh.model).value);
             veh.driver = ped;
             veh.flags &= ~c.Vehicle.flag_ai;
             veh.timer = 0;
@@ -2247,6 +2250,12 @@ pub fn Sim(comptime cfg: Config) type {
             const h = w.get(id, c.Health).?;
             h.hp = @intCast(@max(0, h.hp - @min(dmg, T.car_damage_max)));
             if (!by.isNone()) h.last_hit_by = by;
+            // Each credited hit scores by how hard it was (scoring.md 3.3);
+            // not on the car you are driving.
+            const slot = self.creditSlot(by);
+            if (slot != Event.no_slot and !eql(self.state.players[slot].ped, v.driver)) {
+                self.addPoints(slot, if (dmg < T.damage_band_low) 1 else if (dmg < T.damage_band_high) 10 else 100);
+            }
         }
 
         fn sysProjectileHits(self: *Self) void {
@@ -2377,6 +2386,7 @@ pub fn Sim(comptime cfg: Config) type {
                         dh.last_hit_by = h.last_hit_by;
                     }
                     sim.scratch.stats.car_wrecks += 1;
+                    sim.scoreWreck(v, h.last_hit_by);
                     sim.releaseCar(id);
                     v.flags = c.Vehicle.flag_wrecked;
                     v.timer = T.wreck_ticks;
@@ -2397,6 +2407,7 @@ pub fn Sim(comptime cfg: Config) type {
                     const w = &sim.state.world;
                     if (!r.vehicle.isNone()) sim.releaseCar(r.vehicle);
                     sim.scratch.stats.ped_deaths += 1;
+                    sim.scoreKill(id, ctl.player != c.Controller.no_player, h.last_hit_by);
                     w.despawn(id);
                     if (ctl.player != c.Controller.no_player) {
                         sim.creditKill(ctl.player, h.last_hit_by, id);
@@ -2414,7 +2425,8 @@ pub fn Sim(comptime cfg: Config) type {
 
         /// Kill credit for player `victim`'s death, hit last by `by`. A kill
         /// by a car counts for its driver; dying by your own hand costs a
-        /// point. Reaching the frag limit ends the round.
+        /// frag (`kills` holds frags). Reaching the frag limit ends the
+        /// round. Points are `scoreKill`'s.
         fn creditKill(self: *Self, victim: u32, by: EntityId, victim_ped: EntityId) void {
             const w = &self.state.world;
             var killer = by;
@@ -2432,12 +2444,11 @@ pub fn Sim(comptime cfg: Config) type {
             if (killer_slot == Event.no_slot) return;
             const kp = &self.state.players[killer_slot];
             if (killer_slot == victim) {
-                kp.score -= 1;
+                kp.kills -= 1;
                 return;
             }
             kp.kills += 1;
-            kp.score += 1;
-            if (kp.score >= T.frag_limit) {
+            if (kp.kills >= T.frag_limit) {
                 self.scratch.stats.rounds += 1;
                 self.pushEvent(.{ .kind = .round_end, .a = killer_slot });
                 for (&self.state.players) |*pl| {
@@ -2446,6 +2457,70 @@ pub fn Sim(comptime cfg: Config) type {
                     pl.score = 0;
                 }
             }
+        }
+
+        /// Points for player `slot` (scoring.md 3.1; the multiplier is 1).
+        /// The server's alone: a predicting client takes the rows it is sent.
+        fn addPoints(self: *Self, slot: u8, points: i32) void {
+            if (self.predicting() or slot >= cfg.max_players) return;
+            const row = &self.state.players[slot];
+            row.score +|= points;
+        }
+
+        /// The player slot credited for a hit by `by` (a car counts for its
+        /// driver), or `Event.no_slot`.
+        fn creditSlot(self: *Self, by: EntityId) u8 {
+            const w = &self.state.world;
+            var killer = by;
+            if (w.get(by, c.Vehicle)) |v| killer = v.driver;
+            if (w.get(killer, c.Controller)) |ctl| {
+                if (ctl.player != c.Controller.no_player and w.get(killer, c.Pedestrian) != null) return @intCast(ctl.player);
+            }
+            return Event.no_slot;
+        }
+
+        /// A combo's multiplier for a scored kill now, then raised: back to 1
+        /// once `combo_window` ticks have passed since the last one.
+        fn nextCombo(n: *u8, timer: *u8) i32 {
+            if (timer.* == 0) n.* = 1;
+            const k = n.*;
+            if (n.* < T.combo_max) n.* += 1;
+            timer.* = T.combo_window;
+            return k;
+        }
+
+        /// Points for ped `victim`'s death, hit last by `by` (scoring.md
+        /// 3.2): another player flat by method; anyone else as a civilian,
+        /// by method and the killer's combo. Dying by your own hand scores
+        /// nothing.
+        fn scoreKill(self: *Self, victim: EntityId, victim_player: bool, by: EntityId) void {
+            const slot = self.creditSlot(by);
+            if (slot == Event.no_slot) return;
+            const w = &self.state.world;
+            const killer = self.state.players[slot].ped;
+            if (eql(killer, victim)) return;
+            const run_over = w.get(by, c.Vehicle) != null;
+            const shocked = if (w.get(victim, c.Pedestrian)) |p| p.shock >= T.shock_threshold else false;
+            const kp = w.get(killer, c.Pedestrian) orelse return;
+            const combo = nextCombo(&kp.combo, &kp.combo_timer);
+            if (victim_player) {
+                self.addPoints(slot, if (shocked) T.points_player_electro else if (run_over) T.points_player_run_over else T.points_player_weapon);
+                return;
+            }
+            const base = T.points_civilian * combo;
+            self.addPoints(slot, if (shocked) @divTrunc(base * 5, 2) else if (run_over) @divTrunc(base, 2) else base);
+        }
+
+        /// Points for destroying car `v`, hit last by `by`: its value x 5 x
+        /// the car combo (scoring.md 3.3). Not for the car you are in.
+        fn scoreWreck(self: *Self, v: *const c.Vehicle, by: EntityId) void {
+            const slot = self.creditSlot(by);
+            if (slot == Event.no_slot) return;
+            const killer = self.state.players[slot].ped;
+            if (eql(killer, v.driver)) return;
+            const kp = self.state.world.get(killer, c.Pedestrian) orelse return;
+            const combo = nextCombo(&kp.car_combo, &kp.car_combo_timer);
+            self.addPoints(slot, T.carModel(v.model).value * T.destroy_value_factor * combo);
         }
 
         /// Block of a random active player's body, keyed on `key`.
@@ -2572,6 +2647,8 @@ pub fn Sim(comptime cfg: Config) type {
                     if (p.invulnerable > 0) p.invulnerable -= 1;
                     if (p.double_damage > 0) p.double_damage -= 1;
                     if (p.fast_reload > 0) p.fast_reload -= 1;
+                    if (p.combo_timer > 0) p.combo_timer -= 1;
+                    if (p.car_combo_timer > 0) p.car_combo_timer -= 1;
                     if (sim.predicting()) return; // damage comes from the server
                     if (p.burn > 0) {
                         p.burn -= 1;
@@ -2579,8 +2656,10 @@ pub fn Sim(comptime cfg: Config) type {
                         sim.hurt(id, if (player) T.burn_damage_player else T.burn_damage_other, h.last_hit_by);
                     }
                     if (p.shock >= T.shock_threshold and p.state == c.Pedestrian.state_up and p.jump == 0) {
-                        p.shock = 0;
+                        // A ped killed keeps his shock, so the kill scores
+                        // as an electrocution.
                         sim.killPed(id, h.last_hit_by);
+                        if (h.hp > 0) p.shock = 0;
                     } else if (p.shock > 0) p.shock -= 1;
                 }
             }.f);

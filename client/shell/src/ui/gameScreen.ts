@@ -269,7 +269,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       const bnames = BUTTON_NAMES.filter(([bit]) => f.buttons & bit).map(([, n]) => n);
       frameLine.textContent = `I2 ${hex(f)}  steer ${f.steer} throttle ${f.throttle} aim ${f.aim} [${bnames.join(" ")}]`;
       const where = p.respawnTimer > 0 ? "dead, respawning" : p.inCar ? `in car · ${(p.speed * 30).toFixed(1)} blocks/s` : `on foot (${input.schemeOf(input.players[0]!)})`;
-      playLine.textContent = `tick ${g.tick} · ${where} · hp ${p.hp} · score ${p.score} · kills ${p.kills} deaths ${p.deaths}${online ? netLine : ""}`;
+      playLine.textContent = `tick ${g.tick} · ${where} · hp ${p.hp} · frags ${p.kills} · ${p.score} pts · deaths ${p.deaths}${online ? netLine : ""}`;
       weaponLine.textContent = p.respawnTimer > 0 ? "" : hudLine(p);
     }
   }
@@ -413,7 +413,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (p.doubleDamage > 0) parts.push(`double damage ${secs(p.doubleDamage)}s`);
     if (p.fastReload > 0) parts.push(`fast reload ${secs(p.fastReload)}s`);
     if (p.burning) parts.push("on fire!");
-    parts.push(`${p.score} pts`);
+    parts.push(`frags ${p.kills}/10 · ${p.score.toLocaleString("en-US")} pts`);
     return parts.join(" · ");
   }
 
@@ -492,7 +492,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       const p = g.player(s);
       if (p.active) rows.push({ slot: s, score: p.score, kills: p.kills, deaths: p.deaths });
     }
-    rows.sort((a, b) => b.score - a.score || a.deaths - b.deaths || a.slot - b.slot);
+    rows.sort((a, b) => b.kills - a.kills || b.score - a.score || a.deaths - b.deaths || a.slot - b.slot);
     const key = JSON.stringify(rows) + [...names.entries()].join();
     if (key === scoresKey) return;
     scoresKey = key;
@@ -501,10 +501,10 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       h(
         "table",
         {},
-        h("tr", {}, h("th", {}, "Player"), h("th", {}, "Score"), h("th", {}, "Kills"), h("th", {}, "Deaths")),
-        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, nameOf(r.slot)), h("td", {}, String(r.score)), h("td", {}, String(r.kills)), h("td", {}, String(r.deaths)))),
+        h("tr", {}, h("th", {}, "Player"), h("th", {}, "Frags"), h("th", {}, "Points"), h("th", {}, "Deaths")),
+        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, nameOf(r.slot)), h("td", {}, String(r.kills)), h("td", {}, r.score.toLocaleString("en-US")), h("td", {}, String(r.deaths)))),
       ),
-      h("div", { class: "muted small" }, "First to 10 wins the round. Hold Tab for scores."),
+      h("div", { class: "muted small" }, "First to 10 frags wins the round. Points: 2,000 a player shot, 1,000 run over, 5,000 electrocuted; civilians, car hits, hijacks and wrecks score too. Hold Tab for scores."),
     );
   }
 

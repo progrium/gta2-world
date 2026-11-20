@@ -95,7 +95,7 @@ Component ids are part of the ABI. They are append-only and never reused.
 
 The frozen layouts are the ones other workstreams read: the renderer reads `Transform`, `Riding` and `Appearance`, and the netcode reads `Controller` and `Predicted`. Components owned by `sim/` can change without a proposal. Their layout still reaches the other side through `layout_hash`, and their I3 codecs are generated from the type.
 
-`PlayerRow` (32 bytes) is one per player slot and lives in the state. It has `ped`, `car`, `kills`, `deaths`, `score`, `respawn_timer` and `flags` (`active` = 1, `connected` = 2).
+`PlayerRow` (32 bytes) is one per player slot and lives in the state. It has `ped`, `car`, `kills`, `deaths`, `score`, `respawn_timer` and `flags` (`active` = 1, `connected` = 2). `kills` holds frags (kills less suicides, which decide the round) and `score` holds points from the scoring notes; until M3 both counted frags. Same layout.
 
 ## Views
 

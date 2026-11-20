@@ -11,6 +11,7 @@ const T = simmod.tuning;
 const testmap = simmod.testmap;
 const Button = input.Button;
 const Frame = input.Frame;
+const EntityId = abi.EntityId;
 
 /// Small config: no ambient population, so tests control everything.
 const cfg_small: abi.Config = .{ .name = "test", .max_players = 4, .car_capacity = 8, .ped_capacity = 16, .projectile_capacity = 16, .pickup_capacity = 4, .map_object_capacity = 4 };
@@ -533,7 +534,7 @@ test "pickups give weapons; the machine gun runs dry back to the pistol" {
     try std.testing.expectEqual(T.weapon_shotgun, wpn.kind);
 }
 
-test "a rocket kills another player and credits the shooter; your own costs a point" {
+test "a rocket kills another player and credits the shooter; your own costs a frag" {
     var h = try Harness.init(.authoritative);
     defer h.deinit();
     h.join(0, 33, 60);
@@ -562,7 +563,9 @@ test "a rocket kills another player and credits the shooter; your own costs a po
     try std.testing.expect(saw_kill);
     try std.testing.expect(h.sim.scratch.stats.explosions >= 1);
     try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].kills);
-    try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].score);
+    // Points: 2000 for a player killed by weapon (and any bystanders).
+    const points = h.sim.state.players[0].score;
+    try std.testing.expect(points >= T.points_player_weapon);
     try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[1].deaths);
     // Now point-blank at a building wall: the blast kills the shooter.
     const t0 = h.ped(0);
@@ -576,8 +579,9 @@ test "a rocket kills another player and credits the shooter; your own costs a po
     h.frames[0].buttons = 0;
     h.run(60);
     try std.testing.expect(h.sim.pedOf(0) == null);
-    try std.testing.expectEqual(@as(i32, 0), h.sim.state.players[0].score);
-    try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].kills);
+    // Your own death costs a frag; points are kept.
+    try std.testing.expectEqual(@as(i32, 0), h.sim.state.players[0].kills);
+    try std.testing.expect(h.sim.state.players[0].score >= points);
 }
 
 test "a shot-up car catches fire, explodes and burns out" {
@@ -645,7 +649,7 @@ test "first to the frag limit ends the round and every score resets" {
     h.join(1, 36, 44);
     const pl = &h.sim.state.players;
     pl[0].kills = T.frag_limit - 1;
-    pl[0].score = T.frag_limit - 1;
+    pl[0].score = 12345;
     pl[1].deaths = 3;
     const w = &h.sim.state.world;
     const victim = w.get(h.sim.pedOf(1).?, c.Health).?;
@@ -660,6 +664,57 @@ test "first to the frag limit ends the round and every score resets" {
     try std.testing.expectEqual(@as(i32, 1), pl[1].deaths);
 }
 
+
+test "points: civilian kills build a combo, hijacks and wrecks pay the car's value" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 36, 40);
+    const w = &h.sim.state.world;
+    const me = h.sim.pedOf(0).?;
+    const row = &h.sim.state.players[0];
+    const killOne = struct {
+        fn f(hh: *Harness, by: EntityId) void {
+            const v = hh.sim.spawnPed(c.Controller.no_player, simmod.spawnHint(30, 40)).?;
+            const vh = hh.sim.state.world.get(v, c.Health).?;
+            vh.hp = 0;
+            vh.last_hit_by = by;
+            hh.run(2); // a new entity joins the world at the end of a step
+        }
+    }.f;
+    // Three quick kills: x1, x2, x3; after a pause the combo is back to 1.
+    killOne(&h, me);
+    try std.testing.expectEqual(T.points_civilian, row.score);
+    killOne(&h, me);
+    killOne(&h, me);
+    try std.testing.expectEqual(T.points_civilian * 6, row.score);
+    h.run(T.combo_window + 1);
+    killOne(&h, me);
+    try std.testing.expectEqual(T.points_civilian * 7, row.score);
+    try std.testing.expectEqual(@as(i32, 0), row.kills);
+    // Run over from a car you drive: half.
+    const car = h.sim.spawnCarAt(blk(40), blk(34), 0, 0).?;
+    w.get(car, c.Vehicle).?.driver = me;
+    h.run(T.combo_window + 1);
+    killOne(&h, car);
+    try std.testing.expectEqual(T.points_civilian * 7 + T.points_civilian / 2, row.score);
+    w.get(car, c.Vehicle).?.driver = .none;
+    // A traffic car taken: its value.
+    const before = row.score;
+    const traffic = h.sim.spawnCarAt(blk(36), blk(41), 0, 0).?;
+    w.get(traffic, c.Vehicle).?.flags = c.Vehicle.flag_ai;
+    w.get(traffic, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
+    h.ped(0).* = .{ .x = blk(36), .y = blk(40), .z = h.ped(0).z, .heading = 16384 };
+    h.tap(0, Button.enter_exit);
+    try std.testing.expect(eql(w.get(me, c.Riding).?.vehicle, traffic));
+    try std.testing.expectEqual(before + T.default_car_value, row.score);
+    // A car destroyed by you: value x 5 (and nothing for your own car).
+    const parked = h.sim.spawnCarAt(blk(48), blk(34), 0, 0).?;
+    const ph = w.get(parked, c.Health).?;
+    ph.hp = 0;
+    ph.last_hit_by = me;
+    h.run(1);
+    try std.testing.expect(row.score >= before + T.default_car_value * (1 + T.destroy_value_factor));
+}
 
 fn arm(h: *Harness, slot: u32, k: u8, tenths: u16) *c.Weapon {
     const wpn = h.sim.state.world.get(h.sim.pedOf(slot).?, c.Weapon).?;

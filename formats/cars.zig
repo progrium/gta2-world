@@ -32,6 +32,8 @@ pub const Spec = struct {
     rear_wheel_px: i32,
     sprite: i32,
     ambient: bool,
+    /// The `.gci` value byte: points for stealing the car (scoring.md 3.3).
+    value: i32,
 };
 
 /// One spec per car in `style`. A car with no `.gci` record takes the
@@ -61,6 +63,7 @@ pub fn build(gpa: std.mem.Allocator, style: *const sty.Style, records: []const g
             s.gear2_speed = r.get(.gear2_speed);
             s.gear3_speed = r.get(.gear3_speed);
             s.turbo = r.turbo;
+            s.value = r.value;
             break;
         }
         s.w_px = ci.w;
