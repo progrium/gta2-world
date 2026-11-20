@@ -46,9 +46,24 @@ s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = 0 }});
 | Enter, exit | `enter_exit` (rising edge) on foot enters the nearest free car within 1.5 blocks that is nearly stopped. In a car it exits on the driver's side (left of travel), else the right, else not at all. Entering sets `Riding.vehicle`, the car's `Vehicle.driver` and `Controller.player`, and `PlayerRow.car`; exiting clears them. `PlayerRow.car` is the car the player is in now, none on foot. |
 | Map collision | Every cell shape reduces to "is there matter at this point, and how high is its top". Walls block; ramps (all 44 codes), partial blocks (53-61) and diagonal walls (45-48) are exact; diagonal slopes (49-52) act as diagonal walls for now. Peds climb 5/16 of a block, cars 7/10 (so a car's nose does not catch at the top of a ramp). Bodies fall, land and follow ramps down. |
 | Bodies | Peds are circles sampled at 9 points; cars are boxes sampled at 8 points against the map and circles against each other. Moves are sub-stepped at a quarter block so nothing tunnels. |
-| Weapons | A pistol for players on foot, carried over from S2 so projectiles, damage, deaths, kills and intents are exercised. Weapons proper are M3. |
-| Ambient | `dm16` spawns 24 parked cars on roads (aligned with the lane arrows) and 100 peds that wander on pavements and turn back at roads and drops. No traffic AI yet. |
+| Weapons | A pistol for players on foot (M3 adds the rest, below). |
+| Ambient | `dm16` spawns 24 cars on roads (aligned with the lane arrows) and 100 peds that wander on pavements and turn back at roads and drops. M3 makes 5 in 8 of the cars traffic. |
 | Predict mode | Only `Predicted` entities step; others are fixed obstacles that are never written. Projectile spawns and every despawn become intents. Commands are ignored. Entering a car the client does not predict waits for the server. |
+
+## What M3 adds
+
+All of it is our own design, tuned by feel; every number is in `tuning.zig`.
+
+| Area | Behaviour |
+| --- | --- |
+| Weapons | Pistol (infinite), machine gun, shotgun (6 pellets), rocket launcher. `weapon_next`/`weapon_prev` cycle through the ones with rounds. Rounds per weapon live in `Weapon.a0..a3`. |
+| Explosions | Rockets explode at a wall, a body or the end of their range; cars explode when they burn out. Damage falls off from a core radius to the edge and pushes bodies away. |
+| Cars | Below `car_burn_hp` a car burns and loses health, then explodes and becomes a wreck that cannot be entered, then despawns and a new traffic car appears elsewhere. |
+| Pickups | Weapon and health pickups (2 + 2 per player) appear on pavement near players, spin, and expire after a minute. |
+| Traffic | Cars with `flag_ai` follow lane arrows, choose a turn at junctions, keep to the lane centre, brake for bodies ahead and back out when stuck. Getting in takes the car over. |
+| Ambient | Peds and traffic far from every player are moved back near one, at most 2 per tick. |
+| Scoring | A kill is a point; a suicide (including your own rocket or a car you set burning) costs one. The first to `frag_limit` (10) ends the round: a `round_end` event, and every score resets. |
+| Events | `events()` returns this tick's kill, explosion, round end and pickup events; the server sends them as I3 `event` messages. |
 
 ## Placeholder handling
 
@@ -79,12 +94,12 @@ Every number is in `tuning.zig`. Authentic GTA2 handling comes later from clean-
 
 | | Native | WASM (Node 22) |
 | --- | --- | --- |
-| `dm16` step, 16 bots + 100 peds + 24 cars | 0.02 ms | 0.04 ms (bots included) |
+| `dm16` step, 16 bots + 100 peds + 24 cars | 0.02 ms (0.036 with M3) | 0.04 ms (bots included) |
 | save + 10-tick replay + load | 0.21 ms | 0.34 ms |
-| `dm200` step, 200 bots | 0.42 ms mean, 0.63 ms p99 | |
+| `dm200` step, 200 bots | 0.87 ms mean with M3 (0.42 in M1) | |
 | State size | 36,128 bytes (`dm16`), 291,232 bytes (`dm200`) | |
 
-The design budget is 0.5 ms per step in WASM for a full session. On real maps (wil, ste, bil, mp1/2/5-comp, through `formats.grid`) a `dm16` step with 16 bots is 14 to 26 µs natively.
+The design budget is 0.5 ms per step in WASM for a full session; `dm16` with M3 is well inside it, and the 200-player load configuration is not a target. On real maps (wil, ste, bil, mp1/2/5-comp, through `formats.grid`) a `dm16` step with 16 bots is 14 to 26 µs natively.
 
 ## Soak on original maps
 
@@ -97,6 +112,7 @@ These are the places where I read the I1 draft a particular way. None changes a 
 1. **Join spawn hint.** I1 says `arg` is a spawn hint without an encoding. I use bit 31 set, block x in bits 0-7, block y in bits 8-15 (`sim.spawnHint`); 0 lets the sim choose.
 2. **`PlayerRow.car`** is the car the player is in now, and none on foot.
 3. **`Controller` on cars.** A driven car's `Controller.player` is its driver's slot and its `in` is the driver's frame, so remote dead reckoning works on cars too. Unused cars have `no_player` and a neutral frame.
-4. **Kind tables.** `pickup` and `map_object` exist with only a `Transform` until M3 gives them behaviour.
+4. **Kind tables.** `pickup` is {Transform, Weapon, Appearance} in M3; `map_object` still has only a `Transform`.
+5. **Event kinds.** M3 proposes `round_end` = 5 and `pickup` = 6 in I3, and explosion's `a` as the cause (0 rocket, 1 car).
 5. **Proposed component 12, `Appearance { sprite: u16, remap: u16 }`,** on cars and peds, for the renderer (workstream B). It is in the tables, `views()` and `replicated` now, flagged here for the proposal step. `sprite` is the car model for cars and the ped type (0) for peds; the walk cycle comes from `Pedestrian.anim` on the client, so it costs no snapshot bytes. `remap` is `0xFFFF` (none) until we pick colours.
 6. **Sim-owned components are lean.** `Collider` holds only flags (radius and mass come from the kind and model), `Vehicle` is 8 bytes (driver, model, pedal, steer, flags). Pedal and steer must replicate: they are state the next step depends on.

@@ -41,3 +41,20 @@ Open for M2:
 - **Spawning near each other.** Done: a player joining without a spawn hint lands on pavement 3 to 12 blocks from the first player already in the world (sim/tuning.zig `spawn_near_*`), so the default interest radius works and `--interest 0` is no longer needed.
 - **Snapshot budget.** Done: 400 bytes (64 kbit/s), from the bot soak on sim/ on the test map and wil (net/soak-results-dm16.md). The soak on sim/ runs in CI (net.yml).
 - Blind feel trials of online driving. (CI already runs the server bot soak with replay checks, server.yml, and the netcode soak on sim/, net.yml.)
+
+## M3. Deathmatch (in progress, sim and client done locally)
+
+Demo: eight players in one session with weapons, pedestrians, traffic, scoring and sound.
+
+Done, checked locally:
+
+- Sim (`sim/README.md`, "What M3 adds"): four weapons, pickups, rockets and car explosions, burning and wrecked cars, lane-following traffic, ambient recycling, kills, suicides and a frag limit of 10 per round. Golden replay re-recorded; native and WASM match.
+- Server: sim events go out as I3 events. Bots fight (aim at the nearest enemy, fire, switch weapons). CI's soak runs 8 players for 30 s with kills, deaths and explosions, and every replay tick matches.
+- Client: projectiles, spinning pickups, fire, wrecks and explosions; weapon and ammo HUD, kill feed, round banner, Tab scoreboard; sound cues for shots, hits, deaths, explosions, pickups and weapon switches. Z/X (or LB/RB) switch weapons. Checked headlessly on wil.
+
+Open for M3:
+
+- I3 sign-off on the proposed event kinds `round_end` (5) and `pickup` (6).
+- Sounds play the sound board's mapping; cues with no sound mapped are silent.
+- Feel trials: weapon balance, traffic density and speed, pickup rates.
+- Eight real players needs the public host (parked).
