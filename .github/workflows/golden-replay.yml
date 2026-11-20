@@ -71,6 +71,22 @@ jobs:
         working-directory: tools/replay
         run: ./zig-out/bin/replay verify golden
 
+      - name: Invariant checker self-test
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay selftest
+
+      - name: Golden play statistics and invariants match golden/stats.txt
+        working-directory: tools/replay
+        run: |
+          ./zig-out/bin/replay stats golden 2>&1 | tee stats.out
+          grep -q '^invariants: .* 0 breaks$' stats.out
+          sed -n '/^ticks /,/^final_peds /p' stats.out > stats.now
+          diff -u golden/stats.txt stats.now
+
+      - name: Soak (16 players, half random input, invariants every tick)
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay soak 100000
+
       - name: Native 200-player bot run
         id: native200
         working-directory: tools/replay

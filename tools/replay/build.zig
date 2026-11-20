@@ -1,6 +1,6 @@
 //! Golden replay runner and benches for sim/. Run from tools/replay:
 //!   zig build -Doptimize=ReleaseFast        native `replay` + `replay.wasm` into zig-out/bin
-//!   zig build golden                        re-record golden/ (after an intended sim change)
+//!   zig build golden                        re-record golden/ with stats.txt and REPORT.md (QA only)
 //!   node verify-wasm.mjs zig-out/bin/replay.wasm golden [hash200]
 
 const std = @import("std");
@@ -38,8 +38,10 @@ pub fn build(b: *std.Build) void {
     wasm.stack_size = 1 << 20;
     b.getInstallStep().dependOn(&b.addInstallArtifact(wasm, .{}).step);
 
+    // Re-recording also rewrites golden/stats.txt and golden/REPORT.md (what
+    // changed in play terms). Only the QA merge train re-records.
     const rec = b.addRunArtifact(exe);
-    rec.addArg("record");
+    rec.addArg("rerecord");
     rec.addDirectoryArg(b.path("golden"));
-    b.step("golden", "Re-record golden/inputs.bin and golden/hashes.bin").dependOn(&rec.step);
+    b.step("golden", "Re-record golden/ with a play-terms report").dependOn(&rec.step);
 }
