@@ -90,23 +90,23 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [mission-scripts](coverage/mission-scripts.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
 | [ped-ai](coverage/ped-ai.md) | 15 | 0 | 0 | 0 | 0 | 15 |  |
 | [ped-movement](coverage/ped-movement.md) | 9 | 0 | 0 | 0 | 0 | 9 |  |
-| [police-ai](coverage/police-ai.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
+| [police-ai](coverage/police-ai.md) | 7 | 0 | 0 | 1 | 0 | 6 |  |
 | [power-ups-death-and-arrest](coverage/power-ups-death-and-arrest.md) | 4 | 0 | 0 | 0 | 0 | 4 |  |
 | [projectiles](coverage/projectiles.md) | 4 | 0 | 0 | 0 | 0 | 4 |  |
 | [scoring](coverage/scoring.md) | 4 | 0 | 0 | 0 | 0 | 4 |  |
 | [script-cars](coverage/script-cars.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-characters](coverage/script-characters.md) | 11 | 0 | 0 | 0 | 0 | 11 |  |
 | [script-counters](coverage/script-counters.md) | 6 | 0 | 0 | 0 | 0 | 6 |  |
-| [script-declarations](coverage/script-declarations.md) | 16 | 0 | 0 | 0 | 0 | 16 |  |
+| [script-declarations](coverage/script-declarations.md) | 16 | 0 | 0 | 1 | 0 | 15 |  |
 | [script-flow-control](coverage/script-flow-control.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-messages](coverage/script-messages.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-missions](coverage/script-missions.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-objects](coverage/script-objects.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
-| [script-player](coverage/script-player.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
+| [script-player](coverage/script-player.md) | 5 | 1 | 0 | 0 | 0 | 4 |  |
 | [shape-and-map-collision](coverage/shape-and-map-collision.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
 | [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
-| [wanted-level](coverage/wanted-level.md) | 6 | 0 | 0 | 0 | 0 | 6 |  |
+| [wanted-level](coverage/wanted-level.md) | 6 | 2 | 2 | 1 | 0 | 1 |  |
 | [weapons](coverage/weapons.md) | 8 | 0 | 0 | 0 | 0 | 8 |  |
-| **all notes** | **197** | **0** | **0** | **0** | **0** | **197** | |
+| **all notes** | **197** | **3** | **2** | **3** | **0** | **189** | |
 
 <!-- coverage:end -->
