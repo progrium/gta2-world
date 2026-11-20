@@ -98,6 +98,18 @@ pub const Pedestrian = extern struct {
     state: u8,
     /// `flag_*`.
     flags: u8,
+    /// Shock counter (explosions-and-damage.md 3.8).
+    shock: u8 = 0,
+    /// Armour charges left (power-ups-death-and-arrest.md 3.1).
+    armour: u8 = 0,
+    /// Ticks left burning.
+    burn: u16 = 0,
+    /// Power-up timers, in ticks.
+    invulnerable: u16 = 0,
+    double_damage: u16 = 0,
+    fast_reload: u16 = 0,
+    /// Throw charge while fire is held with a grenade or molotov.
+    charge: u16 = 0,
 
     pub const anim_stand: u8 = 0;
     pub const anim_walk: u8 = 1;
@@ -132,11 +144,17 @@ pub const Weapon = extern struct {
     a1: u16,
     a2: u16,
     a3: u16,
+    a4: u16 = 0,
+    a5: u16 = 0,
+    a6: u16 = 0,
+    a7: u16 = 0,
+    a8: u16 = 0,
+    a9: u16 = 0,
 
-    pub fn rounds(self: *Weapon) *[4]u16 {
+    pub fn rounds(self: *Weapon) *[10]u16 {
         return @ptrCast(&self.a0);
     }
-    pub fn roundsConst(self: *const Weapon) *const [4]u16 {
+    pub fn roundsConst(self: *const Weapon) *const [10]u16 {
         return @ptrCast(&self.a0);
     }
 };
@@ -163,4 +181,6 @@ pub const Projectile = extern struct {
     _pad2: u16 = 0,
 
     pub const explosion_bit: u8 = 0x40;
+    /// `damage` on a projectile that is only drawn (an electric arc).
+    pub const visual: u16 = 1;
 };

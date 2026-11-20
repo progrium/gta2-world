@@ -22,11 +22,20 @@ export interface PlayerInfo {
   /** Blocks per tick. */
   speed: number;
   z: number;
-  /** Weapon in hand: 0 pistol, 1 machine gun, 2 shotgun, 3 rocket launcher. */
+  /** Weapon in hand, an index into `WEAPON_NAMES`. */
   weapon: number;
   /** Rounds for it; -1 never runs out. */
   rounds: number;
   score: number;
+  /** Armour charges left. */
+  armour: number;
+  /** Power-up ticks left. */
+  invulnerable: number;
+  doubleDamage: number;
+  fastReload: number;
+  /** Throw charge while a grenade or molotov is wound up (ticks). */
+  charge: number;
+  burning: boolean;
 }
 
 /** A game event: offline from the sim, online from the server (I3 `event`). */
@@ -50,7 +59,20 @@ export interface Cue {
   z: number;
 }
 
-export const WEAPON_NAMES = ["Pistol", "Machine gun", "Shotgun", "Rocket launcher"] as const;
+export const WEAPON_NAMES = [
+  "Pistol",
+  "Machine gun",
+  "Shotgun",
+  "Rocket launcher",
+  "Dual pistols",
+  "Silenced machine gun",
+  "Flamethrower",
+  "Electro gun",
+  "Grenades",
+  "Molotovs",
+] as const;
+/** Pickup kinds after the weapons (`tuning.pickup_health` on). */
+export const PICKUP_NAMES = ["Health", "Armour", "Invulnerability", "Double damage", "Fast reload"] as const;
 
 export interface CameraTarget {
   x: number;
@@ -167,6 +189,11 @@ export class GameModule {
     return this.w.gameSpawnCar!(slot) !== 0;
   }
 
+  /** Drops a pickup of `kind` in front of the player (offline play only). */
+  spawnPickup(kind: number, slot = 0): boolean {
+    return this.w.gameSpawnPickup!(slot, kind) !== 0;
+  }
+
   join(slot: number): void {
     this.w.gameJoin!(slot);
   }
@@ -194,7 +221,7 @@ export class GameModule {
   }
 
   player(slot: number): PlayerInfo {
-    const a = new Int32Array(this.buf, this.w.playerInfo!(slot), 11);
+    const a = new Int32Array(this.buf, this.w.playerInfo!(slot), 17);
     return {
       active: a[0] !== 0,
       inCar: a[1] !== 0,
@@ -207,6 +234,12 @@ export class GameModule {
       weapon: a[8]!,
       rounds: a[9]!,
       score: a[10]!,
+      armour: a[11]!,
+      invulnerable: a[12]!,
+      doubleDamage: a[13]!,
+      fastReload: a[14]!,
+      charge: a[15]!,
+      burning: a[16]! > 0,
     };
   }
 

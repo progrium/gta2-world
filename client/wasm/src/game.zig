@@ -283,6 +283,21 @@ export fn gameSpawnCar(slot: u32) bool {
     return true;
 }
 
+/// Debug aid, like `gameSpawnCar`: drops pickup `kind` (a `Weapon.kind`
+/// or power-up) a block in front of the slot's ped. Offline play only.
+export fn gameSpawnPickup(slot: u32, kind: u32) bool {
+    if (!running or slot >= max_players or kind >= sim.tuning.pickup_kinds) return false;
+    const ped = game.pedOf(slot) orelse return false;
+    const t = game.transformOf(ped) orelse return false;
+    const a = @as(f32, @floatFromInt(t.heading)) * (std.math.tau / 65536.0);
+    const d: f32 = 1.0 * @as(f32, abi.fx_one);
+    const x = t.x + @as(i32, @intFromFloat(@cos(a) * d));
+    const y = t.y + @as(i32, @intFromFloat(@sin(a) * d));
+    _ = game.spawnPickupAt(x, y, @intCast(kind)) orelse return false;
+    @memcpy(&prev_state, game.stateBytes());
+    return true;
+}
+
 /// `max_players` I2 frames, 8 bytes each, indexed by slot. JavaScript writes
 /// the frames for the next step here.
 export fn framesPtr() [*]u8 {
@@ -335,7 +350,7 @@ export fn gameHash() [*]const u32 {
 
 /// [active, in_car, hp, kills, deaths, respawn_timer, speed (fx), z (fx),
 ///  weapon, rounds (-1 unlimited), score]
-var player_buf: [11]i32 = undefined;
+var player_buf: [17]i32 = undefined;
 export fn playerInfo(slot: u32) [*]const i32 {
     player_buf = @splat(0);
     if (slot >= max_players) return &player_buf;
@@ -361,6 +376,14 @@ export fn playerInfo(slot: u32) [*]const i32 {
             const r = w.rounds()[k];
             // Ammo is kept in tenths; show whole rounds, rounding up.
             player_buf[9] = if (r == sim.tuning.infinite_ammo) -1 else @divTrunc(@as(i32, r) + 9, 10);
+        }
+        if (readComp(sim.c.Pedestrian, g.stateBytes(), row.ped)) |p| {
+            player_buf[11] = p.armour;
+            player_buf[12] = p.invulnerable;
+            player_buf[13] = p.double_damage;
+            player_buf[14] = p.fast_reload;
+            player_buf[15] = p.charge;
+            player_buf[16] = p.burn;
         }
     }
     return &player_buf;
@@ -420,9 +443,21 @@ const spr = struct {
     const explosion_ms: f64 = 900;
     const fire_first: u16 = 380;
     const fire_frames: u16 = 10;
-    /// Machine gun, shotgun, rockets, health; index 0 (pistol) is unused.
-    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 223 };
+    /// A fire on the ground (a molotov's).
+    const ground_fire_first: u16 = 453;
+    const ground_fire_frames: u16 = 12;
+    /// An electric arc.
+    const arc_first: u16 = 480;
+    const arc_frames: u16 = 16;
+    /// Spinning pickups, in `Weapon.kind` order: pistol (unused), machine
+    /// gun, shotgun, rockets, dual pistols, silenced machine gun,
+    /// flamethrower, electro gun, grenades, molotovs; then health, armour,
+    /// invulnerability, double damage, fast reload.
+    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 98, 90, 82, 42, 58, 50, 167, 175, 247, 215, 159 };
     const pickup_frames: u16 = 8;
+    /// Thrown grenade and molotov in flight: the pickup's first frame.
+    const grenade: u16 = 58;
+    const molotov: u16 = 50;
 };
 
 /// `Instance.kind` marking an instance `decorate` drops.
@@ -472,16 +507,28 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
     const proj_col = columnOf(.projectile, .projectile);
     const pick_col = columnOf(.pickup, .appearance);
     const veh_col = columnOf(.car, .vehicle);
+    const ped_col = columnOf(.ped, .pedestrian);
     for (instances[0..n_in]) |*in| {
         switch (in.kind) {
             @intFromEnum(abi.Kind.projectile) => {
                 const p = readAt(sim.c.Projectile, state, proj_col orelse continue, in.index) orelse continue;
-                if (p.weapon & sim.c.Projectile.explosion_bit != 0) {
+                if (p.weapon == sim.c.Projectile.explosion_bit | T.explosion_fire) {
+                    // A fire on the ground burns where it is.
+                    in.sprite = @intCast(code + spr.ground_fire_first + (frame16 +% in.index) % spr.ground_fire_frames);
+                    in.angle = 0;
+                    in.kind = list.Instance.kind_effect;
+                } else if (p.weapon & sim.c.Projectile.explosion_bit != 0) {
                     // Drawn from its event (`effectExplosion`); dropped below.
                     in.kind = hidden_kind;
                     continue;
-                }
-                in.sprite = @intCast(code + if (p.weapon == sim.tuning.weapon_rocket) spr.rocket else spr.bullet);
+                } else in.sprite = @intCast(code + switch (p.weapon) {
+                    T.weapon_rocket => spr.rocket,
+                    T.weapon_flamethrower => spr.fire_first + (frame16 +% in.index) % spr.fire_frames,
+                    T.weapon_electro => spr.arc_first + (frame16 +% in.index) % spr.arc_frames,
+                    T.weapon_grenade => spr.grenade,
+                    T.weapon_molotov => spr.molotov,
+                    else => spr.bullet,
+                });
                 in.flags |= list.Instance.flag_glow;
                 in.palette = list.Instance.own_palette;
             },
@@ -491,6 +538,13 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 in.sprite = @intCast(code + spr.pickup_first[what] + frame16 / 2 % spr.pickup_frames);
                 in.angle = 0;
                 in.flags |= list.Instance.flag_glow;
+            },
+            @intFromEnum(abi.Kind.ped) => {
+                const p = readAt(sim.c.Pedestrian, state, ped_col orelse continue, in.index) orelse continue;
+                if (p.burn > 0 and n < instances.len) {
+                    instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
+                    n += 1;
+                }
             },
             @intFromEnum(abi.Kind.car) => {
                 const v = readAt(sim.c.Vehicle, state, veh_col orelse continue, in.index) orelse continue;

@@ -660,3 +660,174 @@ test "first to the frag limit ends the round and every score resets" {
     try std.testing.expectEqual(@as(i32, 1), pl[1].deaths);
 }
 
+
+fn arm(h: *Harness, slot: u32, k: u8, tenths: u16) *c.Weapon {
+    const wpn = h.sim.state.world.get(h.sim.pedOf(slot).?, c.Weapon).?;
+    wpn.rounds()[k] = tenths;
+    wpn.kind = k;
+    return wpn;
+}
+
+fn shotCount(h: *Harness) u32 {
+    return h.sim.state.world.count(S.Shot);
+}
+
+test "dual pistols fire two bullets; fast reload halves the wait" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 33, 60);
+    h.ped(0).heading = 16384;
+    const wpn = arm(&h, 0, T.weapon_dual_pistol, 100);
+    h.frames[0].buttons = Button.fire;
+    h.run(1);
+    try std.testing.expectEqual(@as(u32, 2), shotCount(&h));
+    try std.testing.expectEqual(@as(u16, 90), wpn.rounds()[T.weapon_dual_pistol]);
+    try std.testing.expectEqual(T.weapons[T.weapon_dual_pistol].cooldown, wpn.cooldown);
+    h.frames[0].buttons = 0;
+    h.run(30);
+    h.sim.state.world.get(h.sim.pedOf(0).?, c.Pedestrian).?.fast_reload = T.fast_reload_ticks;
+    h.frames[0].buttons = Button.fire;
+    h.run(1);
+    try std.testing.expectEqual(T.weapons[T.weapon_dual_pistol].cooldown / 2, wpn.cooldown);
+}
+
+test "a held grenade is thrown on release and goes off on its fuse" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 33, 60);
+    h.ped(0).heading = 16384;
+    const wpn = arm(&h, 0, T.weapon_grenade, 30);
+    h.frames[0].buttons = Button.fire;
+    h.run(40);
+    try std.testing.expectEqual(@as(u32, 0), shotCount(&h));
+    h.frames[0].buttons = 0;
+    h.run(1);
+    try std.testing.expectEqual(@as(u32, 1), shotCount(&h));
+    try std.testing.expectEqual(@as(u16, 20), wpn.rounds()[T.weapon_grenade]);
+    const y0 = h.ped(0).y;
+    const before = h.sim.scratch.stats.explosions;
+    h.run(T.grenadeFuse(40) + 2);
+    try std.testing.expectEqual(before + 1, h.sim.scratch.stats.explosions);
+    _ = y0;
+    // Held to 96, the next one goes off in the hand.
+    h.frames[0].buttons = Button.fire;
+    h.run(T.grenade_in_hand + 1);
+    h.frames[0].buttons = 0;
+    h.run(1);
+    try std.testing.expectEqual(before + 2, h.sim.scratch.stats.explosions);
+    try std.testing.expectEqual(@as(u16, 10), wpn.rounds()[T.weapon_grenade]);
+}
+
+test "a molotov bursts into a fire that sets people alight" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 33, 56);
+    h.join(1, 33, 59);
+    h.ped(0).heading = 16384; // toward slot 1
+    _ = arm(&h, 0, T.weapon_molotov, 30);
+    h.frames[0].buttons = Button.fire;
+    h.run(20);
+    h.frames[0].buttons = 0;
+    // Find the fire once the bottle lands, and walk slot 1 into it.
+    var fire: ?c.Transform = null;
+    for (0..200) |_| {
+        h.run(1);
+        const Ctx = struct { out: *?c.Transform };
+        h.sim.state.world.each(.{ c.Transform, c.Projectile }, Ctx{ .out = &fire }, struct {
+            fn f(cx: Ctx, _: abi.EntityId, t: *c.Transform, p: *c.Projectile) void {
+                if (p.weapon == c.Projectile.explosion_bit | T.explosion_fire) cx.out.* = t.*;
+            }
+        }.f);
+        if (fire != null) break;
+    }
+    const f = fire orelse return error.NoFire;
+    try std.testing.expect(f.y > h.ped(0).y + fx.fromInt(2));
+    h.ped(1).* = .{ .x = f.x, .y = f.y, .z = f.z, .heading = 0 };
+    h.run(2);
+    const p1 = h.sim.pedOf(1).?;
+    try std.testing.expect(h.sim.state.world.get(p1, c.Pedestrian).?.burn > 0);
+    h.run(10);
+    try std.testing.expect(h.sim.state.world.get(p1, c.Health).?.hp < T.ped_hp);
+}
+
+test "the flamethrower sets a target on fire and burning hurts" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 33, 60);
+    h.join(1, 33, 61);
+    h.ped(0).heading = 16384;
+    h.ped(1).* = .{ .x = h.ped(0).x, .y = h.ped(0).y + fx.ratio(8, 10), .z = h.ped(0).z, .heading = 0 };
+    _ = arm(&h, 0, T.weapon_flamethrower, 200);
+    h.frames[0].buttons = Button.fire;
+    h.run(4);
+    h.frames[0].buttons = 0;
+    const p1 = h.sim.pedOf(1).?;
+    try std.testing.expect(h.sim.state.world.get(p1, c.Pedestrian).?.burn > 0);
+    const hp = h.sim.state.world.get(p1, c.Health).?.hp;
+    h.run(10);
+    try std.testing.expect(h.sim.state.world.get(p1, c.Health).?.hp < hp);
+}
+
+test "the electro gun shocks a target to death and chains" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 33, 60);
+    h.join(1, 33, 62);
+    h.ped(0).heading = 16384;
+    h.ped(1).* = .{ .x = h.ped(0).x, .y = h.ped(0).y + fx.ratio(15, 10), .z = h.ped(0).z, .heading = 0 };
+    _ = arm(&h, 0, T.weapon_electro, 500);
+    h.frames[0].buttons = Button.fire;
+    var died = false;
+    for (0..40) |_| {
+        h.run(1);
+        if (h.sim.state.players[1].deaths > 0) died = true;
+    }
+    try std.testing.expect(died);
+    try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].kills);
+}
+
+test "armour soaks whole hits; invulnerability ignores them; double damage doubles" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 33, 60);
+    h.join(1, 33, 62);
+    h.ped(0).heading = 16384;
+    const p1 = h.sim.pedOf(1).?;
+    const w = &h.sim.state.world;
+    const ped1 = w.get(p1, c.Pedestrian).?;
+    const hp1 = w.get(p1, c.Health).?;
+    const shoot = struct {
+        fn f(hh: *Harness) void {
+            hh.ped(1).* = .{ .x = hh.ped(0).x, .y = hh.ped(0).y + fx.ratio(15, 10), .z = hh.ped(0).z, .heading = 0 };
+            const wp = hh.sim.state.world.get(hh.sim.pedOf(0).?, c.Weapon).?;
+            wp.cooldown = 0;
+            hh.frames[0].buttons = Button.fire;
+            hh.run(1);
+            hh.frames[0].buttons = 0;
+            hh.run(12);
+        }
+    }.f;
+    _ = arm(&h, 0, T.weapon_smg, 100);
+    ped1.armour = 2;
+    shoot(&h);
+    try std.testing.expectEqual(@as(u8, 1), ped1.armour);
+    try std.testing.expectEqual(T.ped_hp, hp1.hp);
+    ped1.armour = 0;
+    ped1.invulnerable = 100;
+    shoot(&h);
+    try std.testing.expectEqual(T.ped_hp, hp1.hp);
+    ped1.invulnerable = 0;
+    shoot(&h);
+    try std.testing.expectEqual(T.ped_hp - T.weapons[T.weapon_smg].damage_player, hp1.hp);
+    w.get(h.sim.pedOf(0).?, c.Pedestrian).?.double_damage = 100;
+    shoot(&h);
+    try std.testing.expectEqual(T.ped_hp - 3 * T.weapons[T.weapon_smg].damage_player, hp1.hp);
+    // Power-up pickups: refused when full.
+    const t = h.ped(1).*;
+    _ = h.sim.spawnPickupAt(t.x, t.y, T.pickup_armour).?;
+    h.run(1);
+    try std.testing.expectEqual(T.armour_charges, ped1.armour);
+    _ = h.sim.spawnPickupAt(t.x, t.y, T.pickup_armour).?;
+    h.run(1);
+    try std.testing.expectEqual(@as(u32, 1), w.count(S.Pickup));
+}

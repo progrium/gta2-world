@@ -251,6 +251,7 @@ pub fn Sim(comptime cfg: Config) type {
             self.sysContacts();
             self.sysProjectileHits();
             self.sysPickups();
+            self.sysPedStatus();
             self.sysRiders();
             self.sysHealth();
             self.sysRespawn();
@@ -1091,23 +1092,31 @@ pub fn Sim(comptime cfg: Config) type {
             self.state.world.eachFiltered(.{ c.Weapon, c.Controller, c.Transform, c.Velocity, c.Riding }, self.predicting(), self, struct {
                 fn f(sim: *Self, id: EntityId, wpn: *c.Weapon, ctl: *c.Controller, t: *c.Transform, vel: *c.Velocity, ride: *c.Riding) void {
                     if (wpn.cooldown > 0) wpn.cooldown -= 1;
-                    if (!ride.vehicle.isNone()) return;
-                    if (sim.state.world.get(id, c.Pedestrian)) |p| {
-                        if (p.state != c.Pedestrian.state_up) return;
+                    const ped = sim.state.world.get(id, c.Pedestrian);
+                    if (!ride.vehicle.isNone() or (ped != null and ped.?.state != c.Pedestrian.state_up)) {
+                        if (ped) |p| p.charge = 0;
+                        return;
                     }
                     if (wpn.kind >= T.weapon_count) wpn.kind = T.weapon_pistol;
-                    if (wpn.rounds()[wpn.kind] == 0) cycleWeapon(wpn, false);
+                    if (wpn.rounds()[wpn.kind] == 0 and (ped == null or ped.?.charge == 0)) cycleWeapon(wpn, false);
                     const k = wpn.kind;
                     const def = T.weapons[k];
                     const have = wpn.rounds()[k];
+                    // Fast reload halves the wait after each shot.
+                    const fast = ped != null and ped.?.fast_reload > 0;
+                    if (def.shot == T.shot_grenade or def.shot == T.shot_molotov) {
+                        if (ped) |p| sim.throwStep(id, wpn, p, ctl, t, vel, k, fast);
+                        return;
+                    }
                     if (ctl.in.buttons & Button.fire == 0 or wpn.cooldown != 0 or have == 0) return;
                     const hx = t.x + fx.mul(fx.cos(t.heading), T.muzzle_ahead >> 1);
                     const hy = t.y + fx.mul(fx.sin(t.heading), T.muzzle_ahead >> 1);
                     if (map.blocks(sim.grid, hx, hy, t.z, T.shot_height)) return;
                     if (map.moveHitsWall(sim.grid, t.x, t.y, hx, hy, t.z + T.shot_height, map.bullet)) return;
-                    wpn.cooldown = def.cooldown;
+                    wpn.cooldown = if (fast) @max(1, def.cooldown >> 1) else def.cooldown;
                     if (have != T.infinite_ammo) wpn.rounds()[k] = have -| def.tenths_per_pull;
                     sim.scratch.stats.shots += 1;
+                    if (def.shot == T.shot_electro) return sim.electro(id, t);
                     // Pellets fan out `spread` apart, centred on the aim.
                     const first = t.heading -% @as(u16, @truncate(@as(u32, def.spread) * (def.pellets - 1) / 2));
                     var p: u8 = 0;
@@ -1136,6 +1145,158 @@ pub fn Sim(comptime cfg: Config) type {
         }
 
 
+        /// Grenades and molotovs (weapons.md 3.4): holding fire winds up a
+        /// charge; letting go throws at strength min(charge, 60). A grenade
+        /// held to a charge of 96 goes off in the hand.
+        fn throwStep(self: *Self, id: EntityId, wpn: *c.Weapon, ped: *c.Pedestrian, ctl: *const c.Controller, t: *const c.Transform, vel: *const c.Velocity, k: u8, fast: bool) void {
+            if (wpn.cooldown != 0) return;
+            const have = wpn.rounds()[k];
+            const spend = struct {
+                fn f(wp: *c.Weapon, kk: u8, h: u16) void {
+                    if (h != T.infinite_ammo) wp.rounds()[kk] = h -| T.weapons[kk].tenths_per_pull;
+                }
+            }.f;
+            if (ctl.in.buttons & Button.fire != 0 and have > 0) {
+                if (ped.charge < T.charge_max) ped.charge += 1;
+                if (k == T.weapon_grenade and ped.charge >= T.grenade_in_hand) {
+                    ped.charge = 0;
+                    spend(wpn, k, have);
+                    wpn.cooldown = if (fast) 2 else T.weapons[k].cooldown;
+                    self.explodeAt(t.x, t.y, t.z, id, 0);
+                }
+                return;
+            }
+            if (ped.charge == 0) return;
+            const charge = ped.charge;
+            ped.charge = 0;
+            if (have == 0) return;
+            const strength: i32 = @min(charge, T.throw_strength_max);
+            const base, const span = if (k == T.weapon_grenade) .{ T.grenade_speed_base, T.grenade_speed_span } else .{ T.molotov_speed_base, T.molotov_speed_span };
+            const speed = base + @divTrunc(span * strength, T.throw_strength_max);
+            const dx = fx.cos(t.heading);
+            const dy = fx.sin(t.heading);
+            var vx = fx.mul(dx, speed);
+            var vy = fx.mul(dy, speed);
+            // Moving forwards adds your own speed and a little more.
+            if (fx.mul(vel.vx, dx) + fx.mul(vel.vy, dy) > 0) {
+                vx += vel.vx + fx.mul(dx, T.throw_moving_bonus);
+                vy += vel.vy + fx.mul(dy, T.throw_moving_bonus);
+            }
+            const st: c.Transform = .{ .x = t.x, .y = t.y, .z = t.z + T.throw_height, .heading = t.heading };
+            if (map.blocks(self.grid, st.x, st.y, st.z, 0)) return;
+            spend(wpn, k, have);
+            wpn.cooldown = if (fast) 2 else T.weapons[k].cooldown;
+            self.scratch.stats.shots += 1;
+            if (self.predicting()) {
+                self.pushIntent(.spawn, .projectile, id, st);
+                return;
+            }
+            const w = &self.state.world;
+            const sid = w.spawn(Shot) orelse return;
+            w.get(sid, c.Transform).?.* = st;
+            w.get(sid, c.Velocity).?.* = .{ .vx = vx, .vy = vy, .vz = T.throw_rise, .spin = 0 };
+            const life: u16 = if (k == T.weapon_grenade) T.grenadeFuse(charge) else 600;
+            w.get(sid, c.Projectile).?.* = .{ .owner = id, .ttl = life, .damage = 0, .weapon = k };
+        }
+
+        /// Electro gun, one tick (weapons.md 3.5): every ped or car in a
+        /// 4 x 4 square around the shooter, within 45 degrees of his facing,
+        /// a level up or down and in sight, takes a shock; then the same
+        /// from each of them in a 2 x 2 square, aimed along the shooter's
+        /// line to it. Two hops at most; nobody twice.
+        fn electro(self: *Self, shooter: EntityId, t: *const c.Transform) void {
+            if (self.predicting()) return;
+            var hit: [12]EntityId = undefined;
+            var n: usize = 0;
+            hit[0] = shooter;
+            n = 1;
+            const first = self.electroHop(shooter, t.x, t.y, t.z, t.heading, T.electro_reach, &hit, &n);
+            const end_first = n;
+            var i: usize = first;
+            while (i < end_first) : (i += 1) {
+                const tt = self.state.world.get(hit[i], c.Transform) orelse continue;
+                const dir = fx.atan2(tt.y - t.y, tt.x - t.x);
+                _ = self.electroHop(shooter, tt.x, tt.y, tt.z, dir, T.electro_chain_reach, &hit, &n);
+            }
+        }
+
+        /// One electro search from (x, y, z) along `dir`; hits go on the end
+        /// of `hit`. Returns where this hop's hits start.
+        fn electroHop(self: *Self, shooter: EntityId, x: Fx, y: Fx, z: Fx, dir: u16, reach: Fx, hit: *[12]EntityId, n: *usize) usize {
+            const start = n.*;
+            const Ctx = struct { sim: *Self, shooter: EntityId, x: Fx, y: Fx, z: Fx, dir: u16, reach: Fx, hit: *[12]EntityId, n: *usize };
+            const ctx = Ctx{ .sim = self, .shooter = shooter, .x = x, .y = y, .z = z, .dir = dir, .reach = reach, .hit = hit, .n = n };
+            const visit = struct {
+                fn f(cx: Ctx, id: EntityId, tt: *c.Transform, col: *c.Collider) void {
+                    if (cx.n.* >= cx.hit.len) return;
+                    if (col.flags & c.Collider.flag_disabled != 0) return;
+                    for (cx.hit[0..cx.n.*]) |h| if (eql(h, id)) return;
+                    const dx = tt.x - cx.x;
+                    const dy = tt.y - cx.y;
+                    if (@max(fx.abs(dx), fx.abs(dy)) > cx.reach or fx.abs(tt.z - cx.z) > T.electro_reach_z) return;
+                    if (dx != 0 or dy != 0) {
+                        const off: i16 = @bitCast(fx.atan2(dy, dx) -% cx.dir);
+                        if (@abs(off) > T.electro_cone) return;
+                    }
+                    const sim = cx.sim;
+                    if (map.moveHitsWall(sim.grid, cx.x, cx.y, tt.x, tt.y, cx.z + T.shot_height, map.bullet)) return;
+                    cx.hit[cx.n.*] = id;
+                    cx.n.* += 1;
+                    const w = &sim.state.world;
+                    if (w.get(id, c.Vehicle) != null) {
+                        sim.damageCar(id, @as(i64, T.weapons[T.weapon_electro].damage_car) << fx.frac_bits, cx.shooter);
+                    } else if (w.get(id, c.Pedestrian)) |p| {
+                        if (p.invulnerable == 0) p.shock +|= T.shock_gun;
+                        w.get(id, c.Health).?.last_hit_by = cx.shooter;
+                    }
+                    sim.spark(tt.x, tt.y, tt.z, cx.shooter);
+                }
+            }.f;
+            self.state.world.each(.{ c.Vehicle, c.Transform, c.Collider }, ctx, struct {
+                fn f(cx: Ctx, id: EntityId, _: *c.Vehicle, tt: *c.Transform, col: *c.Collider) void {
+                    visit(cx, id, tt, col);
+                }
+            }.f);
+            self.state.world.each(.{ c.Pedestrian, c.Transform, c.Collider }, ctx, struct {
+                fn f(cx: Ctx, id: EntityId, _: *c.Pedestrian, tt: *c.Transform, col: *c.Collider) void {
+                    visit(cx, id, tt, col);
+                }
+            }.f);
+            return start;
+        }
+
+        /// A projectile that only shows (an electric arc on a target): it
+        /// stays put for two ticks and touches nothing.
+        fn spark(self: *Self, x: Fx, y: Fx, z: Fx, by: EntityId) void {
+            const w = &self.state.world;
+            const id = w.spawn(Shot) orelse return;
+            w.get(id, c.Transform).?.* = .{ .x = x, .y = y, .z = z + T.shot_height, .heading = 0 };
+            w.get(id, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
+            w.get(id, c.Projectile).?.* = .{ .owner = by, .ttl = 2, .damage = c.Projectile.visual, .weapon = T.weapon_electro };
+        }
+
+        /// A fire on the ground (a molotov's): an explosion entity of kind
+        /// `explosion_fire` that burns for `fire_ticks`. No event: clients
+        /// draw it from the entity.
+        fn startFire(self: *Self, x: Fx, y: Fx, z: Fx, by: EntityId) void {
+            if (self.predicting()) return;
+            const w = &self.state.world;
+            const id = w.spawn(Shot) orelse return;
+            w.get(id, c.Transform).?.* = .{ .x = x, .y = y, .z = z, .heading = 0 };
+            w.get(id, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
+            w.get(id, c.Projectile).?.* = .{ .owner = by, .ttl = T.fire_ticks, .damage = 0, .weapon = c.Projectile.explosion_bit | T.explosion_fire };
+        }
+
+        /// Set ped `id` on fire, credited to `by`.
+        fn ignite(self: *Self, id: EntityId, by: EntityId) void {
+            if (!self.writable(id)) return;
+            const w = &self.state.world;
+            const p = w.get(id, c.Pedestrian) orelse return;
+            if (p.invulnerable > 0 or !w.get(id, c.Riding).?.vehicle.isNone()) return;
+            p.burn = T.burn_ticks;
+            if (!by.isNone()) w.get(id, c.Health).?.last_hit_by = by;
+        }
+
         /// Start an explosion (explosions-and-damage.md): an entity that
         /// stays put for 99 ticks and acts from the next tick. `kind` 0 is
         /// small (rockets), 1 a car. `by` is credited.
@@ -1148,6 +1309,29 @@ pub fn Sim(comptime cfg: Config) type {
             w.get(id, c.Transform).?.* = .{ .x = x, .y = y, .z = z, .heading = 0 };
             w.get(id, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
             w.get(id, c.Projectile).?.* = .{ .owner = by, .ttl = T.explosion_ticks, .damage = 0, .weapon = c.Projectile.explosion_bit | kind };
+        }
+
+        /// A fire on the ground, one tick: anyone standing in it catches
+        /// fire; cars in it take fire damage every 8 ticks.
+        fn burnAround(self: *Self, t: *const c.Transform, timer: u16, by: EntityId) void {
+            const Ctx = struct { sim: *Self, t: c.Transform, timer: u16, by: EntityId };
+            const ctx = Ctx{ .sim = self, .t = t.*, .timer = timer, .by = by };
+            self.state.world.each(.{ c.Pedestrian, c.Transform }, ctx, struct {
+                fn g(cx: Ctx, pid: EntityId, ped: *c.Pedestrian, pt: *c.Transform) void {
+                    if (ped.burn > 0) return;
+                    if (fx.abs(pt.z - cx.t.z) > T.explosion_reach_z) return;
+                    if (@max(fx.abs(pt.x - cx.t.x), fx.abs(pt.y - cx.t.y)) > T.fire_radius) return;
+                    cx.sim.ignite(pid, cx.by);
+                }
+            }.g);
+            if (timer & 7 != 0) return;
+            self.state.world.each(.{ c.Vehicle, c.Transform }, ctx, struct {
+                fn g(cx: Ctx, cid: EntityId, _: *c.Vehicle, ct: *c.Transform) void {
+                    if (fx.abs(ct.z - cx.t.z) > T.explosion_reach_z) return;
+                    if (@max(fx.abs(ct.x - cx.t.x), fx.abs(ct.y - cx.t.y)) > T.fire_radius) return;
+                    cx.sim.damageCar(cid, @as(i64, T.fire_car_damage) << fx.frac_bits, cx.by);
+                }
+            }.g);
         }
 
         fn isExplosion(p: *const c.Projectile) bool {
@@ -1166,6 +1350,7 @@ pub fn Sim(comptime cfg: Config) type {
                     if (p.ttl == 0) return sim.kill(id);
                     const timer = p.ttl;
                     p.ttl -= 1;
+                    if (p.weapon & 3 == T.explosion_fire) return sim.burnAround(t, timer, p.owner);
                     const r = if (p.weapon & 3 == 1) T.explosion_car else T.explosion_small;
                     const Ctx = struct { sim: *Self, x: Fx, y: Fx, z: Fx, r: Fx, timer: u16, by: EntityId };
                     const ctx = Ctx{ .sim = sim, .x = t.x, .y = t.y, .z = t.z, .r = r, .timer = timer, .by = p.owner };
@@ -1387,7 +1572,8 @@ pub fn Sim(comptime cfg: Config) type {
             const w = &self.state.world;
             const ped = w.get(id, c.Pedestrian) orelse return;
             if (!w.get(id, c.Riding).?.vehicle.isNone()) return;
-            ped.state = state;
+            // Invulnerable: every knock is the mildest kind.
+            ped.state = if (ped.invulnerable > 0) c.Pedestrian.state_over else state;
             ped.down = if (state == c.Pedestrian.state_over) T.knock_over_ticks else T.knock_down_ticks;
             ped.jump = 0;
             ped.turn = 0;
@@ -1401,6 +1587,10 @@ pub fn Sim(comptime cfg: Config) type {
         /// A ped is killed where he stands (by a hit that kills outright).
         fn killPed(self: *Self, id: EntityId, by: EntityId) void {
             if (!self.writable(id)) return;
+            if (self.state.world.get(id, c.Pedestrian)) |p| {
+                // Invulnerable: knocked over, never killed.
+                if (p.invulnerable > 0) return self.knock(id, c.Pedestrian.state_over, fx.one, 0, 0, 0, by);
+            }
             const h = self.state.world.get(id, c.Health) orelse return;
             h.hp = 0;
             if (!by.isNone()) h.last_hit_by = by;
@@ -1463,9 +1653,12 @@ pub fn Sim(comptime cfg: Config) type {
             self.state.world.each(.{ c.Transform, c.Velocity, c.Projectile }, self, struct {
                 fn f(sim: *Self, id: EntityId, t: *c.Transform, vel: *c.Velocity, p: *c.Projectile) void {
                     if (isExplosion(p)) return;
+                    const shot = T.weapons[@min(p.weapon, T.weapon_count - 1)].shot;
+                    if (p.damage != c.Projectile.visual and (shot == T.shot_grenade or shot == T.shot_molotov)) return sim.moveThrownShot(id, t, vel, p, shot);
                     // Out of range: gone (a rocket too, without exploding).
                     if (p.ttl == 0) return sim.kill(id);
                     p.ttl -= 1;
+                    if (p.damage == c.Projectile.visual) return;
                     const explosive = p.weapon < T.weapon_count and T.weapons[p.weapon].explosive;
                     const base = t.z - T.shot_height;
                     // Four samples along the move, so a fast round cannot
@@ -1491,6 +1684,58 @@ pub fn Sim(comptime cfg: Config) type {
                     t.y += vel.vy;
                 }
             }.f);
+        }
+
+        /// A thrown grenade or molotov (projectiles.md 3.1): falls with
+        /// gravity 1/512, bounces off walls and the ground (ours: keeping
+        /// half its speed), rolls with friction 0.01 a tick. A grenade goes
+        /// off when its fuse (`ttl`) runs out; a molotov bursts into fire on
+        /// any contact.
+        fn moveThrownShot(self: *Self, id: EntityId, t: *c.Transform, vel: *c.Velocity, p: *c.Projectile, shot: u8) void {
+            const molotov = shot == T.shot_molotov;
+            if (p.ttl == 0) {
+                if (molotov) self.startFire(t.x, t.y, map.floorAt(self.grid, t.x, t.y, t.z, fx.ratio(1, 8)), p.owner) else self.explodeAt(t.x, t.y, t.z, p.owner, 0);
+                return self.kill(id);
+            }
+            p.ttl -= 1;
+            const lift = fx.ratio(1, 8);
+            if (vel.vx != 0) {
+                const nx = t.x + vel.vx;
+                if (map.blocks(self.grid, nx, t.y, t.z, lift) or map.moveHitsWall(self.grid, t.x, t.y, nx, t.y, t.z + lift, 0)) {
+                    if (molotov) return self.burstMolotov(id, t, p);
+                    vel.vx = -@divTrunc(vel.vx * T.bounce_8ths, 8);
+                } else t.x = nx;
+            }
+            if (vel.vy != 0) {
+                const ny = t.y + vel.vy;
+                if (map.blocks(self.grid, t.x, ny, t.z, lift) or map.moveHitsWall(self.grid, t.x, t.y, t.x, ny, t.z + lift, 0)) {
+                    if (molotov) return self.burstMolotov(id, t, p);
+                    vel.vy = -@divTrunc(vel.vy * T.bounce_8ths, 8);
+                } else t.y = ny;
+            }
+            const floor = map.floorAt(self.grid, t.x, t.y, t.z, lift);
+            vel.vz -= T.throw_gravity;
+            t.z += vel.vz;
+            if (t.z <= floor) {
+                t.z = floor;
+                if (molotov) return self.burstMolotov(id, t, p);
+                vel.vz = if (vel.vz < -fx.ratio(2, 100)) -@divTrunc(vel.vz * T.bounce_8ths, 8) else 0;
+                // Rolling: friction takes 0.01 a tick off the speed.
+                const sp = fx.length(vel.vx, vel.vy);
+                if (sp <= T.throw_friction) {
+                    vel.vx = 0;
+                    vel.vy = 0;
+                } else {
+                    vel.vx = @intCast(@divTrunc(@as(i64, vel.vx) * (sp - T.throw_friction), sp));
+                    vel.vy = @intCast(@divTrunc(@as(i64, vel.vy) * (sp - T.throw_friction), sp));
+                }
+            }
+        }
+
+        fn burstMolotov(self: *Self, id: EntityId, t: *const c.Transform, p: *c.Projectile) void {
+            self.startFire(t.x, t.y, map.floorAt(self.grid, t.x, t.y, t.z, fx.ratio(1, 8)), p.owner);
+            p.ttl = 0;
+            self.kill(id);
         }
 
         // ------------------------------------------------------------------
@@ -1710,6 +1955,9 @@ pub fn Sim(comptime cfg: Config) type {
 
         fn hurt(self: *Self, id: EntityId, dmg: i32, by: EntityId) void {
             if (!self.writable(id)) return;
+            if (self.state.world.get(id, c.Pedestrian)) |p| {
+                if (p.invulnerable > 0) return;
+            }
             if (self.state.world.get(id, c.Health)) |h| {
                 h.hp -= dmg;
                 h.last_hit_by = by;
@@ -1736,7 +1984,9 @@ pub fn Sim(comptime cfg: Config) type {
             if (self.predicting()) return;
             self.state.world.each(.{ c.Transform, c.Velocity, c.Projectile }, self, struct {
                 fn f(sim: *Self, id: EntityId, t: *c.Transform, vel: *c.Velocity, p: *c.Projectile) void {
-                    if (isExplosion(p)) return;
+                    if (isExplosion(p) or p.damage == c.Projectile.visual) return;
+                    const shot = T.weapons[@min(p.weapon, T.weapon_count - 1)].shot;
+                    if (shot == T.shot_grenade) return; // grenades go off by their fuse
                     const sc = &sim.scratch;
                     // Swept test: the segment travelled this tick against each
                     // body's circle; the earliest hit along the segment wins.
@@ -1782,16 +2032,29 @@ pub fn Sim(comptime cfg: Config) type {
                         const e = sc.entries[best];
                         const def = T.weapons[@min(p.weapon, T.weapon_count - 1)];
                         const ww = &sim.state.world;
+                        // Double damage on the shooter doubles the bullet
+                        // and flame figures (projectiles.md 3.2-3.3).
+                        var mult: i32 = 1;
+                        if (ww.get(p.owner, c.Pedestrian)) |op| {
+                            if (op.double_damage > 0) mult = 2;
+                        }
                         if (ww.get(e.id, c.Vehicle) != null) {
                             // Cars: raw damage by anti-strength; a rocket
                             // blows up at the hit point.
-                            sim.damageCar(e.id, @as(i64, def.damage_car) << fx.frac_bits, p.owner);
+                            const raw: i64 = if (def.explosive) def.damage_car else @as(i64, def.damage_car) * mult;
+                            sim.damageCar(e.id, raw << fx.frac_bits, p.owner);
                             if (def.explosive) sim.explodeAt((t.x + e.x) >> 1, (t.y + e.y) >> 1, e.z, p.owner, 0);
                         } else {
                             const player = ww.get(e.id, c.Controller).?.player != c.Controller.no_player;
-                            sim.hurt(e.id, if (player) def.damage_player else def.damage_other, p.owner);
+                            const ped = ww.get(e.id, c.Pedestrian).?;
+                            if (player and ped.armour > 0) {
+                                // Armour soaks the whole hit.
+                                if (sim.writable(e.id)) ped.armour -= 1;
+                            } else sim.hurt(e.id, mult * @as(i32, if (player) def.damage_player else def.damage_other), p.owner);
+                            if (shot == T.shot_flame) sim.ignite(e.id, p.owner);
                             if (def.explosive) sim.explodeAt(e.x, e.y, e.z, p.owner, 0);
                         }
+                        if (shot == T.shot_molotov) sim.startFire(e.x, e.y, e.z, p.owner);
                         p.ttl = 0;
                         sim.kill(id);
                     }
@@ -1997,6 +2260,30 @@ pub fn Sim(comptime cfg: Config) type {
                 h.hp = T.ped_hp;
                 return true;
             }
+            if (give.kind > T.pickup_health) {
+                const p = w.get(ped, c.Pedestrian) orelse return false;
+                // Refused when already full (power-ups-death-and-arrest.md 3.1).
+                switch (give.kind) {
+                    T.pickup_armour => {
+                        if (p.armour >= T.armour_charges) return false;
+                        p.armour = T.armour_charges;
+                    },
+                    T.pickup_invulnerable => {
+                        if (p.invulnerable == T.invulnerable_ticks) return false;
+                        p.invulnerable = T.invulnerable_ticks;
+                    },
+                    T.pickup_double_damage => {
+                        if (p.double_damage == T.double_damage_ticks) return false;
+                        p.double_damage = T.double_damage_ticks;
+                    },
+                    T.pickup_fast_reload => {
+                        if (p.fast_reload == T.fast_reload_ticks) return false;
+                        p.fast_reload = T.fast_reload_ticks;
+                    },
+                    else => return false,
+                }
+                return true;
+            }
             if (give.kind >= T.weapon_count) return false;
             const wpn = w.get(ped, c.Weapon) orelse return false;
             const have = wpn.rounds()[give.kind];
@@ -2005,6 +2292,29 @@ pub fn Sim(comptime cfg: Config) type {
             // A weapon you did not have goes straight into your hand.
             if (have == 0) wpn.kind = give.kind;
             return true;
+        }
+
+        /// Per ped, per tick: power-up timers run down, burning hurts, and
+        /// the shock counter decays by 1; a ped on his feet (not mid-jump)
+        /// whose shock reaches 100 is electrocuted (ours: killed).
+        fn sysPedStatus(self: *Self) void {
+            self.state.world.eachFiltered(.{ c.Pedestrian, c.Health, c.Controller }, self.predicting(), self, struct {
+                fn f(sim: *Self, id: EntityId, p: *c.Pedestrian, h: *c.Health, ctl: *c.Controller) void {
+                    if (p.invulnerable > 0) p.invulnerable -= 1;
+                    if (p.double_damage > 0) p.double_damage -= 1;
+                    if (p.fast_reload > 0) p.fast_reload -= 1;
+                    if (sim.predicting()) return; // damage comes from the server
+                    if (p.burn > 0) {
+                        p.burn -= 1;
+                        const player = ctl.player != c.Controller.no_player;
+                        sim.hurt(id, if (player) T.burn_damage_player else T.burn_damage_other, h.last_hit_by);
+                    }
+                    if (p.shock >= T.shock_threshold and p.state == c.Pedestrian.state_up and p.jump == 0) {
+                        p.shock = 0;
+                        sim.killPed(id, h.last_hit_by);
+                    } else if (p.shock > 0) p.shock -= 1;
+                }
+            }.f);
         }
 
         /// Ambient cars and peds far from every player are moved near one.

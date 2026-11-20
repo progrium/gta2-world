@@ -9,7 +9,7 @@
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
-import { type Cue, type GameEvent, GameModule, MAX_PLAYERS, WEAPON_NAMES } from "../game/wasm.ts";
+import { type Cue, type GameEvent, GameModule, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
 import { Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
@@ -139,6 +139,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         h("button", { onclick: toggleNight }, "Night (N)"),
         h("button", { onclick: toggleSound }, "Sound (B)"),
         o.server ? null : h("button", { onclick: () => game?.spawnCar(0) }, "Car here (V)"),
+        o.server ? null : h("button", { onclick: () => dropPickup() }, "Pickup here (P)"),
         o.server ? null : h("button", { onclick: respawn }, "Respawn (R)"),
         h("button", {
           onclick: () => {
@@ -193,6 +194,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     else if (e.code === "KeyM") audio.toggleMute();
     else if (e.code === "KeyR") respawn();
     else if (e.code === "KeyV" && !o.server) game?.spawnCar(0);
+    else if (e.code === "KeyP" && !o.server) dropPickup();
     else if (e.code === "Escape" && overlay) closeOverlay();
   };
   addEventListener("keydown", onKey);
@@ -268,7 +270,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       frameLine.textContent = `I2 ${hex(f)}  steer ${f.steer} throttle ${f.throttle} aim ${f.aim} [${bnames.join(" ")}]`;
       const where = p.respawnTimer > 0 ? "dead, respawning" : p.inCar ? `in car · ${(p.speed * 30).toFixed(1)} blocks/s` : `on foot (${input.schemeOf(input.players[0]!)})`;
       playLine.textContent = `tick ${g.tick} · ${where} · hp ${p.hp} · score ${p.score} · kills ${p.kills} deaths ${p.deaths}${online ? netLine : ""}`;
-      weaponLine.textContent = p.respawnTimer > 0 ? "" : `${WEAPON_NAMES[p.weapon] ?? "?"}${p.rounds < 0 ? "" : ` · ${p.rounds}`} · ♥ ${Math.max(0, p.hp)} · ${p.score} pts`;
+      weaponLine.textContent = p.respawnTimer > 0 ? "" : hudLine(p);
     }
   }
 
@@ -391,7 +393,29 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     return names.get(slot) ?? `Player ${slot + 1}`;
   };
   const weaponWord = (c: number): string => (c === 0x80 ? "a car" : c === 0x81 ? "fire" : (WEAPON_NAMES[c] ?? "?").toLowerCase());
-  const SHOT_CUES: CueName[] = ["pistol", "machine_gun", "shotgun", "rocket_launch"];
+  // Shot sounds by weapon; none for the silenced gun, the streams (one cue
+  // a tick would be noise) and throws.
+  const SHOT_CUES: (CueName | null)[] = ["pistol", "machine_gun", "shotgun", "rocket_launch", "pistol", null, null, null, null, null];
+  const secs = (ticks: number): number => Math.ceil(ticks / 30);
+  // Debug: each press drops the next kind of pickup, weapons then power-ups.
+  let nextPickup = 1;
+  function dropPickup(): void {
+    if (!game || online || o.server) return;
+    game.spawnPickup(nextPickup);
+    nextPickup = nextPickup + 1 >= WEAPON_NAMES.length + PICKUP_NAMES.length ? 1 : nextPickup + 1;
+  }
+  function hudLine(p: PlayerInfo): string {
+    const parts = [`${WEAPON_NAMES[p.weapon] ?? "?"}${p.rounds < 0 ? "" : ` · ${p.rounds}`}`];
+    if (p.charge > 0) parts.push(`throw ${"▮".repeat(Math.min(6, Math.ceil(p.charge / 10)))}`);
+    parts.push(`♥ ${Math.max(0, p.hp)}`);
+    if (p.armour > 0) parts.push(`armour ${p.armour}`);
+    if (p.invulnerable > 0) parts.push(`invulnerable ${secs(p.invulnerable)}s`);
+    if (p.doubleDamage > 0) parts.push(`double damage ${secs(p.doubleDamage)}s`);
+    if (p.fastReload > 0) parts.push(`fast reload ${secs(p.fastReload)}s`);
+    if (p.burning) parts.push("on fire!");
+    parts.push(`${p.score} pts`);
+    return parts.join(" · ");
+  }
 
   function feedLine(text: string, mine = false): void {
     const line = h("div", { class: mine ? "mine" : "" }, text);
@@ -441,14 +465,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       case 6:
         if (e.a === ownSlot) {
           audio.play("pickup", e.x, e.y, e.z);
-          feedLine(e.b === 4 ? "Health" : `${WEAPON_NAMES[e.b] ?? "Weapon"}`, true);
+          feedLine(e.b < WEAPON_NAMES.length ? WEAPON_NAMES[e.b]! : (PICKUP_NAMES[e.b - WEAPON_NAMES.length] ?? "Power-up"), true);
         }
         break;
     }
   }
 
   function playCue(c: Cue): void {
-    if (c.kind === 1) audio.play(SHOT_CUES[c.a] ?? "pistol", c.x, c.y, c.z);
+    if (c.kind === 1) {
+      const name = c.a < SHOT_CUES.length ? SHOT_CUES[c.a] : "pistol";
+      if (name) audio.play(name, c.x, c.y, c.z);
+    }
     else if (c.kind === 2) audio.play("ped_hurt", c.x, c.y, c.z);
     else if (c.kind === 3) audio.play("bullet_hit", c.x, c.y, c.z);
     else if (c.kind === 4) audio.play("weapon_switch");
