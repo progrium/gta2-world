@@ -48,7 +48,7 @@ fn exerciseApis(comptime S: type, s: *S) void {
     S.gangs.onKill(s, 0, none);
     _ = S.gangs.weaponForPlayer(s, 0);
     _ = S.gangs.gangOfArea(s, 0, 0);
-    _ = S.objects.spawnObject(s, .phone, 0, 0, 0, 0, 0);
+    _ = S.objects.objectModel(s, none);
     S.objects.removeObject(s, none);
     S.objects.setDoor(s, none, .auto);
     S.objects.ringPhone(s, none, true);

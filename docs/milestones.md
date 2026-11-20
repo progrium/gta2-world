@@ -82,7 +82,7 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [car-collision](coverage/car-collision.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [car-handling](coverage/car-handling.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
 | [car-height](coverage/car-height.md) | 8 | 0 | 0 | 0 | 0 | 8 |  |
-| [crushers-and-garages](coverage/crushers-and-garages.md) | 4 | 0 | 0 | 0 | 0 | 4 |  |
+| [crushers-and-garages](coverage/crushers-and-garages.md) | 4 | 1 | 1 | 0 | 2 | 0 |  |
 | [entering-and-exiting-cars](coverage/entering-and-exiting-cars.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
 | [explosions-and-damage](coverage/explosions-and-damage.md) | 9 | 0 | 0 | 0 | 0 | 9 |  |
 | [gangs-and-respect](coverage/gangs-and-respect.md) | 3 | 0 | 0 | 0 | 0 | 3 |  |
@@ -97,16 +97,16 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [script-cars](coverage/script-cars.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-characters](coverage/script-characters.md) | 11 | 0 | 0 | 0 | 0 | 11 |  |
 | [script-counters](coverage/script-counters.md) | 6 | 0 | 0 | 0 | 0 | 6 |  |
-| [script-declarations](coverage/script-declarations.md) | 16 | 0 | 0 | 0 | 0 | 16 |  |
+| [script-declarations](coverage/script-declarations.md) | 16 | 0 | 0 | 3 | 1 | 12 |  |
 | [script-flow-control](coverage/script-flow-control.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-messages](coverage/script-messages.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-missions](coverage/script-missions.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
-| [script-objects](coverage/script-objects.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
+| [script-objects](coverage/script-objects.md) | 7 | 0 | 0 | 6 | 0 | 1 |  |
 | [script-player](coverage/script-player.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
 | [shape-and-map-collision](coverage/shape-and-map-collision.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
-| [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
+| [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 1 | 0 | 0 | 0 | 6 |  |
 | [wanted-level](coverage/wanted-level.md) | 6 | 0 | 0 | 0 | 0 | 6 |  |
 | [weapons](coverage/weapons.md) | 8 | 0 | 0 | 0 | 0 | 8 |  |
-| **all notes** | **197** | **0** | **0** | **0** | **0** | **197** | |
+| **all notes** | **197** | **2** | **1** | **9** | **3** | **182** | |
 
 <!-- coverage:end -->

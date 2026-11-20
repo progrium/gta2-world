@@ -10,6 +10,7 @@ pub const gangs = @import("gangs.zig");
 pub const hud = @import("hud.zig");
 pub const script = @import("../script/vm.zig");
 pub const lights = @import("../sys/lights.zig");
+pub const objects = @import("../sys/objects_state.zig");
 
 pub fn SpState(comptime max_players: u16) type {
     return extern struct {
@@ -20,5 +21,6 @@ pub fn SpState(comptime max_players: u16) type {
         gangs: gangs.State, // D2
         script: script.State, // A1
         lights: lights.State, // B
+        objects: objects.State, // B
     };
 }
