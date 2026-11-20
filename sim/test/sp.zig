@@ -103,8 +103,11 @@ test "sp: one player in a city with a level attached runs and stays deterministi
     }
     try std.testing.expectEqual(a.hash(), b.hash());
     try std.testing.expect(a.pedOf(0) != null);
+    // The APIs that are no longer stubs change the state (E: wanted), so
+    // both sims take the same calls and must still agree.
     exerciseApis(Sp, a);
-    try std.testing.expectEqual(a.hash(), b.hash()); // the stubs change nothing
+    exerciseApis(Sp, b);
+    try std.testing.expectEqual(a.hash(), b.hash());
 }
 
 test "sp: the API stubs compile and do nothing in dm16 too" {
