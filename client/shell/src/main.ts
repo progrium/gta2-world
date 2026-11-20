@@ -2,6 +2,7 @@
 // Opening the page with cached assets goes straight into the last map.
 
 import { AssetStore, type MapChoice } from "./assets/store.ts";
+import { audio } from "./audio/index.ts";
 import { InputSystem } from "./input/system.ts";
 import { sessionIdFromUrl } from "./session.ts";
 import { gameScreen } from "./ui/gameScreen.ts";
@@ -12,6 +13,7 @@ const root = document.getElementById("app")!;
 const store = new AssetStore(new URL("./worker.js", import.meta.url));
 const input = new InputSystem();
 input.attach(window);
+audio.attach(window);
 const sessionId = sessionIdFromUrl();
 // ?server=ws://host:port joins that game server; without it the game runs offline.
 const server = new URLSearchParams(location.search).get("server");

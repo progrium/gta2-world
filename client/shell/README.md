@@ -27,7 +27,8 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 | `src/loop.ts` | rAF-driven fixed 30 Hz clock: poll every frame, latch every tick, render with alpha. |
 | `src/session.ts` | Fixed session id `m1-local`, or `#s=<id>` from the link. |
 | `src/game/wasm.ts` | Loads `game.wasm`; copies files in, hands buffers to the renderer, steps the sim, reads player info and tuning. |
-| `src/ui/` | Import screen, game screen (real map, sim and renderer, HUD), controls (remap) overlay, handling tuning panel. |
+| `src/audio/` | Sound banks (.sdt/.raw), WebAudio engine, the cue list and mapping, procedural fallbacks. |
+| `src/ui/` | Import screen, game screen (real map, sim and renderer, HUD), controls (remap) overlay, handling tuning panel, sound board. |
 
 ## Input
 
@@ -48,3 +49,22 @@ Default keys: arrows or WASD, Ctrl or J fire, Enter or F enter/exit, Space handb
 The player picks their GTA2 folder (File System Access where available, else a `webkitdirectory` input), picks files, or drops a folder. A module worker hashes each `.gmp .sty .scr .mmp .gxt .sdt .raw`, checks `.gmp`/`.sty` headers and chunk tables, parses `.mmp` map descriptors, and writes the bytes to OPFS under `gta2/blobs/<sha256>` with a manifest. Nothing is uploaded. `AssetStore.find(name)` and `AssetStore.read(hash)` are the API for the renderer and sim; reads re-check the hash.
 
 Maps on offer come from `.mmp` files whose `.gmp` and `.sty` are present; without any `.mmp`, same-named `.gmp`/`.sty` pairs. With cached assets, the page opens straight into the last map.
+
+## Sound
+
+`src/audio/index.ts` exports `audio`, the one engine the game screen talks to:
+
+```ts
+audio.play(cue, x, y, z);     // one-shot at a world position in blocks; no position = centred
+audio.setListener(x, y, z);   // the camera, every frame
+audio.setEngine(id, speed);   // every tick a car is driven (blocks/tick); stops when calls stop
+audio.volume; audio.muted; audio.toggleMute();
+```
+
+Cues are fixed: `pistol machine_gun shotgun rocket_launch explosion bullet_hit ped_hurt ped_death car_crash car_door pickup weapon_switch horn engine`. Each plays the samples the player mapped to it (one picked at random), else a short procedural sound, so the game is never silent. Sounds pan by x offset from the listener and fade with distance (full inside 3 blocks, silent past 24). The engine is one looping source per id whose playback rate goes from `idleRate` at rest to `topRate` at `topSpeed`.
+
+The game screen already feeds the listener, the player's engine, door, crash and horn (special button in a car). Weapons, hits, deaths and pickups are for the sim events to call.
+
+**Banks.** The player's `data/audio/<map>.sdt` + `.raw` (the map's base name: `wil.gmp` uses `wil.sdt`; a map without one borrows another, the shipped map banks share a layout) and `fstyle.sdt` + `.raw`, read from the OPFS cache. Layout, read off the player's own files: `.sdt` is 24-byte little-endian entries with no header, `u32 offset, u32 size, u32 rate, i32 unknown, i32 loopStart (bytes), i32 loopEnd (-1)`, contiguous in the `.raw`. Samples are mono PCM, mostly 16-bit signed, with 8-bit unsigned mixed in (no flag; `guessFormat` tells from the bytes, and on the shipped banks it picks exactly the 5500 Hz block). Banks under 8000 Hz are upsampled for browsers that refuse slower buffers. Import checks the entry table and the shell's file list flags a missing or short `.raw`.
+
+**Sound board** (B, or the Sound button; M mutes). Lists every sample in both banks with a play button and its rate, length and encoding (click the encoding to flip it if a sample plays as noise). Pick a cue, step through samples with ↑/↓ (each one plays) and press Enter or Assign. Per-cue gain and the engine pitch range are on the cue list. The mapping is saved in `localStorage` (`gta2.sound.v1`) and exports or imports as JSON; that file holds indices only, never audio.
