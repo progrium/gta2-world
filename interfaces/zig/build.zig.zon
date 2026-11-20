@@ -1,0 +1,7 @@
+.{
+    .name = .gta2_interfaces,
+    .version = "1.0.0",
+    .fingerprint = 0x3dcc0a1a772b5cfa,
+    .minimum_zig_version = "0.17.0",
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

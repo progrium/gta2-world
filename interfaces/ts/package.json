@@ -1,0 +1,13 @@
+{
+  "name": "@gta2-world/interfaces",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Frozen interfaces I1, I2, I3: TypeScript side",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "tsc -p . && node dist/test.js"
+  }
+}

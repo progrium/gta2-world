@@ -1,0 +1,10 @@
+.{
+    .name = .gta2_sim,
+    .version = "0.1.0",
+    .fingerprint = 0xfd87b11c2383a826,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .interfaces = .{ .path = "../interfaces/zig" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "." },
+}

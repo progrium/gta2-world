@@ -1,0 +1,97 @@
+# sim
+
+The deterministic game simulation (workstream A), implementing **I1** from `interfaces/I1-sim-abi.md`. Pure Zig, no I/O, no clock, no floats, no allocation. Linked by the browser client (WASM) and the server (native).
+
+```sh
+cd sim && zig build test        # unit and gameplay tests, I1 conformance (Zig 0.17.0)
+cd tools/replay && zig build -Doptimize=ReleaseFast
+./zig-out/bin/replay verify golden        # golden replay, native
+node verify-wasm.mjs zig-out/bin/replay.wasm golden   # same replay in WASM
+./zig-out/bin/replay handling             # car and ped numbers
+./zig-out/bin/replay bench16              # step time
+```
+
+## Using it from a host
+
+`sim/` is a Zig package that depends on `interfaces/zig` by path.
+
+```zig
+// build.zig.zon
+.dependencies = .{ .sim = .{ .path = "../sim" } },
+// build.zig
+const sim_dep = b.dependency("sim", .{ .target = target, .optimize = optimize });
+exe.root_module.addImport("sim", sim_dep.module("sim"));
+// code
+const sim = @import("sim");
+var s: sim.Sim16 = undefined;                       // Sim(abi.config_16), "dm16"
+s.init(&grid, .{ .seed = seed, .mode = .authoritative });
+s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = 0 }});
+```
+
+- `sim.Sim(cfg)` for any `abi.Config`; `sim.Sim16` is `dm16`, `sim.config_200` is the 200-player load configuration.
+- Everything in I1: `init`, `step`, `save`, `load`, `hash`, `tick`, `setTick`, `stateBytes`, `views`, `intents`, `playerRow`, `replicaPut`, `replicaRemove`, `config`, `state_size`, `layout_hash`. `abi.checkSim` runs at compile time.
+- `replicated`: per kind, the components a snapshot carries, in ascending id, never `Predicted` (the shape workstream C asked for).
+- Not in I1, for tools and tests: `spawnCarAt`, `pedOf`, `transformOf`, `spawnHint`.
+- `sim.testmap.build(&grid)` makes the synthetic test map. `formats.grid.build` (workstream B) makes a grid from a real `.gmp`.
+
+## What M1 implements
+
+| Area | Behaviour |
+| --- | --- |
+| Players | `join` spawns a ped on foot, at the hint or on a random pavement cell; `leave` despawns it and frees a car it was driving. Dead players respawn on foot after 3 s. |
+| On foot, tank | `steer` turns (about 230°/s), `throttle` walks forward or back (back is slower). `run` held runs. |
+| On foot, direct | With the `direct` bit, the ped moves along `aim` at a speed set by `throttle` and turns its body toward it (about 650°/s). |
+| Jump | `handbrake_jump` on foot jumps when on the ground. |
+| Cars | Placeholder handling, ours, tuned by feel (below). |
+| Enter, exit | `enter_exit` (rising edge) on foot enters the nearest free car within 1.5 blocks that is nearly stopped. In a car it exits on the driver's side (left of travel), else the right, else not at all. Entering sets `Riding.vehicle`, the car's `Vehicle.driver` and `Controller.player`, and `PlayerRow.car`; exiting clears them. `PlayerRow.car` is the car the player is in now, none on foot. |
+| Map collision | Every cell shape reduces to "is there matter at this point, and how high is its top". Walls block; ramps (all 44 codes), partial blocks (53-61) and diagonal walls (45-48) are exact; diagonal slopes (49-52) act as diagonal walls for now. Peds climb 5/16 of a block, cars 7/10 (so a car's nose does not catch at the top of a ramp). Bodies fall, land and follow ramps down. |
+| Bodies | Peds are circles sampled at 9 points; cars are boxes sampled at 8 points against the map and circles against each other. Moves are sub-stepped at a quarter block so nothing tunnels. |
+| Weapons | A pistol for players on foot, carried over from S2 so projectiles, damage, deaths, kills and intents are exercised. Weapons proper are M3. |
+| Ambient | `dm16` spawns 24 parked cars on roads (aligned with the lane arrows) and 100 peds that wander on pavements and turn back at roads and drops. No traffic AI yet. |
+| Predict mode | Only `Predicted` entities step; others are fixed obstacles that are never written. Projectile spawns and every despawn become intents. Commands are ignored. Entering a car the client does not predict waits for the server. |
+
+## Placeholder handling
+
+Velocity is split into forward and lateral parts each tick. The pedal (ramped toward `throttle`, so keys and digital triggers build up) accelerates with a taper to top speed, or brakes against the motion, or reverses. The tyres remove at most `grip` of lateral speed per tick; anything above that slides, which is the whole drift model. The handbrake cuts grip to a quarter and adds yaw. Yaw follows the front wheels (ramped toward `steer`) times forward speed, capped. Wall hits keep a quarter of the normal speed as a bounce.
+
+Measured with `replay handling` (model 0, the only one):
+
+| | |
+| --- | --- |
+| Top speed | 11.8 blocks/s |
+| 0 to 90% of top speed | 1.8 s |
+| Brake from top speed | 0.8 s, 4.8 blocks |
+| Coast from top speed | 2.8 s, 15.6 blocks |
+| Full lock, full throttle | 360° in 2.0 s, circle 4.7 blocks across |
+| Handbrake + full lock, 0.67 s from top speed | car turns 80° while still sliding at 7.5 blocks/s the old way |
+| Ped walk / run | 1.8 / 3.3 blocks/s |
+
+Every number is in `tuning.zig`. Authentic GTA2 handling comes later from clean-room behaviour notes; nothing here came from the original game or its decompilation.
+
+## Determinism
+
+- No floating point in `sim/` (`tools/check-no-floats.sh`).
+- Randomness only from `abi.rand(seed, tick, entity, salt)`; the seed is in the state.
+- The state is one extern struct with no implicit padding (checked at compile time). `mode` is a property of the host, not the state, so a client that loads a server state stays in predict mode.
+- The golden replay in `tools/replay/golden/` is 10,000 ticks of 16 scripted bots on the test map (walking, jumping, shooting, getting in and out of cars, driving, two players leaving and rejoining). CI replays it natively and in WASM in Debug, ReleaseSafe and ReleaseFast, comparing `hash()` every tick with a save/run-ahead/load rewind every 100 ticks, and compares a 200-bot run's final hash between native and WASM. After an intended gameplay change, re-record with `zig build golden` in `tools/replay` and commit both files.
+
+## Budget
+
+| | Native | WASM (Node 22) |
+| --- | --- | --- |
+| `dm16` step, 16 bots + 100 peds + 24 cars | 0.02 ms | 0.03 ms (bots included) |
+| save + 10-tick replay + load | 0.19 ms | 0.31 ms |
+| `dm200` step, 200 bots | 0.34 ms mean, 0.51 ms p99 | |
+| State size | 35,104 bytes (`dm16`), 280,992 bytes (`dm200`) | |
+
+The design budget is 0.5 ms per step in WASM for a full session.
+
+## Notes for the interface owners
+
+These are the places where I read the I1 draft a particular way. None changes a frozen type.
+
+1. **Join spawn hint.** I1 says `arg` is a spawn hint without an encoding. I use bit 31 set, block x in bits 0-7, block y in bits 8-15 (`sim.spawnHint`); 0 lets the sim choose.
+2. **`PlayerRow.car`** is the car the player is in now, and none on foot.
+3. **`Controller` on cars.** A driven car's `Controller.player` is its driver's slot and its `in` is the driver's frame, so remote dead reckoning works on cars too. Unused cars have `no_player` and a neutral frame.
+4. **Kind tables.** `pickup` and `map_object` exist with only a `Transform` until M3 gives them behaviour.
+5. **Sim-owned components are lean.** `Collider` holds only flags (radius and mass come from the kind and model), `Vehicle` is 8 bytes (driver, model, pedal, steer, flags). Pedal and steer must replicate: they are state the next step depends on.
