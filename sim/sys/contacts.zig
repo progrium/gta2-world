@@ -235,6 +235,9 @@ pub fn Sys(comptime Self: type) type {
                 self.scratch.stats.impacts += 1;
                 self.damageCar(a.id, @as(i64, j) * T.impact_damage, b.id);
                 self.damageCar(b.id, @as(i64, j) * T.impact_damage, a.id);
+                // E: driving into a police car (car-collision.md 3.7).
+                Self.wanted.onCarImpact(self, a.id, b.id, j, false);
+                Self.wanted.onCarImpact(self, b.id, a.id, j, false);
             }
         }
 

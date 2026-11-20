@@ -492,10 +492,15 @@ pub fn Sys(comptime Self: type) type {
             if (@as(Search, @enumFromInt(o.search)) == .none) return false;
             const target = findTarget(self, cs, p.id) orelse return false;
             if (playerSlot(self, target)) |slot| {
+                // A cop who engages the player: E's witness check decides,
+                // moves the last known position and raises him to at least
+                // one star (3.3, rule 6; wanted-level.md 3.3).
+                if (isLaw(o.occupation)) {
+                    if (comptime @hasDecl(Self.wanted, "copSees")) {
+                        if (!Self.wanted.copSees(self, p.id, slot)) return false;
+                    } else if (p.ride.vehicle.isNone()) Self.wanted.atLeastOneStar(self, slot);
+                }
                 o.flags |= O.flag_spotted_player;
-                // A cop on foot who engages the player raises him to at
-                // least one star (3.3, rule 6).
-                if (isLaw(o.occupation) and p.ride.vehicle.isNone()) Self.wanted.atLeastOneStar(self, slot);
             }
             objectives.attack(self, p.id, target);
             return true;

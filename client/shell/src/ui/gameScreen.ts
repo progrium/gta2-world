@@ -20,6 +20,10 @@ import { clear, h } from "./dom.ts";
 import { openRemap } from "./remap.ts";
 import { soundBoard } from "./soundBoard.ts";
 import { applySavedTuning, tuningPanel } from "./tuning.ts";
+import { SpHudView } from "./spHud.ts";
+import { textChoice } from "./importScreen.ts";
+import { deathKey } from "../game/text.ts";
+import { demoHud } from "./spDemo.ts";
 
 export interface GameScreenOpts {
   input: InputSystem;
@@ -57,6 +61,13 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const banner = h("div", { class: "banner hidden" });
   const scores = h("div", { class: "scores hidden" });
   let showScores = false;
+  // Single player: a story level offline (the SP sim, its script and text).
+  const sp = !!o.map.story && !o.server;
+  const hudDemo = new URLSearchParams(location.search).has("hudtest");
+  const spHud = sp ? new SpHudView({ text: (id) => game?.text(id) ?? null, textKey: (k) => game?.textKey(k) ?? null }) : null;
+  /** The camera holds on the body (wasted or busted) until this tick. */
+  let holdUntil = 0;
+  let holdAt: { x: number; y: number; z: number } | null = null;
   let bannerUntil = 0;
   let paused = false;
   let crashed = false;
@@ -116,8 +127,11 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const respawn = (): void => {
     if (!game || o.server) return;
     seed = (seed * 1103515245 + 12345) >>> 0;
-    game.start(seed);
+    if (sp) game.startSp(seed);
+    else game.start(seed);
     camera.reset();
+    spHud?.reset();
+    holdUntil = 0;
   };
   const toggleNight = (): void => {
     if (!renderer) return;
@@ -140,7 +154,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         h("button", { onclick: toggleSound }, "Sound (B)"),
         o.server ? null : h("button", { onclick: () => game?.spawnCar(0) }, "Car here (V)"),
         o.server ? null : h("button", { onclick: () => dropPickup() }, "Pickup here (P)"),
-        o.server ? null : h("button", { onclick: respawn }, "Respawn (R)"),
+        o.server ? null : h("button", { onclick: respawn }, sp ? "Restart level (R)" : "Respawn (R)"),
         h("button", {
           onclick: () => {
             paused = true;
@@ -184,6 +198,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const onKey = (e: KeyboardEvent): void => {
     if (e.code === "Tab") {
       e.preventDefault();
+      if (sp) return;
       showScores = true;
       return;
     }
@@ -268,8 +283,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       lastSpeed = p.speed;
       const bnames = BUTTON_NAMES.filter(([bit]) => f.buttons & bit).map(([, n]) => n);
       frameLine.textContent = `I2 ${hex(f)}  steer ${f.steer} throttle ${f.throttle} aim ${f.aim} [${bnames.join(" ")}]`;
-      const where = p.respawnTimer > 0 ? "dead, respawning" : p.inCar ? `in car · ${(p.speed * 30).toFixed(1)} blocks/s` : `on foot (${input.schemeOf(input.players[0]!)})`;
-      playLine.textContent = `tick ${g.tick} · ${where} · hp ${p.hp} · frags ${p.kills} · ${p.score} pts · deaths ${p.deaths}${online ? netLine : ""}`;
+      const where = p.respawnTimer > 0 || (sp && game!.tick < holdUntil) ? "dead, respawning" : p.inCar ? `in car · ${(p.speed * 30).toFixed(1)} blocks/s` : `on foot (${input.schemeOf(input.players[0]!)})`;
+      playLine.textContent = sp ? `tick ${g.tick} · ${where} · hp ${p.hp}` : `tick ${g.tick} · ${where} · hp ${p.hp} · frags ${p.kills} · ${p.score} pts · deaths ${p.deaths}${online ? netLine : ""}`;
       weaponLine.textContent = p.respawnTimer > 0 ? "" : hudLine(p);
     }
   }
@@ -280,10 +295,16 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (!renderer || !game) return;
     renderer.resize(canvas.clientWidth, canvas.clientHeight, devicePixelRatio || 1);
     const t = game.camera(paused ? 1 : alpha, ownSlot);
-    if (t.found) {
+    const holding = sp && holdAt !== null && game.tick < holdUntil;
+    if (holding) {
+      // Wasted or busted: watch the body, pulled back (camera.md 3.2).
+      camera.update({ x: holdAt!.x, y: holdAt!.y, z: holdAt!.z, dead: true }, dt);
+      audio.setListener(holdAt!.x, holdAt!.y, holdAt!.z);
+    } else if (t.found) {
       camera.update({ x: t.x, y: t.y, z: t.z, vx: t.vx, vy: t.vy, inCar: lastInCar }, dt);
       audio.setListener(t.x, t.y, t.z);
     }
+    if (spHud) spHud.update(hudDemo ? demoHud(game.tick) : game.spInfo(), t.found ? { x: t.x, y: t.y } : null);
     const list = game.renderList(paused ? 1 : alpha, now);
     renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
     for (const c of game.takeCues()) playCue(c);
@@ -317,6 +338,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         if (!gci) console.info(`[cars] ${cars} models from the style; no .gci imported, default handling`);
       }
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
+      if (sp) await loadLevelFiles(g);
       void loadBanks(o.store, o.map).catch((e) => console.warn("[audio] banks", e));
       if (o.server) {
         game = g;
@@ -326,7 +348,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       g.netStop();
       const tuned = applySavedTuning(g);
       game = g;
-      game.start(seed);
+      if (sp) game.startSp(seed);
+      else game.start(seed);
       camera.reset();
       status.textContent = tuned ? `${tuned} tuning value${tuned === 1 ? "" : "s"} changed from the defaults (T to see).` : "";
       status.classList.toggle("hidden", !tuned);
@@ -336,6 +359,20 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       status.textContent = `Could not start: ${(e as Error).message ?? e}`;
       status.classList.add("bad");
     }
+  }
+
+  /** A story level's text (.gxt) and scripts (main .scr and mission sub-scripts) into the game module. */
+  async function loadLevelFiles(g: GameModule): Promise<void> {
+    if (!g.hasSinglePlayer) throw new Error("this game.wasm has no single player; reload the page");
+    const files = o.store.manifest.files;
+    const gxtName = textChoice(files);
+    const gxt = gxtName ? files.find((f) => f.name === gxtName) : null;
+    if (gxt) g.loadText(new Uint8Array(await o.store.read(gxt.hash)));
+    else console.info("[text] no .gxt imported; messages show their numbers");
+    g.clearScripts();
+    const scripts = o.store.scripts(o.map);
+    for (const f of scripts) g.addScript(f.name, new Uint8Array(await o.store.read(f.hash)));
+    console.info(`[level] ${o.map.description}: ${scripts.length} script file${scripts.length === 1 ? "" : "s"}, text ${gxtName ?? "none"}`);
   }
 
   function connect(g: GameModule): Promise<void> {
@@ -413,7 +450,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (p.doubleDamage > 0) parts.push(`double damage ${secs(p.doubleDamage)}s`);
     if (p.fastReload > 0) parts.push(`fast reload ${secs(p.fastReload)}s`);
     if (p.burning) parts.push("on fire!");
-    parts.push(`frags ${p.kills}/10 · ${p.score.toLocaleString("en-US")} pts`);
+    if (!sp) parts.push(`frags ${p.kills}/10 · ${p.score.toLocaleString("en-US")} pts`);
     return parts.join(" · ");
   }
 
@@ -468,6 +505,48 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
           feedLine(e.b < WEAPON_NAMES.length ? WEAPON_NAMES[e.b]! : (PICKUP_NAMES[e.b - WEAPON_NAMES.length] ?? "Power-up"), true);
         }
         break;
+      default:
+        if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
+    }
+  }
+
+  /** Single-player events (I3 kinds 9-18, wire.zig). */
+  function onSpEvent(e: GameEvent, g: GameModule): void {
+    const tick = g.tick;
+    const hold = (): void => {
+      const t = g.camera(1, ownSlot);
+      holdAt = e.x || e.y ? { x: e.x, y: e.y, z: e.z } : t.found ? { x: t.x, y: t.y, z: t.z } : null;
+      holdUntil = tick + 70;
+    };
+    switch (e.kind) {
+      case 9:
+        if (e.b > e.c) input.rumble(0, Effects.collisionLight);
+        break;
+      case 10:
+        hold();
+        spHud!.showCentre(spHud!.keyText(deathKey(e.b)), tick, 70, "wasted");
+        audio.play("ped_death");
+        input.rumble(0, Effects.collisionHeavy);
+        break;
+      case 11:
+        hold();
+        spHud!.showCentre(spHud!.keyText("nicked"), tick, 70, "busted");
+        break;
+      case 12:
+        feedLine("Job started", true);
+        break;
+      case 13:
+        feedLine("Job passed", true);
+        break;
+      case 14:
+        feedLine("Job failed", true);
+        break;
+      case 17:
+        spHud!.showCentre(spHud!.keyText("g_over"), tick, 1 << 30, "over");
+        break;
+      case 18:
+        spHud!.showCentre(spHud!.keyText("gam_cmp"), tick, 1 << 30, "done");
+        break;
     }
   }
 
@@ -508,7 +587,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     );
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, status, weaponLine, feed, banner, scores), hud);
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();

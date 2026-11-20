@@ -104,6 +104,9 @@ test "ped ai: a police ped finds an armed player in sight and attacks" {
     wd.run(10);
     try expectEqual(u.Kind.none, Obj.internalOf(wd.sim, cop).kind);
     arm(&wd, pl);
+    // E's witness check wants the gun in use, a wanted level or a recent
+    // crime; a wanted level will do.
+    u.S.wanted.setStars(wd.sim, 0, 1);
     wd.run(10);
     const io = Obj.internalOf(wd.sim, cop);
     try expectEqual(u.Kind.kill_ped, io.kind);
