@@ -63,6 +63,31 @@ pub const SpriteEntry = struct {
 
 pub const Rgba = [4]u8;
 
+/// One car model from the CARI chunk (public DMA style format document):
+/// sizes in pixels (64 to a block), wheel and window offsets in signed
+/// pixels along the car's length from its centre.
+pub const CarInfo = struct {
+    model: u8,
+    /// How many sprites this model adds to the car sprite group (1, or 0
+    /// for a model drawn with the one before it); see `carSprite`.
+    sprite: u8,
+    w: u8,
+    h: u8,
+    num_remaps: u8,
+    passengers: u8,
+    wreck: u8,
+    rating: u8,
+    front_wheel: i8,
+    rear_wheel: i8,
+    front_window: i8,
+    rear_window: i8,
+    info_flags: u8,
+    info_flags_2: u8,
+    /// Remap palettes (relative), at most 16 kept.
+    remaps: [16]u8 = @splat(0),
+    num_doors: u8 = 0,
+};
+
 pub const Style = struct {
     arena: std.heap.ArenaAllocator,
     version: u16,
@@ -75,10 +100,21 @@ pub const Style = struct {
     sprite_graphics: []const u8 = &.{},
     sprites: []SpriteEntry = &.{},
     sprite_base: SpriteBase = .{},
+    /// Car models from CARI, in file order.
+    cars: []CarInfo = &.{},
     unknown_chunks: u32 = 0,
 
     pub fn deinit(s: *Style) void {
         s.arena.deinit();
+    }
+
+    /// Sprite of car model entry `i` within the car sprite group: the sum
+    /// of the sprite counts before it, the previous one if it adds none.
+    pub fn carSprite(s: *const Style, i: usize) u16 {
+        var n: u16 = 0;
+        for (s.cars[0..@min(i, s.cars.len)]) |c| n += c.sprite;
+        if (i < s.cars.len and s.cars[i].sprite == 0 and n > 0) n -= 1;
+        return n;
     }
 
     pub fn tileCount(s: *const Style) u32 {
@@ -165,6 +201,8 @@ pub fn parse(gpa: std.mem.Allocator, bytes: []const u8) Error!Style {
         } else if (c.is("SPRB")) {
             var r: chunk.Reader = .{ .bytes = c.data };
             for (&style.sprite_base.counts) |*n| n.* = r.int(u16) catch 0;
+        } else if (c.is("CARI")) {
+            style.cars = try parseCars(a, c.data);
         } else if (isKnownUnused(c)) {
             // DELS, DELX, FONB, CARI, OBJI, PSXT, RECY, SPEC: not needed yet.
         } else {
@@ -174,6 +212,43 @@ pub fn parse(gpa: std.mem.Allocator, bytes: []const u8) Error!Style {
     if (!have_palx or style.ppal.len == 0) return error.MissingPalettes;
     if (style.tiles.len == 0) return error.MissingTiles;
     return style;
+}
+
+/// CARI: car_info records back to back. Each is 14 bytes of fixed fields,
+/// `num_remaps` remap bytes, a door count, and two signed bytes per door.
+fn parseCars(a: std.mem.Allocator, data: []const u8) Error![]CarInfo {
+    var list: std.ArrayList(CarInfo) = .empty;
+    var o: usize = 0;
+    while (o + 15 <= data.len) {
+        const b = data[o..];
+        var ci: CarInfo = .{
+            .model = b[0],
+            .sprite = b[1],
+            .w = b[2],
+            .h = b[3],
+            .num_remaps = b[4],
+            .passengers = b[5],
+            .wreck = b[6],
+            .rating = b[7],
+            .front_wheel = @bitCast(b[8]),
+            .rear_wheel = @bitCast(b[9]),
+            .front_window = @bitCast(b[10]),
+            .rear_window = @bitCast(b[11]),
+            .info_flags = b[12],
+            .info_flags_2 = b[13],
+        };
+        var p: usize = 14;
+        const nr = ci.num_remaps;
+        if (p + nr + 1 > b.len) break;
+        for (0..@min(nr, ci.remaps.len)) |k| ci.remaps[k] = b[p + k];
+        p += nr;
+        ci.num_doors = b[p];
+        p += 1 + 2 * @as(usize, ci.num_doors);
+        if (p > b.len) break;
+        try list.append(a, ci);
+        o += p;
+    }
+    return list.toOwnedSlice(a);
 }
 
 fn isKnownUnused(c: chunk.Chunk) bool {

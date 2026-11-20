@@ -6,10 +6,10 @@
 
 import { checkSdt } from "../audio/sdt.ts";
 
-export type AssetKind = "gmp" | "sty" | "scr" | "mmp" | "gxt" | "sdt" | "raw";
+export type AssetKind = "gmp" | "sty" | "scr" | "mmp" | "gxt" | "sdt" | "raw" | "gci";
 
 const EXT: Record<string, AssetKind> = {
-  gmp: "gmp", sty: "sty", scr: "scr", mmp: "mmp", gxt: "gxt", sdt: "sdt", raw: "raw",
+  gmp: "gmp", sty: "sty", scr: "scr", mmp: "mmp", gxt: "gxt", sdt: "sdt", raw: "raw", gci: "gci",
 };
 
 /** Kind from the file name, or null if the shell doesn't keep this file. */

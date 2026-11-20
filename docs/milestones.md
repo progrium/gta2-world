@@ -55,6 +55,7 @@ Done, checked locally:
 - I3 sign-off recorded: event kinds `round_end` (5) and `pickup` (6), the kill's weapon in `c` and the explosion's cause in `a`.
 - Fixed from play-testing: cars, peds and players were drawn back to front (GTA2 sprites face down in the style).
 - Aligned with Jeff's behaviour notes (`docs/behaviour/`, `sim/README.md`): weapon damage, rates, ranges and ammo in tenths; explosions as 99-tick entities with square blasts, throws and knock-downs and chaining; car damage on the 0-32000 scale with anti-strength, impulse damage, the fire stages and occupants dying in the explosion; car hits that knock peds over, down or dead; peds with one running pace, turn build-up, ground-level jumps and wall sliding; entering and exiting speed limits; full-health pickups; a 70-tick respawn; traffic speed ramps, straight-on junctions and stopping after hitting someone.
+- Car handling rebuilt from `car-handling.md` (S5 clean room): pedal, gears, turbo, damage, axle tyre forces, damping, speed caps and the lane-arrow snap, with per-model numbers from the player's `.gci` and the style's car info (`formats/gci.zig`, CARI in `formats/sty.zig`, `formats/cars.zig`). Offline only for now: online games use one default model until the server loads car info too.
 - Fixed from play-testing: cars could not drive under overpasses. A ground block with no wall faces (an overpass deck) is now a `slab` (I1 shape 5): a floor you can pass under. Checked natively by driving a car under 40 overpasses on wil, ste and bil.
 
 Open for M3:

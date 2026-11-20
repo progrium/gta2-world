@@ -42,7 +42,7 @@ s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = 0 }});
 | On foot, tank | `steer` turns, the turn speed building up while held (to 12° a tick); `throttle` moves forward or back at the one running pace, 1/16 block a tick (`run` changes nothing). A blocked step slides along a wall at half speed. |
 | On foot, direct | With the `direct` bit, the ped moves along `aim` at a speed set by `throttle` and turns its body toward it (about 650°/s). |
 | Jump | A fresh `handbrake_jump` press on the ground jumps: 16 ticks moving forward at the running pace, with slower turning, at the take-off height (a jump never drops into a gap; it falls once the jump ends). |
-| Cars | Placeholder handling, ours, tuned by feel (below). |
+| Cars | Handling from the behaviour notes and the player's `.gci` (below). |
 | Enter, exit | `enter_exit` (rising edge) on foot enters the nearest free car within 1.5 blocks of a point half a block ahead, if it is slower than 0.2 a tick. In a car, below 0.3 a tick, it exits on the driver's side (left of travel), else the right, else not at all. Entering sets `Riding.vehicle`, the car's `Vehicle.driver` and `Controller.player`, and `PlayerRow.car`; exiting clears them. `PlayerRow.car` is the car the player is in now, none on foot. |
 | Map collision | Every cell shape reduces to "is there matter at this point, and how high is its top". Walls block; ramps (all 44 codes), partial blocks (53-61) and diagonal walls (45-48) are exact; diagonal slopes (49-52) act as diagonal walls for now. Peds climb 5/16 of a block, cars 7/10 (so a car's nose does not catch at the top of a ramp). Bodies fall, land and follow ramps down. |
 | Bodies | Peds are circles sampled at 9 points; cars are boxes sampled at 8 points against the map and circles against each other. Moves are sub-stepped at a quarter block so nothing tunnels. |
@@ -66,23 +66,22 @@ The rules follow the clean-room behaviour notes in `docs/behaviour/` where they 
 | Scoring | A kill is a point; a suicide (including your own rocket or a car you set burning) costs one. The first to `frag_limit` (10) ends the round: a `round_end` event, and every score resets. |
 | Events | `events()` returns this tick's kill, explosion, round end and pickup events; the server sends them as I3 `event` messages. |
 
-## Placeholder handling
+## Car handling
 
-Velocity is split into forward and lateral parts each tick. The pedal (ramped toward `throttle`, so keys and digital triggers build up) accelerates with a taper to top speed, or brakes against the motion, or reverses. The tyres remove at most `grip` of lateral speed per tick; anything above that slides, which is the whole drift model. The handbrake cuts grip to a quarter and adds yaw. Yaw follows the front wheels (ramped toward `steer`) times forward speed, capped. Wall hits keep a quarter of the normal speed as a bounce.
+`sysCarControl` follows `docs/behaviour/car-handling.md` step by step, in fixed point: up and down become throttle, foot brake or reverse by the direction of travel (a change of direction costs a tick with nothing held); a gas pedal of 0-5 ramps 0.25 a tick, turbo doubles its share from 3; three gears by speed for a player driver, with damage over 16000 cutting the pull in gears 2 and 3; each axle's tyre pushes against its sideways slip (grip 1 +- turn in while steering, the rear cut by the handbrake slide value) and rolling drag 0.139 plus its brake share, the rear axle steering slightly against the front below 0.6 a tick and scaled by rear end stability; integrate by mass and moment of inertia, dead zones, damping 0.9 / 0.97 / 0.88, the speed cap (max speed forward, gear 2 speed back), and the lane-arrow snap. Spin (`Velocity.spin`) is in radians a tick, fixed point.
 
-Measured with `replay handling` (model 0, the only one):
+Per-model numbers come from the player's `.gci` (nyc.gci) and the style's car info through `tuning.deriveModel` (mass x 1.1, centre of mass and inertia from the sprite size and front mass bias, axles at the wheel offsets); hosts install them with `tuning.setCarModels`. Without the files every car uses `default_spec` (ours, a mid-range saloon). Trains, trams and tanks are not used as ambient cars. Slope roll-back, oil and trailers are not done.
+
+Measured with `replay handling` (the default model):
 
 | | |
 | --- | --- |
-| Top speed | 11.8 blocks/s |
-| 0 to 90% of top speed | 1.8 s |
-| Brake from top speed | 0.8 s, 4.8 blocks |
-| Coast from top speed | 2.8 s, 15.6 blocks |
-| Full lock, full throttle | 360° in 2.0 s, circle 4.7 blocks across |
-| Handbrake + full lock, 0.67 s from top speed | car turns 80° while still sliding at 7.5 blocks/s the old way |
-| Ped walk / run | 1.8 / 3.3 blocks/s |
-
-Every number is in `tuning.zig`. Authentic GTA2 handling comes later from clean-room behaviour notes; nothing here came from the original game or its decompilation.
+| Top speed | 9.6 blocks/s |
+| 0 to 90% of top speed | 2.4 s |
+| Brake from top speed | 0.9 s, 2.1 blocks |
+| Coast from top speed | 2.8 s, 6.3 blocks |
+| Full lock, full throttle | 360 degrees in 2.2 s, circle 2.9 blocks across |
+| Ped run | 1.9 blocks/s |
 
 ## Determinism
 

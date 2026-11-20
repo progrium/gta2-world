@@ -34,10 +34,9 @@ pub const Vehicle = extern struct {
     driver: EntityId,
     /// Index into `tuning.car_models`.
     model: u8,
-    /// Pedal position, -127..127. Follows `throttle` through a ramp so
-    /// digital triggers and keys build up instead of slamming (I2).
+    /// Gas pedal in quarters, 0-20 (car-handling.md step 2).
     pedal: i8,
-    /// Front wheel position, -127..127. Follows `steer` through a ramp.
+    /// Steering input this tick, -127..127.
     steer: i8,
     flags: u8,
     /// Wrecked: ticks until the wreck is cleared. Traffic: ticks stuck, or
@@ -53,6 +52,17 @@ pub const Vehicle = extern struct {
     /// Traffic: the speed setting, which ramps toward the target (fx, in
     /// 1/65536 blocks per tick).
     ai_speed: u16,
+    /// Foot brake pressure in quarters, 0-4.
+    brake: u8,
+    /// Ticks the handbrake has been held, 0-128.
+    handbrake_n: u8,
+    /// What drove the car last tick: `drive_*`.
+    drive: u8,
+    _pad: u8 = 0,
+
+    pub const drive_none: u8 = 0;
+    pub const drive_forward: u8 = 1;
+    pub const drive_reverse: u8 = 2;
 
     pub const flag_horn: u8 = 1;
     pub const flag_handbrake: u8 = 2;

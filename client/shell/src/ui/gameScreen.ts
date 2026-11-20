@@ -305,6 +305,15 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       if (disposed) return;
       renderer = new Renderer(canvas);
       renderer.setStyle(g.loadStyle(new Uint8Array(sty)));
+      // Car handling from the player's .gci (nyc.gci), if imported. Online
+      // games use the one default model until the server loads car info.
+      if (o.server) g.useDefaultCars();
+      else {
+        const gciRec = o.store.manifest.files.find((f) => f.kind === "gci");
+        const gci = gciRec ? new Uint8Array(await o.store.read(gciRec.hash)) : null;
+        const cars = g.loadCarInfo(gci);
+        if (!gci) console.info(`[cars] ${cars} models from the style; no .gci imported, default handling`);
+      }
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
       void loadBanks(o.store, o.map).catch((e) => console.warn("[audio] banks", e));
       if (o.server) {

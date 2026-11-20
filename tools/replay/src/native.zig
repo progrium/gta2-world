@@ -9,7 +9,7 @@
 //!                                 population, plus rewind cost
 //!   replay bench200 [ticks]       the same with 200 bots (config dm200)
 //!   replay hash200                final hash of a 10,000-tick 200-bot run
-//!   replay handling               measure the placeholder car and the ped
+//!   replay handling               measure the default car and the ped
 //!                                 (top speed, 0-to-speed, braking, turning)
 
 const std = @import("std");

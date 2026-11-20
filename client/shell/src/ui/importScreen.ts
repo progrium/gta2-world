@@ -22,7 +22,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
 
   const dirInput = h("input", { type: "file", multiple: true, hidden: true }) as HTMLInputElement;
   dirInput.setAttribute("webkitdirectory", "");
-  const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".gmp,.sty,.scr,.mmp,.gxt,.sdt,.raw" }) as HTMLInputElement;
+  const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".gmp,.sty,.scr,.mmp,.gxt,.sdt,.raw,.gci" }) as HTMLInputElement;
 
   const run = async (files: PickedFile[] | null): Promise<void> => {
     if (!files) return;

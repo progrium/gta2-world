@@ -6,6 +6,8 @@ pub const gmp = @import("gmp.zig");
 pub const sty = @import("sty.zig");
 pub const synth = @import("synth.zig");
 pub const grid = @import("grid.zig");
+pub const gci = @import("gci.zig");
+pub const cars = @import("cars.zig");
 
 test {
     _ = chunk;

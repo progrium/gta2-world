@@ -176,21 +176,21 @@ test "enter a car, drive it, get out" {
     const x0 = ct.x;
     h.frames[0].throttle = 127;
     h.run(1);
-    try std.testing.expectEqual(@as(i8, @intCast(T.carModel(0).pedal_rate)), w.get(car, c.Vehicle).?.pedal);
+    try std.testing.expectEqual(@as(i8, 1), w.get(car, c.Vehicle).?.pedal);
     h.run(59);
     const v = w.get(car, c.Velocity).?;
-    try std.testing.expect(v.vx > fx.ratio(25, 100));
+    try std.testing.expect(v.vx > fx.ratio(2, 10));
     try std.testing.expect(v.vx <= T.carModel(0).max_speed);
-    try std.testing.expect(ct.x > x0 + fx.fromInt(8));
+    try std.testing.expect(ct.x > x0 + fx.fromInt(6));
     // The rider follows the car.
     try std.testing.expectEqual(ct.x, h.ped(0).x);
 
     // Brake to a stop.
     h.frames[0].throttle = -127;
-    h.run(25);
+    h.run(40);
     try std.testing.expect(v.vx <= 0);
     h.frames[0].throttle = 0;
-    h.run(30);
+    h.run(60);
     try std.testing.expectEqual(@as(fx.Fx, 0), v.vx);
 
     // Get out on the driver's side (left of travel = north, smaller y).
@@ -228,10 +228,11 @@ test "cars steer, slide with the handbrake, and stop at walls" {
     const lat = fx.mul(v.vx, -fwd_y) + fx.mul(v.vy, fwd_x);
     try std.testing.expect(fx.abs(lat) > fx.ratio(3, 100));
     h.frames[0] = Frame.neutral(0);
-    // Keep heading south-ish into the city block: it must stop at a building
-    // without any corner inside a wall.
+    // Aim it off the lane (beyond the arrow snap's 25 degrees) into the
+    // city block: it must stop at a building with no corner in a wall.
+    ct.heading = 16384 + 6000;
     h.frames[0].throttle = 127;
-    h.run(120);
+    h.run(150);
     const m = T.carModel(0);
     const cx = fx.cos(ct.heading);
     const sy = fx.sin(ct.heading);
@@ -254,7 +255,7 @@ test "drive up the long 7 degree ramp onto the platform" {
     const ct = h.sim.transformOf(car).?;
     h.frames[0].throttle = 80;
     var top: fx.Fx = 0;
-    for (0..60) |_| {
+    for (0..150) |_| {
         h.run(1);
         top = @max(top, ct.z);
         if (ct.y > fx.fromInt(testmap.yard_y + 4)) break;
@@ -621,3 +622,4 @@ test "first to the frag limit ends the round and every score resets" {
     // The victim's death is counted after the reset.
     try std.testing.expectEqual(@as(i32, 1), pl[1].deaths);
 }
+

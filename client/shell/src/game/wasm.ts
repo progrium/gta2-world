@@ -121,6 +121,29 @@ export class GameModule {
     };
   }
 
+  /**
+   * Car models from the loaded style's car info and a .gci's text (or none:
+   * default handling). Call after loadStyle, before start. Returns the count.
+   */
+  loadCarInfo(gci: Uint8Array | null): number {
+    if (!gci || gci.length === 0) {
+      const n = this.w.loadCarInfo!(0, 0);
+      if (n < 0) throw new Error(this.error());
+      return n;
+    }
+    let n = 0;
+    this.withBytes(gci, (p, len) => {
+      n = this.w.loadCarInfo!(p, len);
+      return n < 0 ? n : 0;
+    });
+    return n;
+  }
+
+  /** One default car model for every car (online, to match the server). */
+  useDefaultCars(): void {
+    this.w.useDefaultCars!();
+  }
+
   /** Parses a .gmp: builds the collision grid for the sim and the map mesh. */
   loadMap(bytes: Uint8Array, bakeLights = true): MapMeshData & { triangles: number } {
     this.withBytes(bytes, (p, n) => this.w.loadMap!(p, n, bakeLights ? 1 : 0));

@@ -83,6 +83,42 @@ export fn loadStyle(p: [*]const u8, n: usize) i32 {
     return 0;
 }
 
+/// Car models from the loaded style's car info and a `.gci` file's text
+/// (`n` 0 for none: sizes and sprites from the style, default handling).
+/// Call after `loadStyle` and before `gameStart`. Returns the model count.
+export fn loadCarInfo(p: [*]const u8, n: usize) i32 {
+    const s = &(style orelse return setError("cars", error.NoStyle));
+    const recs = if (n == 0) &[_]formats.gci.Record{} else formats.gci.parse(gpa, p[0..n]) catch |e| return setError("gci", e);
+    defer if (n != 0) gpa.free(recs);
+    const specs = formats.cars.build(gpa, s, recs, copyFields(formats.cars.Spec, sim.tuning.default_spec)) catch |e| return setError("cars", e);
+    defer gpa.free(specs);
+    var models: [sim.tuning.max_car_models]sim.tuning.CarModel = undefined;
+    const count = @min(specs.len, models.len);
+    for (specs[0..count], models[0..count]) |sp, *m| m.* = sim.tuning.deriveModel(copyFields(sim.tuning.CarSpec, sp));
+    sim.tuning.setCarModels(models[0..count]);
+    loaded_models = models;
+    loaded_count = count;
+    return @intCast(count);
+}
+
+/// Back to the one default model (online: the server does not load car
+/// info yet, and both sides must agree).
+export fn useDefaultCars() void {
+    sim.tuning.setCarModels(&.{});
+    loaded_count = 0;
+}
+
+/// The models `loadCarInfo` installed, for `tuneReset`.
+var loaded_models: [sim.tuning.max_car_models]sim.tuning.CarModel = undefined;
+var loaded_count: usize = 0;
+
+/// Copy the fields two structs share by name.
+fn copyFields(comptime To: type, from: anytype) To {
+    var out: To = undefined;
+    inline for (@typeInfo(To).@"struct".field_names) |name| @field(out, name) = @field(from, name);
+    return out;
+}
+
 /// [tile_layers, sprite_layers, sprite_count, ppal_pages, palette_base x8,
 ///  sprite_base x6]
 var style_info: [18]u32 = undefined;
@@ -737,7 +773,7 @@ const tune_entries = blk: {
 fn unitOf(comptime F: type, comptime name: []const u8) []const u8 {
     if (F != i32) return "shift";
     // Fx is i32 too; the fields that are plain integers are named here.
-    const ints = [_][]const u8{ "steer_gain", "max_yaw", "handbrake_yaw_8ths", "pedal_rate", "steer_rate", "restitution_8ths" };
+    const ints = [_][]const u8{ "turbo", "long", "sprite", "ambient", "steer_gain", "max_yaw", "handbrake_yaw_8ths", "pedal_rate", "steer_rate", "restitution_8ths" };
     for (ints) |n| if (std.mem.eql(u8, n, name)) return "int";
     return "fx";
 }
@@ -784,7 +820,7 @@ export fn tuneSet(i: u32, v: i32) void {
 }
 
 export fn tuneReset() void {
-    T.car_models = T.default_car_models;
+    T.setCarModels(loaded_models[0..loaded_count]);
     if (!defaults_saved) return;
     inline for (ped_vars, 0..) |n, k| @field(T, n) = @intCast(ped_defaults[k]);
 }
@@ -820,7 +856,7 @@ test "a player joins the test map, walks, gets in a car and drives" {
 test "tuning round trip" {
     const names = tune_names;
     try std.testing.expect(std.mem.indexOf(u8, names, "car.max_speed:fx") != null);
-    try std.testing.expect(std.mem.indexOf(u8, names, "car.drag_shift:shift") != null);
+    try std.testing.expect(std.mem.indexOf(u8, names, "car.turbo:int") != null);
     const i: u32 = for (tune_entries, 0..) |e, k| {
         if (std.mem.eql(u8, e.name, "car.max_speed")) break @intCast(k);
     } else unreachable;

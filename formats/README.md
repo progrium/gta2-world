@@ -20,3 +20,7 @@ cd formats && zig build test   # Zig 0.17.0
 `grid.zig` builds the I1 `abi.Grid` (16-bit cells) from a parsed map with `grid.build(&map, &grid)`, and a per-face wall table with `grid.buildWalls(&map, &walls)` (one byte per cell: wall bits for the left, right, top and bottom faces, then bullet-wall bits). The mapping from GTA2 blocks to I1 cells is documented at the top of `grid.zig`. `formats` depends on `interfaces/zig` by path for the `abi` types.
 
 `synth.zig` can also write sprites (SPRG, SPRX, SPRB), car remap palettes and map lights (LGHT), for the renderer's synthetic demo.
+
+## Car models
+
+`sty.zig` reads the CARI chunk (car info, from the public DMA style document) into `Style.cars`; `Style.carSprite(i)` gives a model's sprite within the car group. `gci.zig` parses the player's `.gci` handling file as described in `docs/behaviour/car-handling.md` (text tokens packed into 72-byte records, fractions with 14 bits). `cars.zig` joins the two by model number into one spec per style car for `sim.tuning.deriveModel`.

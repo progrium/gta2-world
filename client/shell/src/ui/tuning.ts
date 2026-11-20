@@ -6,24 +6,27 @@
 import type { GameModule, TuneEntry } from "../game/wasm.ts";
 import { h } from "./dom.ts";
 
-const STORE = "gta2.tuning.v1";
+const STORE = "gta2.tuning.v2";
 const FX = 65536;
 
 /** Plain-language labels; the field names are the ones in tuning.zig. */
 const LABELS: Record<string, string> = {
   "car.max_speed": "Top speed (blocks/tick)",
-  "car.max_reverse": "Reverse top speed",
-  "car.accel": "Acceleration",
-  "car.brake": "Braking",
-  "car.coast": "Coasting slowdown",
-  "car.drag_shift": "Drag (higher = less)",
-  "car.grip": "Tyre grip (lateral)",
-  "car.handbrake_grip": "Grip with handbrake",
-  "car.steer_gain": "Steering gain",
-  "car.max_yaw": "Max turn rate",
-  "car.handbrake_yaw_8ths": "Handbrake extra turn (8ths)",
-  "car.pedal_rate": "Pedal ramp per tick",
-  "car.steer_rate": "Steering ramp per tick",
+  "car.thrust": "Thrust",
+  "car.brake_friction": "Brake friction",
+  "car.turn_ratio": "Turn ratio (steering angle)",
+  "car.turn_in": "Turn in (grip shift while steering)",
+  "car.rear_end_stability": "Rear end stability",
+  "car.handbrake_slide": "Handbrake slide (rear grip)",
+  "car.front_drive_bias": "Front drive share",
+  "car.gear1": "Gear 1 multiplier",
+  "car.gear2": "Gear 2 multiplier",
+  "car.gear3": "Gear 3 multiplier",
+  "car.gear2_speed": "Gear 2 from speed",
+  "car.gear3_speed": "Gear 3 from speed",
+  "car.inertia": "Moment of inertia",
+  "car.front_axle": "Front axle offset",
+  "car.rear_axle": "Rear axle offset",
   "car.restitution_8ths": "Wall bounce (8ths)",
   "car.mass": "Mass",
   "car.anti_strength": "Damage taken (anti-strength)",
@@ -39,7 +42,7 @@ const LABELS: Record<string, string> = {
 };
 
 /** Fields shown first: the ones that change the feel most. */
-const FEEL = ["car.max_speed", "car.accel", "car.brake", "car.grip", "car.handbrake_grip", "car.steer_gain", "car.max_yaw", "car.handbrake_yaw_8ths", "car.pedal_rate", "car.steer_rate", "car.coast", "car.drag_shift", "car.restitution_8ths"];
+const FEEL = ["car.max_speed", "car.thrust", "car.brake_friction", "car.turn_ratio", "car.turn_in", "car.rear_end_stability", "car.handbrake_slide", "car.mass"];
 
 const toShown = (e: TuneEntry, raw: number): number => (e.unit === "fx" ? raw / FX : raw);
 const toRaw = (e: TuneEntry, shown: number): number => (e.unit === "fx" ? Math.round(shown * FX) : Math.round(shown));
