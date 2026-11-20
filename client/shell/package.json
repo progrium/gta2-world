@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Browser shell: input, gamepad, asset import, UI. No framework.",
   "scripts": {
-    "build": "esbuild src/main.ts src/assets/worker.ts --bundle --format=esm --target=es2022 --sourcemap --outdir=dist --entry-names=[name]",
+    "build": "esbuild src/main.ts src/assets/worker.ts host=src/host/worker.ts --bundle --format=esm --target=es2022 --sourcemap --outdir=dist --entry-names=[name]",
     "dev": "npm run build -- --watch --servedir=.",
     "check": "tsc -p .",
     "test": "node --test test/*.test.ts"
