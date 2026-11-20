@@ -1994,8 +1994,8 @@ pub fn Sim(comptime cfg: Config) type {
             const have = wpn.rounds()[give.kind];
             if (have == T.infinite_ammo or have >= T.max_ammo_tenths) return false;
             wpn.rounds()[give.kind] = @min(T.max_ammo_tenths, have + give.a0);
-            // A new weapon goes straight into the hand over the pistol.
-            if (have == 0 and wpn.kind == T.weapon_pistol) wpn.kind = give.kind;
+            // A weapon you did not have goes straight into your hand.
+            if (have == 0) wpn.kind = give.kind;
             return true;
         }
 

@@ -494,6 +494,16 @@ test "pickups give weapons; the machine gun runs dry back to the pistol" {
     _ = h.sim.spawnPickupAt(t.x, t.y, T.pickup_health).?;
     h.run(1);
     try std.testing.expectEqual(@as(u32, 1), h.sim.state.world.count(S.Pickup));
+    // A new weapon goes into the hand even when another one is held.
+    wpn.rounds()[T.weapon_smg] = 50;
+    wpn.kind = T.weapon_smg;
+    _ = h.sim.spawnPickupAt(t.x + fx.one / 4, t.y, T.weapon_shotgun).?;
+    h.run(1);
+    try std.testing.expectEqual(T.weapon_shotgun, wpn.kind);
+    // More rounds for a weapon you have leave the hand alone.
+    _ = h.sim.spawnPickupAt(t.x + fx.one / 4, t.y, T.weapon_smg).?;
+    h.run(1);
+    try std.testing.expectEqual(T.weapon_shotgun, wpn.kind);
 }
 
 test "a rocket kills another player and credits the shooter; your own costs a point" {
