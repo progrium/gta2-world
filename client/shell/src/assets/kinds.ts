@@ -4,6 +4,8 @@
 // Full parsing is formats/ (Zig, workstream B); this only checks a file is what
 // its name says and records its chunk index so a bad copy is caught on import.
 
+import { checkSdt } from "../audio/sdt.ts";
+
 export type AssetKind = "gmp" | "sty" | "scr" | "mmp" | "gxt" | "sdt" | "raw";
 
 const EXT: Record<string, AssetKind> = {
@@ -29,6 +31,9 @@ export interface ParsedInfo {
   chunks?: Chunk[];
   /** .mmp: the map entry it describes. */
   map?: MapEntry;
+  /** .sdt: how many samples it indexes, and the size its .raw must have. */
+  samples?: number;
+  rawSize?: number;
 }
 
 export interface MapEntry {
@@ -79,6 +84,10 @@ export function parseAsset(kind: AssetKind, buf: ArrayBuffer): ParsedInfo {
   const magic = MAGIC[kind];
   if (magic) return parseChunks(buf, magic);
   if (kind === "mmp") return parseMmp(new TextDecoder("latin1").decode(buf));
+  if (kind === "sdt") {
+    const c = checkSdt(buf);
+    return { ok: c.ok, error: c.error, samples: c.count, rawSize: c.rawSize };
+  }
   return { ok: buf.byteLength > 0, error: buf.byteLength > 0 ? undefined : "empty file" };
 }
 

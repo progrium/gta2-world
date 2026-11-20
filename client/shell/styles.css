@@ -58,3 +58,17 @@ button:disabled { opacity: .5; cursor: default; }
 .tune tr.changed td:first-child { color: var(--accent); font-weight: 600; }
 .tuneout:empty { display: none; }
 .tuneout { white-space: pre-wrap; background: var(--bg); padding: 8px; border-radius: 6px; }
+.overlay.sound { inset: 12px; max-width: 1180px; display: flex; flex-direction: column; overflow: hidden; }
+.overlay.sound > p { margin: 4px 0 8px; }
+.overlay.sound h3 { font-size: 15px; margin: 8px 0 6px; }
+.overlay.sound .chip { display: inline-flex; gap: 2px; align-items: center; margin: 2px 4px 2px 0; }
+.sound-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-top: 8px; }
+.sound-grid .pane { display: flex; flex-direction: column; min-height: 0; }
+.sound-grid .scroll { flex: 1; min-height: 0; overflow: auto; }
+@media (max-width: 860px) { .overlay.sound { overflow: auto; } .sound-grid { grid-template-columns: 1fr; } .sound-grid .scroll { max-height: 50vh; } }
+button.link { border: 0; background: none; padding: 0 2px; color: var(--accent); text-align: left; }
+.gain { width: 64px; }
+.samples { border: 1px solid var(--line); border-radius: 8px; }
+.sound-samples tr.sel td { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.sound-cues tr.changed td:first-child button { font-weight: 700; }
+.sound-cues td:nth-child(2) { width: 100%; }

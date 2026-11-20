@@ -6,6 +6,7 @@
 
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
+import { audio, loadBanks } from "../audio/index.ts";
 import { GameModule } from "../game/wasm.ts";
 import { Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
@@ -14,6 +15,7 @@ import type { InputSystem, SchemeSetting } from "../input/system.ts";
 import { FixedLoop } from "../loop.ts";
 import { clear, h } from "./dom.ts";
 import { openRemap } from "./remap.ts";
+import { soundBoard } from "./soundBoard.ts";
 import { applySavedTuning, tuningPanel } from "./tuning.ts";
 
 export interface GameScreenOpts {
@@ -55,6 +57,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   let seed = (Date.now() & 0x7fffffff) >>> 0;
   let lastInCar = false;
   let lastSpeed = 0;
+  let lastButtons = 0;
   let disposed = false;
   // Online state
   let conn: Connection | null = null;
@@ -82,6 +85,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const rumbleBox = h("input", { type: "checkbox", checked: rumbleSettings.enabled, onchange: (e: Event) => (rumbleSettings.enabled = (e.target as HTMLInputElement).checked) });
 
   const closeOverlay = (): void => {
+    (overlay as (HTMLElement & { dispose?: () => void }) | null)?.dispose?.();
     overlay?.remove();
     overlay = null;
     paused = false;
@@ -90,6 +94,13 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (overlay) return closeOverlay();
     if (!game || o.server) return;
     overlay = tuningPanel(game, closeOverlay);
+    section.append(overlay);
+  };
+  const toggleSound = (): void => {
+    if (overlay) return closeOverlay();
+    overlay = soundBoard(audio, closeOverlay);
+    // Offline the board pauses the game; online the world keeps going.
+    paused = !o.server;
     section.append(overlay);
   };
   const respawn = (): void => {
@@ -116,6 +127,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         h("label", {}, rumbleBox, " rumble"),
         o.server ? null : h("button", { onclick: toggleTuning }, "Tuning (T)"),
         h("button", { onclick: toggleNight }, "Night (N)"),
+        h("button", { onclick: toggleSound }, "Sound (B)"),
         o.server ? null : h("button", { onclick: () => game?.spawnCar(0) }, "Car here (V)"),
         o.server ? null : h("button", { onclick: respawn }, "Respawn (R)"),
         h("button", {
@@ -158,6 +170,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (e.repeat || (e.target instanceof HTMLElement && /INPUT|SELECT|TEXTAREA/.test(e.target.tagName))) return;
     if (e.code === "KeyT") toggleTuning();
     else if (e.code === "KeyN") toggleNight();
+    else if (e.code === "KeyB") toggleSound();
+    else if (e.code === "KeyM") audio.toggleMute();
     else if (e.code === "KeyR") respawn();
     else if (e.code === "KeyV" && !o.server) game?.spawnCar(0);
     else if (e.code === "Escape" && overlay) closeOverlay();
@@ -206,10 +220,18 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     const g = game!;
     {
       const p = g.player(slot);
-      if (p.inCar !== lastInCar) input.rumble(0, Effects.enterExit);
+      if (p.inCar !== lastInCar) {
+        input.rumble(0, Effects.enterExit);
+        audio.play("car_door");
+      }
       const dv = lastSpeed - p.speed;
-      if (p.inCar && lastInCar && dv > 0.12) input.rumble(0, Effects.collisionHeavy);
-      else if (p.inCar && lastInCar && dv > 0.05) input.rumble(0, Effects.collisionLight);
+      if (p.inCar && lastInCar && dv > 0.12) {
+        input.rumble(0, Effects.collisionHeavy);
+        audio.play("car_crash");
+      } else if (p.inCar && lastInCar && dv > 0.05) input.rumble(0, Effects.collisionLight);
+      if (p.inCar) audio.setEngine(slot, p.speed);
+      if (f.buttons & Button.special && p.inCar && !(lastButtons & Button.special)) audio.play("horn");
+      lastButtons = f.buttons;
       lastInCar = p.inCar;
       lastSpeed = p.speed;
       const bnames = BUTTON_NAMES.filter(([bit]) => f.buttons & bit).map(([, n]) => n);
@@ -225,7 +247,10 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (!renderer || !game) return;
     renderer.resize(canvas.clientWidth, canvas.clientHeight, devicePixelRatio || 1);
     const t = game.camera(paused ? 1 : alpha, ownSlot);
-    if (t.found) camera.update({ x: t.x, y: t.y, z: t.z, speed: Math.hypot(t.vx, t.vy) * 30 }, dt);
+    if (t.found) {
+      camera.update({ x: t.x, y: t.y, z: t.z, speed: Math.hypot(t.vx, t.vy) * 30 }, dt);
+      audio.setListener(t.x, t.y, t.z);
+    }
     const list = game.renderList(paused ? 1 : alpha);
     renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
     frames++;
@@ -244,6 +269,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       renderer = new Renderer(canvas);
       renderer.setStyle(g.loadStyle(new Uint8Array(sty)));
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
+      void loadBanks(o.store, o.map).catch((e) => console.warn("[audio] banks", e));
       if (o.server) {
         game = g;
         await connect(g);
@@ -321,6 +347,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     conn?.close("leaving");
     game?.netStop();
     loop.stop();
+    closeOverlay();
+    audio.stopAll();
     offInput();
     removeEventListener("keydown", onKey);
     input.inVehicle = () => false;

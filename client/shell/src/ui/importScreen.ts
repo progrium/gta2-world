@@ -1,6 +1,7 @@
 // Screen 1: the player gives us their GTA2 files. They stay in this browser.
 
 import { type PickedFile, fromDrop, fromInput, pickDirectory } from "../assets/pick.ts";
+import type { AssetRecord } from "../assets/protocol.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { clear, fmtBytes, h } from "./dom.ts";
 
@@ -117,7 +118,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
               {},
               h("td", {}, f.path),
               h("td", {}, fmtBytes(f.size)),
-              h("td", { class: f.info.ok ? "ok" : "bad" }, f.info.ok ? (f.info.chunks ? `ok, ${f.info.chunks.length} chunks` : "ok") : f.info.error ?? "bad"),
+              h("td", { class: f.info.ok ? (soundNote(f, files) ? "warn" : "ok") : "bad" }, f.info.ok ? (f.info.chunks ? `ok, ${f.info.chunks.length} chunks` : f.info.samples ? `ok, ${f.info.samples} sounds${soundNote(f, files)}` : "ok") : f.info.error ?? "bad"),
               h("td", { class: "mono", title: f.hash }, f.hash.slice(0, 12)),
             ),
           ),
@@ -155,4 +156,13 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
   );
   render();
   return () => clear(root);
+}
+
+/** For a sound index, whether its .raw is cached and the right size. */
+function soundNote(f: AssetRecord, files: readonly AssetRecord[]): string {
+  if (f.kind !== "sdt" || !f.info.ok) return "";
+  const raw = files.find((r) => r.name === f.name.replace(/\.sdt$/, ".raw"));
+  if (!raw) return "; its .raw is missing";
+  if (f.info.rawSize !== undefined && raw.size < f.info.rawSize) return "; its .raw is too short";
+  return "";
 }
