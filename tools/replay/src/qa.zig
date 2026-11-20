@@ -6,7 +6,8 @@
 //! Invariants (docs/plan-notes.md, workstream Q):
 //!   - inside_matter: a body that collides (peds on foot, cars) has matter
 //!     around its body height for `stuck_limit` ticks in a row
-//!   - below_world: a body under z = 0, or outside the map in x or y
+//!   - below_world: a body under z = 0 (outside water), or outside the map
+//!     in x or y
 //!   - void: a body standing over a column with no floor at all
 //!   - speed: a body moving faster than `max_speed` blocks a tick
 //!   - riding: a ped rides a car that is gone, or a car's driver is gone or
@@ -16,7 +17,8 @@
 //!   - health: hit points above the kind's maximum
 //!
 //! Each check counts breaks per kind of invariant and keeps the first few
-//! with their tick and entity for the report.
+//! with their tick and entity for the report. A body that stays under the
+//! world or over a void counts once until it is clear again.
 
 const std = @import("std");
 const sim = @import("sim");
@@ -72,6 +74,10 @@ pub fn Checker(comptime S: type) type {
         ticks: u64 = 0,
         ped_stuck: [ped_cap]u16 = @splat(0),
         car_stuck: [car_cap]u16 = @splat(0),
+        /// Per body, the breaks it is in now (bit per `Which`), so a body
+        /// that stays broken counts once per episode, not every tick.
+        ped_in: [ped_cap]u8 = @splat(0),
+        car_in: [car_cap]u8 = @splat(0),
         full_ticks: [3]u32 = @splat(0),
 
         pub fn total(self: *const Self) u64 {
@@ -88,14 +94,28 @@ pub fn Checker(comptime S: type) type {
             }
         }
 
-        fn body(self: *Self, s: *S, comptime K: type, id: EntityId, stuck: *u16, step: fx.Fx) void {
+        /// Count a break once when it starts; `in` remembers it until the
+        /// body is clear of it.
+        fn once(self: *Self, in: *u8, now: *u8, b: Break) void {
+            const bit = @as(u8, 1) << @as(u3, @intCast(@intFromEnum(b.which)));
+            now.* |= bit;
+            if (in.* & bit == 0) self.add(b);
+        }
+
+        fn body(self: *Self, s: *S, comptime K: type, id: EntityId, stuck: *u16, in: *u8, step: fx.Fx) void {
+            var now: u8 = 0;
+            defer in.* = now;
+            self.bodyChecks(s, K, id, stuck, in, &now, step);
+        }
+
+        fn bodyChecks(self: *Self, s: *S, comptime K: type, id: EntityId, stuck: *u16, in: *u8, now: *u8, step: fx.Fx) void {
             const w = &s.state.world;
             const t = w.get(id, c.Transform).?;
             const tick = s.tick();
             const lim = self.limits;
             const outside = t.x < 0 or t.y < 0 or t.x >= fx.fromInt(map.size_x) or t.y >= fx.fromInt(map.size_y);
-            if (outside or t.z < -fx.one) {
-                self.add(.{ .which = .below_world, .tick = tick, .id = id.raw, .x = t.x, .y = t.y, .z = t.z });
+            if (outside or (t.z < 0 and !map.waterAt(s.grid, t.x, t.y, t.z))) {
+                self.once(in, now, .{ .which = .below_world, .tick = tick, .id = id.raw, .x = t.x, .y = t.y, .z = t.z });
                 return;
             }
             if (w.get(id, c.Velocity)) |v| {
@@ -119,7 +139,7 @@ pub fn Checker(comptime S: type) type {
                 return;
             }
             if (map.isVoid(s.grid, t.x, t.y, t.z + step)) {
-                self.add(.{ .which = .void, .tick = tick, .id = id.raw, .x = t.x, .y = t.y, .z = t.z });
+                self.once(in, now, .{ .which = .void, .tick = tick, .id = id.raw, .x = t.x, .y = t.y, .z = t.z });
             }
             if (map.blocks(s.grid, t.x, t.y, t.z, step)) {
                 if (stuck.* < 0xFFFF) stuck.* += 1;
@@ -143,7 +163,7 @@ pub fn Checker(comptime S: type) type {
                         continue;
                     }
                     const id = EntityId.make(S.Ped.kind, i, tb.gen[i]);
-                    self.body(s, S.Ped, id, &self.ped_stuck[i], sim.tuning.ped_step);
+                    self.body(s, S.Ped, id, &self.ped_stuck[i], &self.ped_in[i], sim.tuning.ped_step);
                     const r = w.get(id, c.Riding).?.vehicle;
                     if (!r.isNone() and !w.isAlive(r))
                         self.add(.{ .which = .riding, .tick = tick, .id = id.raw });
@@ -158,7 +178,7 @@ pub fn Checker(comptime S: type) type {
                         continue;
                     }
                     const id = EntityId.make(S.Car.kind, i, tb.gen[i]);
-                    self.body(s, S.Car, id, &self.car_stuck[i], sim.tuning.car_step);
+                    self.body(s, S.Car, id, &self.car_stuck[i], &self.car_in[i], sim.tuning.car_step);
                     const d = w.get(id, c.Vehicle).?.driver;
                     if (!d.isNone()) {
                         const ok = w.isAlive(d) and (w.get(d, c.Riding).?.vehicle.raw == id.raw);
