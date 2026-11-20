@@ -4,14 +4,16 @@
 // handling tuning panel can change the sim's numbers live; online
 // (?server=) the game server is. M3 adds the deathmatch HUD: weapon and
 // rounds, kill feed, scoreboard (Tab), round winner, and sounds for shots,
-// hits, explosions and pickups.
+// hits, explosions and pickups. A browser-hosted game passes `net` instead of
+// `server`: the host's page plays over the in-page loopback, a joiner over
+// its WebRTC connection to the host's page.
 
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
 import { type Cue, type GameEvent, GameModule, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
-import { Connection } from "../net/connection.ts";
+import { type ConnectOptions, Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
 import { Effects, rumbleSettings, rumbleSupport } from "../input/rumble.ts";
 import type { InputSystem, SchemeSetting } from "../input/system.ts";
@@ -27,6 +29,10 @@ export interface GameScreenOpts {
   sessionId: string;
   /** Game server base URL (ws:// or http://); offline when absent. */
   server?: string | null;
+  /** A browser-hosted game: the link to use, and a label for the HUD. */
+  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string };
+  /** Extra HUD content, e.g. the host's join link and player list. */
+  extraHud?: HTMLElement;
   map: MapChoice;
   onBack(): void;
 }
@@ -45,6 +51,8 @@ const gameModule = (): Promise<GameModule> => (modulePromise ??= GameModule.load
 export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   clear(root);
   const { input } = o;
+  // Online (a game server or a browser host): the authority is elsewhere.
+  const remote = !!o.server || !!o.net;
   const canvas = h("canvas", { class: "view" });
   const status = h("div", { class: "status" }, "Loading map…");
   const hud = h("div", { class: "hud" });
@@ -102,7 +110,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   };
   const toggleTuning = (): void => {
     if (overlay) return closeOverlay();
-    if (!game || o.server) return;
+    if (!game || remote) return;
     overlay = tuningPanel(game, closeOverlay);
     section.append(overlay);
   };
@@ -110,11 +118,11 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (overlay) return closeOverlay();
     overlay = soundBoard(audio, closeOverlay);
     // Offline the board pauses the game; online the world keeps going.
-    paused = !o.server;
+    paused = !remote;
     section.append(overlay);
   };
   const respawn = (): void => {
-    if (!game || o.server) return;
+    if (!game || remote) return;
     seed = (seed * 1103515245 + 12345) >>> 0;
     game.start(seed);
     camera.reset();
@@ -129,27 +137,28 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     h(
       "div",
       { class: "hudtop" },
-      h("span", {}, h("strong", {}, o.map.description), o.server ? h("span", {}, " · online ", h("code", {}, o.sessionId), " · ") : " · offline · ", fpsLine),
+      h("span", {}, h("strong", {}, o.map.description), remote ? h("span", {}, " · online ", h("code", {}, o.net?.label ?? o.sessionId), " · ") : " · offline · ", fpsLine),
       h(
         "span",
         { class: "row" },
         schemeSel,
         h("label", {}, rumbleBox, " rumble"),
-        o.server ? null : h("button", { onclick: toggleTuning }, "Tuning (T)"),
+        remote ? null : h("button", { onclick: toggleTuning }, "Tuning (T)"),
         h("button", { onclick: toggleNight }, "Night (N)"),
         h("button", { onclick: toggleSound }, "Sound (B)"),
-        o.server ? null : h("button", { onclick: () => game?.spawnCar(0) }, "Car here (V)"),
-        o.server ? null : h("button", { onclick: () => dropPickup() }, "Pickup here (P)"),
-        o.server ? null : h("button", { onclick: respawn }, "Respawn (R)"),
+        remote ? null : h("button", { onclick: () => game?.spawnCar(0) }, "Car here (V)"),
+        remote ? null : h("button", { onclick: () => dropPickup() }, "Pickup here (P)"),
+        remote ? null : h("button", { onclick: respawn }, "Respawn (R)"),
         h("button", {
           onclick: () => {
             paused = true;
             openRemap(root, input, () => (paused = false));
           },
         }, "Controls"),
-        h("button", { onclick: () => o.onBack() }, "Files & maps"),
+        h("button", { onclick: () => o.onBack() }, o.net ? (o.net.transport === "loopback" ? "Host panel" : "Leave") : "Files & maps"),
       ),
     ),
+    ...(o.extraHud ? [o.extraHud] : []),
     padsLine,
     playLine,
     frameLine,
@@ -193,8 +202,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     else if (e.code === "KeyB") toggleSound();
     else if (e.code === "KeyM") audio.toggleMute();
     else if (e.code === "KeyR") respawn();
-    else if (e.code === "KeyV" && !o.server) game?.spawnCar(0);
-    else if (e.code === "KeyP" && !o.server) dropPickup();
+    else if (e.code === "KeyV" && !remote) game?.spawnCar(0);
+    else if (e.code === "KeyP" && !remote) dropPickup();
     else if (e.code === "Escape" && overlay) closeOverlay();
   };
   addEventListener("keydown", onKey);
@@ -208,7 +217,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       if (!paused) input.poll();
     },
     tick: (t) => {
-      if (paused || !game || online || o.server) return;
+      if (paused || !game || online || remote) return;
       const fr = input.latch(t);
       game.step(fr, t);
       for (const e of game.takeEvents()) onGameEvent(e);
@@ -309,7 +318,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       renderer.setStyle(g.loadStyle(new Uint8Array(sty)));
       // Car handling from the player's .gci (nyc.gci), if imported. Online
       // games use the one default model until the server loads car info.
-      if (o.server) g.useDefaultCars();
+      if (remote) g.useDefaultCars();
       else {
         const gciRec = o.store.manifest.files.find((f) => f.kind === "gci");
         const gci = gciRec ? new Uint8Array(await o.store.read(gciRec.hash)) : null;
@@ -318,7 +327,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       }
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
       void loadBanks(o.store, o.map).catch((e) => console.warn("[audio] banks", e));
-      if (o.server) {
+      if (remote) {
         game = g;
         await connect(g);
         return;
@@ -339,11 +348,11 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   }
 
   function connect(g: GameModule): Promise<void> {
-    status.textContent = `Connecting to ${o.server}…`;
+    status.textContent = `Connecting to ${o.net?.label ?? o.server}…`;
     status.classList.remove("hidden");
     return new Promise((resolve) => {
       conn = new Connection(
-        { server: o.server!, transport: transportParam(), session: o.sessionId, layoutHash: g.layoutHash, mapHash: o.map.gmpRecord.hash, name: playerName() },
+        { server: o.server ?? undefined, transport: o.net?.transport ?? transportParam(), rtc: o.net?.rtc, loopback: o.net?.loopback, session: o.sessionId, layoutHash: g.layoutHash, mapHash: o.map.gmpRecord.hash, name: playerName() },
         {
           welcome: (w) => {
             ownSlot = w.slots[0]!;
@@ -388,7 +397,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
 
   const nameOf = (slot: number): string => {
     if (slot === 0xff) return "the city";
-    if (!online && !o.server) return slot === 0 ? "You" : `Player ${slot + 1}`;
+    if (!online && !remote) return slot === 0 ? "You" : `Player ${slot + 1}`;
     if (slot === ownSlot) return "You";
     return names.get(slot) ?? `Player ${slot + 1}`;
   };
@@ -400,7 +409,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   // Debug: each press drops the next kind of pickup, weapons then power-ups.
   let nextPickup = 1;
   function dropPickup(): void {
-    if (!game || online || o.server) return;
+    if (!game || online || remote) return;
     game.spawnPickup(nextPickup);
     nextPickup = nextPickup + 1 >= WEAPON_NAMES.length + PICKUP_NAMES.length ? 1 : nextPickup + 1;
   }

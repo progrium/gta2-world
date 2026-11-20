@@ -8,6 +8,8 @@ import { clear, fmtBytes, h } from "./dom.ts";
 export interface ImportScreenOpts {
   store: AssetStore;
   onStart(map: MapChoice): void;
+  /** Opens the "Host a game" screen. */
+  onHost?(): void;
   lastMap: string | null;
 }
 
@@ -105,6 +107,12 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
         );
       }
       mapsBox.append(h("h2", {}, "Pick a map to drive"), list);
+      if (o.onHost) {
+        mapsBox.append(
+          h("h2", {}, "Play with others"),
+          h("div", { class: "row" }, h("button", { class: "host-game", onclick: () => o.onHost?.() }, "Host a game…"), h("span", { class: "muted small" }, "Run a game in this tab and invite players with a link.")),
+        );
+      }
     }
     if (files.length) {
       clearBox.append(

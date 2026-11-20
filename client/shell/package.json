@@ -8,7 +8,8 @@
     "build": "esbuild src/main.ts src/assets/worker.ts --bundle --format=esm --target=es2022 --sourcemap --outdir=dist --entry-names=[name]",
     "dev": "npm run build -- --watch --servedir=.",
     "check": "tsc -p .",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "test:e2e": "node test/e2e/rtc.e2e.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

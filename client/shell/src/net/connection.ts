@@ -3,9 +3,15 @@
 // stream of uvarint-framed messages for the rest. If it is missing or does
 // not open within 3 s, the WebSocket fallback: one WS binary message is a
 // channel byte (0 datagram, 1 stream) plus one message.
+// Browser-hosted games add two links: "webrtc" (data channels `s` and `d` to
+// the host's page, net/rtc.ts) and "loopback" (the host's own player, talking
+// to the host Worker inside the same page, host/hostPeers.ts). Both send
+// hello.transport 2 (WebRTC): the loopback is part of the WebRTC host, and
+// I3 has no separate value for it.
 
 import {
   type GameEvent,
+  MAX_DATAGRAM,
   Msg,
   type PlayerInfo,
   PROTOCOL_VERSION,
@@ -24,12 +30,32 @@ import {
   wsWrap,
 } from "../../../../interfaces/ts/src/wire.ts";
 import { ABI_VERSION } from "../../../../interfaces/ts/src/abi.ts";
+import { RtcPeer } from "./rtc.ts";
+import type { Signaller } from "./signal.ts";
+
+/** One end of an in-page link: the host page hands this to its own Connection. */
+export interface LoopbackEnd {
+  sendStream(msg: Uint8Array): void;
+  sendDatagram(msg: Uint8Array): void;
+  close(): void;
+  onStream: ((msg: Uint8Array) => void) | null;
+  onDatagram: ((msg: Uint8Array) => void) | null;
+  onClose: ((reason: string) => void) | null;
+}
+
+export type TransportName = "auto" | "webtransport" | "websocket" | "webrtc" | "loopback";
 
 export interface ConnectOptions {
-  /** Server base URL: http(s)://host:port or ws(s)://host:port (its HTTP/WebSocket port). */
-  server: string;
-  /** "auto" tries WebTransport then WebSocket. */
-  transport?: "auto" | "webtransport" | "websocket";
+  /** Server base URL: http(s)://host:port or ws(s)://host:port (its HTTP/WebSocket port). Unused by webrtc and loopback. */
+  server?: string;
+  /** "auto" tries WebTransport then WebSocket. "webrtc" needs `rtc` or `signaller`; "loopback" needs `loopback`. */
+  transport?: TransportName;
+  /** webrtc: a connection to the host page that is already open (the lobby opened it)... */
+  rtc?: RtcPeer;
+  /** ...or a peer-side signaller to open one with. */
+  signaller?: Signaller;
+  /** loopback: the host page's in-page end. */
+  loopback?: LoopbackEnd;
   session: string;
   layoutHash: bigint;
   /** SHA-256 of the .gmp file, hex. */
@@ -56,7 +82,7 @@ export function wsUrl(server: string, session: string): string {
 }
 
 interface Link {
-  kind: "webtransport" | "websocket";
+  kind: "webtransport" | "websocket" | "webrtc" | "loopback";
   sendDatagram(msg: Uint8Array): void;
   sendStream(msg: Uint8Array): void;
   close(): void;
@@ -101,6 +127,15 @@ export class Connection {
 
   private async open(): Promise<void> {
     const want = this.o.transport ?? "auto";
+    if (want === "webrtc" || want === "loopback") {
+      try {
+        this.link = want === "webrtc" ? await this.openWebRTC() : this.openLoopback();
+        this.transport = want;
+      } catch (e) {
+        this.close(`${want === "webrtc" ? "WebRTC" : "loopback"} failed: ${(e as Error).message ?? e}`);
+      }
+      return;
+    }
     if (want !== "websocket" && typeof WebTransport !== "undefined") {
       try {
         this.link = await this.openWebTransport();
@@ -116,8 +151,73 @@ export class Connection {
     this.transport = "websocket";
   }
 
+  private async openWebRTC(): Promise<Link> {
+    let rtc = this.o.rtc;
+    if (!rtc) {
+      if (!this.o.signaller) throw new Error("no signaller");
+      rtc = await RtcPeer.connect(this.o.signaller);
+    }
+    const peer = rtc;
+    if (this.closedOnce) {
+      peer.close("closed");
+      throw new Error("closed");
+    }
+    peer.onStream = (m) => {
+      this.bytesIn += m.length;
+      this.onStream(m);
+    };
+    peer.onDatagram = (m) => {
+      this.bytesIn += m.length;
+      this.onDatagram(m);
+    };
+    peer.onClose = (reason) => this.close(reason);
+    const link: Link = {
+      kind: "webrtc",
+      // RtcPeer drops datagrams over min(1100, SCTP max) or when `d` is backed up.
+      sendDatagram: (m) => {
+        if (peer.sendDatagram(m)) this.bytesOut += m.length;
+      },
+      sendStream: (m) => {
+        this.bytesOut += m.length;
+        peer.sendStream(m);
+      },
+      close: () => peer.close("closed"),
+    };
+    link.sendStream(this.hello(Transport.webrtc));
+    return link;
+  }
+
+  private openLoopback(): Link {
+    const lb = this.o.loopback;
+    if (!lb) throw new Error("no loopback link");
+    lb.onStream = (m) => {
+      this.bytesIn += m.length;
+      this.onStream(m);
+    };
+    lb.onDatagram = (m) => {
+      this.bytesIn += m.length;
+      this.onDatagram(m);
+    };
+    lb.onClose = (reason) => this.close(reason);
+    const link: Link = {
+      kind: "loopback",
+      sendDatagram: (m) => {
+        if (m.length > MAX_DATAGRAM) return;
+        this.bytesOut += m.length;
+        lb.sendDatagram(m);
+      },
+      sendStream: (m) => {
+        this.bytesOut += m.length;
+        lb.sendStream(m);
+      },
+      close: () => lb.close(),
+    };
+    link.sendStream(this.hello(Transport.webrtc));
+    return link;
+  }
+
   private async openWebTransport(): Promise<Link> {
-    const base = httpBase(this.o.server);
+    const base = httpBase(this.o.server ?? "");
     const cfg = (await (await fetch(`${base}/config`)).json()) as ServerConfig;
     const host = new URL(base).hostname;
     const url = `https://${host}:${cfg.wtPort}/s/${encodeURIComponent(this.o.session)}`;
@@ -185,7 +285,7 @@ export class Connection {
   }
 
   private openWebSocket(): Link {
-    const ws = new WebSocket(wsUrl(this.o.server, this.o.session));
+    const ws = new WebSocket(wsUrl(this.o.server ?? "", this.o.session));
     ws.binaryType = "arraybuffer";
     const send = (channel: number, msg: Uint8Array): void => {
       if (ws.readyState !== WebSocket.OPEN) return;

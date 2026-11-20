@@ -19,4 +19,9 @@ v=$(cat "$out/dist/main.js" "$out/dist/worker.js" "$out/dist/game.wasm" | sha256
 sed -i "s#\"\./game\.wasm\"#\"./game.wasm?v=$v\"#g; s#\"\./worker\.js\"#\"./worker.js?v=$v\"#g" "$out/dist/main.js"
 sed -i "s#dist/main\.js\"#dist/main.js?v=$v\"#; s#styles\.css\"#styles.css?v=$v\"#" "$out/index.html"
 grep -q "game.wasm?v=$v" "$out/dist/main.js" && grep -q "worker.js?v=$v" "$out/dist/main.js" || { echo "build-web: could not version the URLs in main.js" >&2; exit 1; }
+# The browser host Worker (src/host/worker.ts), when the build has it.
+if [ -f "$here/shell/dist/host-worker.js" ]; then
+  cp "$here/shell/dist/host-worker.js" "$out/dist/"
+  sed -i "s#\"\./host-worker\.js\"#\"./host-worker.js?v=$v\"#g" "$out/dist/main.js"
+fi
 echo "built $out"
