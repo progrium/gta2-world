@@ -22,6 +22,14 @@ export interface FollowTarget {
   speed?: number;
   /// Following a car (lift and lead-ahead apply), not a ped on foot.
   inCar?: boolean;
+  /// The subject is dead (wasted or busted): the camera pulls far back
+  /// (camera.md 3.2, zoom ≈3.55 against the default ≈0.887).
+  dead?: boolean;
+  /// The followed car's driver is being chased (police or a chase task):
+  /// raises the suspicion counter that shortens the lead (camera.md 3.3).
+  chased?: boolean;
+  /// Script elevation offset in blocks, 0-20 in steps of 0.5 (camera.md 3.6).
+  elevation?: number;
 }
 
 /// Top-down camera after docs/behaviour/camera.md, stepped at the sim's 30
@@ -50,6 +58,10 @@ export class ChaseCamera {
   leadScale = 1 / (64 * 8);
   /// Speed (blocks a tick) at which the lead reaches its full length.
   leadFullSpeed = 0.06;
+  /// Height factor while dead: the notes' dead zoom over the default.
+  deadFactor = 3.55 / 0.887;
+  /// Suspicion, 0-80, counted a tick (camera.md 3.3).
+  suspicion = 0;
   height = 7;
   private x = 0;
   private y = 0;
@@ -82,17 +94,19 @@ export class ChaseCamera {
     let h = this.baseHeight;
     let lx = 0;
     let ly = 0;
-    if (t.inCar) {
+    if (t.dead) h *= this.deadFactor;
+    else if (t.inCar) {
       const s = 16 * speed;
       if (s > 1.5) h += s;
       if (speed > 1e-4) {
         const ns = Math.abs(vy) > Math.abs(vx);
-        const dist = (ns ? 240 : 180) * this.leadScale * h * Math.min(1, speed / this.leadFullSpeed);
+        const sus = 1 - Math.min(this.suspicion, 64) / 128;
+        const dist = (ns ? 240 : 180) * sus * this.leadScale * h * Math.min(1, speed / this.leadFullSpeed);
         lx = (vx / speed) * dist;
         ly = (vy / speed) * dist;
       }
     }
-    h = Math.min(this.maxHeight, h);
+    h = Math.min(t.dead ? this.baseHeight * this.deadFactor : this.maxHeight, h) + Math.max(0, Math.min(20, t.elevation ?? 0));
     if (!this.placed) {
       this.x = this.px = this.tx = t.x + lx;
       this.y = this.py = this.ty = t.y + ly;
@@ -110,6 +124,7 @@ export class ChaseCamera {
       this.px = this.x;
       this.py = this.y;
       this.ph = this.height;
+      this.suspicion = Math.max(0, Math.min(80, this.suspicion + (t.chased && t.inCar ? 1 : -1)));
       this.tick();
       this.tx = t.x + lx;
       this.ty = t.y + ly;
@@ -144,6 +159,7 @@ export class ChaseCamera {
   /// Forget the last position, e.g. after a respawn or map change.
   reset(): void {
     this.placed = false;
+    this.suspicion = 0;
   }
 
   view(): CameraView {

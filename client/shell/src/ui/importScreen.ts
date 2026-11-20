@@ -22,7 +22,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
 
   const dirInput = h("input", { type: "file", multiple: true, hidden: true }) as HTMLInputElement;
   dirInput.setAttribute("webkitdirectory", "");
-  const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".gmp,.sty,.scr,.mmp,.gxt,.sdt,.raw,.gci" }) as HTMLInputElement;
+  const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".gmp,.sty,.scr,.mmp,.gxt,.sdt,.raw,.gci,.seq" }) as HTMLInputElement;
 
   const run = async (files: PickedFile[] | null): Promise<void> => {
     if (!files) return;
@@ -88,13 +88,35 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
     clear(filesBox);
     clear(clearBox);
     const maps = o.store.maps();
+    const levels = o.store.levels();
     const files = o.store.manifest.files;
+    if (levels.length > 0) {
+      const list = h("div", { class: "maplist" });
+      for (const m of levels) {
+        const key = levelKey(m);
+        list.append(
+          h(
+            "button",
+            { class: `${key === o.lastMap ? "map current" : "map"}${m.story?.bonus ? " bonus" : ""}`, onclick: () => o.onStart(m) },
+            h("strong", {}, m.description),
+            h("span", { class: "muted" }, ` ${m.story?.bonus ? "bonus stage · " : ""}${m.gmp} · ${m.scr ?? ""}`),
+          ),
+        );
+      }
+      mapsBox.append(h("h2", {}, "Single player"), list);
+      const texts = files.filter((f) => f.kind === "gxt" && f.info.ok);
+      if (texts.length > 1) {
+        const sel = h("select", { onchange: (e: Event) => setTextChoice((e.target as HTMLSelectElement).value) }, ...texts.map((f) => h("option", { value: f.name }, f.name))) as HTMLSelectElement;
+        sel.value = textChoice(files) ?? "";
+        mapsBox.append(h("p", { class: "small" }, "Game text: ", sel));
+      }
+    }
     if (maps.length === 0) {
       mapsBox.append(h("p", { class: "muted" }, files.length ? "No complete map yet: a map needs its .gmp and .sty (and the .mmp that names them)." : "Nothing imported yet."));
     } else {
       const list = h("div", { class: "maplist" });
       for (const m of maps) {
-        const key = m.mmp ?? m.gmp;
+        const key = levelKey(m);
         list.append(
           h(
             "button",
@@ -104,7 +126,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
           ),
         );
       }
-      mapsBox.append(h("h2", {}, "Pick a map to drive"), list);
+      mapsBox.append(h("h2", {}, levels.length ? "Deathmatch maps" : "Pick a map to drive"), list);
     }
     if (files.length) {
       clearBox.append(
@@ -163,6 +185,33 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
   );
   render();
   return () => clear(root);
+}
+
+/** The key a level or map is remembered by (the last one played). */
+export function levelKey(m: MapChoice): string {
+  return m.story ? `level:${m.gmp.toLowerCase()}` : m.mmp ?? m.gmp;
+}
+
+const TEXT_CHOICE = "gta2.text";
+
+/** The .gxt to use: the player's choice, else e.gxt, else the first one. */
+export function textChoice(files: readonly AssetRecord[]): string | null {
+  const texts = files.filter((f) => f.kind === "gxt" && f.info.ok);
+  let want: string | null = null;
+  try {
+    want = localStorage.getItem(TEXT_CHOICE);
+  } catch {
+    /* ignore */
+  }
+  return (texts.find((f) => f.name === want) ?? texts.find((f) => f.name === "e.gxt") ?? texts[0])?.name ?? null;
+}
+
+function setTextChoice(name: string): void {
+  try {
+    localStorage.setItem(TEXT_CHOICE, name);
+  } catch {
+    /* ignore */
+  }
 }
 
 /** For a sound index, whether its .raw is cached and the right size. */

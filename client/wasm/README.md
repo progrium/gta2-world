@@ -1,6 +1,6 @@
 # client/wasm
 
-The browser's Zig module, `game.wasm`. It links `sim/` (dm16), `formats/`, `net/` (prediction client) and the renderer's Zig side (`client/render/src`) and exports a flat C ABI that `client/shell/src/game/wasm.ts` wraps.
+The browser's Zig module, `game.wasm`. It links `sim/` (dm16 for deathmatch and online, `sp` for single player), `formats/`, `net/` (prediction client) and the renderer's Zig side (`client/render/src`) and exports a flat C ABI that `client/shell/src/game/wasm.ts` wraps.
 
 ```sh
 zig build test                        # native: join, walk, render list, tuning round trip
@@ -19,6 +19,11 @@ zig build -Doptimize=ReleaseSmall     # zig-out/web/game.wasm (about 60 KB)
 | `playerInfo(slot)` | active, in car, hp, kills, deaths, respawn timer, speed, z. |
 | `buildList(alpha)`, `instancePtr`, `cameraTarget(alpha, slot)` | Render list and camera target interpolated between the last two ticks. |
 | `gameSpawnCar(slot)` | Drops a car in front of the player (offline tuning aid). |
+| `spStart(seed, hint, x, y)` | Single player on the loaded map: the `sp` sim with the level's zones, map objects and lights attached (`formats.level`), slot 0 joins. `gameStep`, `buildList`, `cameraTarget`, `playerInfo` then run it. |
+| `scriptsClear`, `scriptAdd(name, bytes)` | The level's main `.scr` and mission sub-scripts, kept by name for `formats/scr.zig` (workstream A1) to build `Level.script` and `.missions`. Until it lands the level runs without a script. |
+| `loadText`, `textById(id)`, `textByKey(key)`, `textPtr` | The player's `.gxt` (`formats/gxt.zig`): a script message number's text (its decimal digits are the key) or a named key's, as 16-bit units. |
+| `spInfo` | The single-player HUD state: lives, multiplier, points, jail cards, stars, banner, briefs, timer, counters, arrow (from `state.sp`, through the career, wanted and hud APIs). |
+| `spDebug(op, a, b)` | Offline aid: calls the hud, career and wanted APIs as a script would (banner, brief, timer, counter, arrow, lives, score, wanted points, multiplier). |
 | `layoutHashPtr`, `netStart(slot, buffer_ticks)`, `netStop`, `netSnapshot(body, now)`, `netUpdate(now)`, `netInput(now)`, `netInputPtr`, `netStats` | Online mode: net/'s client predicts in `.predict` mode against server snapshots; JavaScript owns the transport. `buildList`, `cameraTarget` and `playerInfo` then read the predicted, smoothed state. |
 | `tuneNames*`, `tuneGet`, `tuneSet`, `tuneReset` | The placeholder handling numbers in `sim/tuning.zig`, live. |
 
