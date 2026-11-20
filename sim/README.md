@@ -113,6 +113,6 @@ These are the places where I read the I1 draft a particular way. None changes a 
 2. **`PlayerRow.car`** is the car the player is in now, and none on foot.
 3. **`Controller` on cars.** A driven car's `Controller.player` is its driver's slot and its `in` is the driver's frame, so remote dead reckoning works on cars too. Unused cars have `no_player` and a neutral frame.
 4. **Kind tables.** `pickup` is {Transform, Weapon, Appearance} in M3; `map_object` still has only a `Transform`.
-5. **Event kinds.** M3 proposes `round_end` = 5 and `pickup` = 6 in I3, and explosion's `a` as the cause (0 rocket, 1 car).
+5. **Event kinds.** I3 has `round_end` = 5 and `pickup` = 6 from M3 (signed off), and explosion's `a` is the cause (0 rocket, 1 car).
 5. **Proposed component 12, `Appearance { sprite: u16, remap: u16 }`,** on cars and peds, for the renderer (workstream B). It is in the tables, `views()` and `replicated` now, flagged here for the proposal step. `sprite` is the car model for cars and the ped type (0) for peds; the walk cycle comes from `Pedestrian.anim` on the client, so it costs no snapshot bytes. `remap` is `0xFFFF` (none) until we pick colours.
 6. **Sim-owned components are lean.** `Collider` holds only flags (radius and mass come from the kind and model), `Vehicle` is 8 bytes (driver, model, pedal, steer, flags). Pedal and steer must replicate: they are state the next step depends on.

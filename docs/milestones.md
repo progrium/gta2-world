@@ -52,9 +52,11 @@ Done, checked locally:
 - Server: sim events go out as I3 events. Bots fight (aim at the nearest enemy, fire, switch weapons). CI's soak runs 8 players for 30 s with kills, deaths and explosions, and every replay tick matches.
 - Client: projectiles, spinning pickups, fire, wrecks and explosions; weapon and ammo HUD, kill feed, round banner, Tab scoreboard; sound cues for shots, hits, deaths, explosions, pickups and weapon switches. Z/X (or LB/RB) switch weapons. Checked headlessly on wil.
 
+- I3 sign-off recorded: event kinds `round_end` (5) and `pickup` (6), the kill's weapon in `c` and the explosion's cause in `a`.
+- Fixed from play-testing: cars were drawn back to front (car sprites face down in the style, unlike the other kinds).
+
 Open for M3:
 
-- I3 sign-off on the proposed event kinds `round_end` (5) and `pickup` (6).
 - Sounds play the sound board's mapping; cues with no sound mapped are silent.
 - Feel trials: weapon balance, traffic density and speed, pickup rates.
 - Eight real players needs the public host (parked).

@@ -175,6 +175,8 @@ pub fn build(lay: *const Layout, prev: ?[]const u8, cur: []const u8, alpha: f32,
                     }
                 }
             }
+            // Car sprites face down (+y) in the image, the other kinds up.
+            if (kind == @intFromEnum(abi.Kind.car)) angle += std.math.pi;
             var look: Appearance = .{ .sprite = 0, .remap = Appearance.no_remap };
             if (k.appearance) |ac| look = at(Appearance, cur, ac, i) orelse look;
             var sprite = bases.sprite[kind] + look.sprite;
