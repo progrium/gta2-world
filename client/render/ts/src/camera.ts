@@ -15,41 +15,130 @@ export interface FollowTarget {
   x: number;
   y: number;
   z?: number;
-  /// Speed in blocks per second.
+  /// Velocity in blocks per tick (the sim's 30 ticks a second).
+  vx?: number;
+  vy?: number;
+  /// Speed in blocks per second, when no velocity is given.
   speed?: number;
+  /// Following a car (lift and lead-ahead apply), not a ped on foot.
+  inCar?: boolean;
 }
 
-/// Top-down perspective camera that follows a target and pulls back as it
-/// speeds up, then eases back down when it slows, as the original does.
-/// Heights are blocks above the target.
+/// Top-down camera after docs/behaviour/camera.md, stepped at the sim's 30
+/// ticks a second and interpolated between ticks for drawing.
+///
+/// - In a car, with s = 16 x speed (blocks a tick), the camera lifts by s
+///   once s passes 1.5, and leads ahead along the direction of travel:
+///   240 screen units north-south, 180 east-west, times its height.
+/// - x and y approach the target with speed growing 1/64 a tick, capped at
+///   height x 3/16, stopping dead when moving away; height rises with step
+///   1/128 (cap 5/8) and falls with step 1/640 (cap 5/64), so it climbs
+///   quickly and sinks slowly.
+/// - The target set on one tick is used on the next.
+/// - An explosion shakes it by 1/8, negated and x 0.75 every tick.
+///
+/// Heights are blocks of eye above the subject. The notes' camera height is
+/// GTA2's own zoom scale; ours is a perspective eye, so the base height
+/// (`baseHeight`) and the screen-unit scale of the lead (`leadScale`) are
+/// ours, as is fading the lead in with speed so a parked car keeps the view
+/// centred.
 export class ChaseCamera {
   fovY = (60 * Math.PI) / 180;
   baseHeight = 7;
-  maxHeight = 15;
-  /// Extra height per block/second of speed.
-  heightPerSpeed = 0.6;
-  /// Response rates (1/s): rising is quicker than settling back.
-  riseRate = 2.0;
-  fallRate = 0.6;
+  maxHeight = 21;
+  /// Blocks of lead per screen unit, per block of camera height.
+  leadScale = 1 / (64 * 8);
+  /// Speed (blocks a tick) at which the lead reaches its full length.
+  leadFullSpeed = 0.06;
   height = 7;
   private x = 0;
   private y = 0;
   private z = 0;
+  private vx = 0;
+  private vy = 0;
+  private vh = 0;
+  private shakeV = 0;
+  /// The previous tick's target, used this tick (the notes' one-tick lag).
+  private tx = 0;
+  private ty = 0;
+  private th = 7;
+  /// The state at the last tick, for interpolation.
+  private px = 0;
+  private py = 0;
+  private ph = 7;
+  private acc = 0;
   private placed = false;
 
   update(t: FollowTarget, dt: number): void {
     const z = t.z ?? 2;
+    let vx = t.vx ?? 0;
+    let vy = t.vy ?? 0;
+    if (t.vx === undefined && t.speed) {
+      vx = t.speed / 30;
+      vy = 0;
+    }
+    const speed = Math.hypot(vx, vy);
+    // Target: lift and lead in a car.
+    let h = this.baseHeight;
+    let lx = 0;
+    let ly = 0;
+    if (t.inCar) {
+      const s = 16 * speed;
+      if (s > 1.5) h += s;
+      if (speed > 1e-4) {
+        const ns = Math.abs(vy) > Math.abs(vx);
+        const dist = (ns ? 240 : 180) * this.leadScale * h * Math.min(1, speed / this.leadFullSpeed);
+        lx = (vx / speed) * dist;
+        ly = (vy / speed) * dist;
+      }
+    }
+    h = Math.min(this.maxHeight, h);
     if (!this.placed) {
-      this.x = t.x; this.y = t.y; this.z = z;
-      this.height = this.baseHeight;
+      this.x = this.px = this.tx = t.x + lx;
+      this.y = this.py = this.ty = t.y + ly;
+      this.z = z;
+      this.height = this.ph = this.th = h;
+      this.vx = this.vy = this.vh = this.shakeV = 0;
+      this.acc = 0;
       this.placed = true;
     }
-    this.x = t.x;
-    this.y = t.y;
-    this.z += (z - this.z) * (1 - Math.exp(-dt * 4));
-    const want = Math.min(this.maxHeight, this.baseHeight + this.heightPerSpeed * Math.max(0, t.speed ?? 0));
-    const rate = want > this.height ? this.riseRate : this.fallRate;
-    this.height += (want - this.height) * (1 - Math.exp(-dt * rate));
+    this.acc += dt * 30;
+    let steps = 0;
+    while (this.acc >= 1 && steps < 8) {
+      this.acc -= 1;
+      steps++;
+      this.px = this.x;
+      this.py = this.y;
+      this.ph = this.height;
+      this.tick();
+      this.tx = t.x + lx;
+      this.ty = t.y + ly;
+      this.th = h;
+    }
+    if (steps === 8) this.acc = 0;
+    // The subject's floor height is followed directly (the notes keep the
+    // camera a fixed distance above it).
+    this.z = z;
+  }
+
+  private tick(): void {
+    const cap = (this.height * 3) / 16;
+    [this.x, this.vx] = approach(this.x, this.vx, this.tx, 1 / 64, cap);
+    [this.y, this.vy] = approach(this.y, this.vy, this.ty, 1 / 64, cap);
+    const rising = this.th > this.height;
+    [this.height, this.vh] = approach(this.height, this.vh, this.th, rising ? 1 / 128 : 1 / 640, rising ? 5 / 8 : 5 / 64);
+    if (this.shakeV !== 0) {
+      this.x += this.shakeV;
+      this.y += this.shakeV;
+      this.height = Math.max(0, this.height + this.shakeV);
+      this.shakeV *= -0.75;
+      if (Math.abs(this.shakeV) < 1 / 512) this.shakeV = 0;
+    }
+  }
+
+  /// An explosion: shake of strength 8 (1/8 block).
+  shake(strength = 8): void {
+    this.shakeV = strength / 64;
   }
 
   /// Forget the last position, e.g. after a respawn or map change.
@@ -58,13 +147,30 @@ export class ChaseCamera {
   }
 
   view(): CameraView {
+    const a = Math.min(1, this.acc);
+    const x = this.px + (this.x - this.px) * a;
+    const y = this.py + (this.y - this.py) * a;
+    const h = this.ph + (this.height - this.ph) * a;
     return {
-      eye: [this.x, this.y, this.z + this.height],
-      target: [this.x, this.y, this.z],
+      eye: [x, y, this.z + h],
+      target: [x, y, this.z],
       up: [0, -1, 0],
       fovY: this.fovY,
     };
   }
+}
+
+/// One axis of the camera's smoothing (camera.md 3.4): the speed toward the
+/// target grows by `step` a tick up to `cap`, landing exactly on the target
+/// rather than overshooting, and drops to 0 when moving away from it.
+function approach(pos: number, vel: number, target: number, step: number, cap: number): [number, number] {
+  const d = target - pos;
+  if (d === 0) return [pos, 0];
+  const dir = Math.sign(d);
+  if (vel * dir < 0) vel = 0;
+  vel = dir * Math.min(Math.abs(vel) + step, cap);
+  if (Math.abs(vel) >= Math.abs(d)) return [target, vel];
+  return [pos + vel, vel];
 }
 
 /// Free-flying debug camera (yaw/pitch), for looking at the map.

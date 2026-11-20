@@ -279,7 +279,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     renderer.resize(canvas.clientWidth, canvas.clientHeight, devicePixelRatio || 1);
     const t = game.camera(paused ? 1 : alpha, ownSlot);
     if (t.found) {
-      camera.update({ x: t.x, y: t.y, z: t.z, speed: Math.hypot(t.vx, t.vy) * 30 }, dt);
+      camera.update({ x: t.x, y: t.y, z: t.z, vx: t.vx, vy: t.vy, inCar: lastInCar }, dt);
       audio.setListener(t.x, t.y, t.z);
     }
     const list = game.renderList(paused ? 1 : alpha, now);
@@ -419,6 +419,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         audio.play("explosion", e.x, e.y, e.z);
         const t = g?.camera(1, ownSlot);
         if (t?.found && Math.hypot(t.x - e.x, t.y - e.y) < 6) input.rumble(0, Effects.collisionHeavy);
+        // Shake the view for explosions on or near the screen.
+        if (t?.found && Math.hypot(t.x - e.x, t.y - e.y) < 12) camera.shake();
         break;
       }
       case 5:
