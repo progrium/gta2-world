@@ -91,9 +91,9 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [ped-ai](coverage/ped-ai.md) | 15 | 0 | 0 | 0 | 0 | 15 |  |
 | [ped-movement](coverage/ped-movement.md) | 9 | 0 | 0 | 0 | 0 | 9 |  |
 | [police-ai](coverage/police-ai.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
-| [power-ups-death-and-arrest](coverage/power-ups-death-and-arrest.md) | 4 | 0 | 0 | 0 | 0 | 4 |  |
-| [projectiles](coverage/projectiles.md) | 4 | 0 | 0 | 0 | 0 | 4 |  |
-| [scoring](coverage/scoring.md) | 4 | 0 | 0 | 0 | 0 | 4 |  |
+| [power-ups-death-and-arrest](coverage/power-ups-death-and-arrest.md) | 4 | 0 | 4 | 0 | 0 | 0 |  |
+| [projectiles](coverage/projectiles.md) | 4 | 0 | 1 | 0 | 0 | 3 |  |
+| [scoring](coverage/scoring.md) | 4 | 1 | 3 | 0 | 0 | 0 |  |
 | [script-cars](coverage/script-cars.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-characters](coverage/script-characters.md) | 11 | 0 | 0 | 0 | 0 | 11 |  |
 | [script-counters](coverage/script-counters.md) | 6 | 0 | 0 | 0 | 0 | 6 |  |
@@ -106,7 +106,7 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [shape-and-map-collision](coverage/shape-and-map-collision.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
 | [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [wanted-level](coverage/wanted-level.md) | 6 | 0 | 0 | 0 | 0 | 6 |  |
-| [weapons](coverage/weapons.md) | 8 | 0 | 0 | 0 | 0 | 8 |  |
-| **all notes** | **197** | **0** | **0** | **0** | **0** | **197** | |
+| [weapons](coverage/weapons.md) | 8 | 0 | 1 | 0 | 0 | 7 |  |
+| **all notes** | **197** | **1** | **9** | **0** | **0** | **187** | |
 
 <!-- coverage:end -->
