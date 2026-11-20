@@ -1,0 +1,23 @@
+{
+  "name": "@gta2-world/signal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker: WebRTC signalling rooms for browser-hosted games, and TURN credentials.",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --target=es2022 --platform=neutral --external:cloudflare:* --outfile=dist/index.js",
+    "check": "tsc -p .",
+    "test": "npm run build && node --test test/*.test.ts",
+    "e2e": "node e2e/run.ts",
+    "dev": "wrangler dev --var ALLOW_LOCALHOST:true",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261120.1",
+    "@types/node": "22.20.5",
+    "esbuild": "0.24.2",
+    "miniflare": "4.20260730.0",
+    "typescript": "5.8.3",
+    "wrangler": "4.166.0"
+  }
+}
