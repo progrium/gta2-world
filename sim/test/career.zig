@@ -217,8 +217,15 @@ test "wasted: a life goes, a double stays, the player respawns at once at the ne
     h.ped().double_damage = 100;
     Sp.career.setFrenzyWeapon(h.sim, 0, T.weapon_rocket);
     const lives = h.cs().lives;
+    const at = w.get(old, c.Transform).?.*;
     h.die(.none);
     try std.testing.expect(hasEvent(h.sim.events(), .wasted));
+    for (h.sim.events()) |e| {
+        if (e.kind != .wasted) continue;
+        // Where the double lies, for the camera.
+        try std.testing.expectEqual(at.x, e.x);
+        try std.testing.expectEqual(at.y, e.y);
+    }
     try std.testing.expectEqual(lives - 1, h.cs().lives);
     try std.testing.expectEqual(CS.phase_wasted, h.cs().phase);
     try std.testing.expect(Sp.career.isOut(h.sim, 0));

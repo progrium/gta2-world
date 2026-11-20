@@ -119,10 +119,11 @@ pub fn Sys(comptime Self: type) type {
             // lose, game over instead.
             const game_over = cs.lives == 0;
             if (!game_over) cs.lives -= 1;
-            self.pushEvent(.{ .kind = if (game_over) .game_over else .wasted, .a = slot, .b = cause });
             // 3: the body stays as the double; the player is moved to the
-            // respawn point straight away.
+            // respawn point straight away. The event carries where the
+            // double lies (the client holds the camera there).
             const t = (self.state.world.get(ped, c.Transform) orelse return true).*;
+            self.pushEvent(.{ .kind = if (game_over) .game_over else .wasted, .a = slot, .b = cause, .x = t.x, .y = t.y, .z = t.z });
             makeDouble(self, cs, ped, c.Pedestrian.state_down, c.Pedestrian.anim_lie);
             cs.phase = CS.phase_wasted;
             cs.countdown = TC.countdown_ticks;
@@ -163,7 +164,7 @@ pub fn Sys(comptime Self: type) type {
             cs.cause = Event.weapon_car; // unused for an arrest
             cs.death_car = pl.car;
             pl.car = .none;
-            self.pushEvent(.{ .kind = .busted, .a = slot });
+            self.pushEvent(.{ .kind = .busted, .a = slot, .x = t.x, .y = t.y, .z = t.z });
             makeDouble(self, cs, ped, c.Pedestrian.state_arrested, c.Pedestrian.anim_stand);
             if (w.get(ped, c.Health)) |h| {
                 if (h.hp <= 0) h.hp = 1; // a living double
@@ -260,7 +261,10 @@ pub fn Sys(comptime Self: type) type {
             cs.double = .none;
             const game_over = if (wasted) pl.ped.isNone() else cs.lives == 0 or cs.flags & CS.flag_bonus_stage != 0;
             if (game_over) {
-                if (!wasted) self.pushEvent(.{ .kind = .game_over, .a = slot });
+                if (!wasted) {
+                    const t = w.get(pl.ped, c.Transform);
+                    self.pushEvent(.{ .kind = .game_over, .a = slot, .x = if (t) |tt| tt.x else 0, .y = if (t) |tt| tt.y else 0, .z = if (t) |tt| tt.z else 0 });
+                }
                 cs.phase = CS.phase_game_over;
                 return;
             }

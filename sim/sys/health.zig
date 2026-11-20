@@ -185,12 +185,19 @@ pub fn Sys(comptime Self: type) type {
                     sim.scratch.stats.ped_deaths += 1;
                     sim.scoreKill(id, ctl.player != c.Controller.no_player, h.last_hit_by);
                     if (ctl.player != c.Controller.no_player) {
-                        const slot: u8 = @intCast(ctl.player);
-                        sim.creditKill(ctl.player, h.last_hit_by, id);
-                        // Single player: wasted, with a body double and an
-                        // immediate respawn (sys/death.zig).
-                        if (Self.death.playerDown(sim, slot, id, deathCause(sim, p, h))) return;
-                        w.despawn(id);
+                        if (comptime Self.single_player) {
+                            // Wasted, with a body double and an immediate
+                            // respawn (sys/death.zig): the body stays.
+                            const slot: u8 = @intCast(ctl.player);
+                            sim.creditKill(ctl.player, h.last_hit_by, id);
+                            if (Self.death.playerDown(sim, slot, id, deathCause(sim, p, h))) return;
+                            w.despawn(id);
+                        } else {
+                            // Despawned first: a death by your own hand reads
+                            // as fire in the kill event.
+                            w.despawn(id);
+                            sim.creditKill(ctl.player, h.last_hit_by, id);
+                        }
                         const pl = &sim.state.players[ctl.player];
                         pl.deaths += 1;
                         pl.ped = .none;
