@@ -136,7 +136,7 @@ The server records commands with frames, so a replay reproduces joins. Clients i
 
 S5's lane snapping needs the arrows, and traction needs the ground type. S2's one-byte cell is not enough for the 61 real slope codes.
 
-**Proposed in M3, awaiting sign-off:** `Grid` also has `walls[z][y][x]` of `WallBits = u8` (0.5 MiB more), the map's wall faces. shape-and-map-collision.md makes a wall a one-block line segment on a block face, not a solid cube; with only `Cell`, a fence or a single wall face had to become a whole solid block, which players met as invisible walls.
+**Accepted in M3 (Jeff, 2026-11-20):** `Grid` also has `walls[z][y][x]` of `WallBits = u8` (0.5 MiB more), the map's wall faces. shape-and-map-collision.md makes a wall a one-block line segment on a block face, not a solid cube; with only `Cell`, a fence or a single wall face had to become a whole solid block, which players met as invisible walls.
 
 | Bits | Field |
 | --- | --- |
@@ -155,3 +155,11 @@ S5's lane snapping needs the arrows, and traction needs the ground type. S2's on
 
 1. **Component 12, `Appearance { sprite: u16, remap: u16 }`**, on cars and peds, asked for by the renderer (workstream B) and added by the sim (workstream A). `sprite` is relative to the kind's sprite group: the car model for cars, the ped type for peds. `remap` is a palette remap of that group, or `Appearance.no_remap` (`0xFFFF`). It is replicated like any other component. It is an addition old readers skip, so `abi_version` stays 1; the column changes `layout_hash`, so old builds are refused anyway.
 2. **Golden replay re-recorded.** Moving to keyed randomness (`abi.rand`, determinism rule 4) changed every state hash, so `tools/replay/golden/` was recorded again from the conforming sim. The new recording is the reference for CI.
+
+**2026-11-20, approved by Jeff (M3).**
+
+1. **`Shape.slab` (5):** a floor with no walls, such as an overpass deck.
+2. **`Grid.walls`:** the wall-face table described above.
+3. **`PlayerRow` meanings:** `kills` holds frags and `score` holds points. Same layout.
+
+From here on, small additive interface changes are approved within the project and recorded in this section; changes that break compatibility or change the golden replay still go to Jeff.

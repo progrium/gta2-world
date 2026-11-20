@@ -33,6 +33,7 @@ As the design doc says: by written proposal, accepted by every affected owner. I
 - Open a branch that changes the spec, both language twins and the vectors together.
 - Bump `abi_version` (I1) or `protocol_version` (I3) for any change to bytes on the wire or in the state. I2 changes count as both.
 - Additions that old readers can ignore still need the proposal. Examples are a new kind number, a new component id, a new event kind or a new message type. They do not need a version bump if old peers reject or skip the addition cleanly.
+- Since 2026-11-20 (Jeff): small additive changes are approved within the project and recorded in the spec's accepted list. Changes that break compatibility or change the golden replay still need Jeff.
 - Components owned by `sim/` (`Collider`, `Vehicle`, `Pedestrian`, `Weapon`, `Projectile`) change without a proposal. `layout_hash` catches mismatched builds.
 
 ## Changes the design doc needs
