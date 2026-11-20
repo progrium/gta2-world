@@ -9,4 +9,7 @@ test {
     _ = @import("test/scoring.zig");
     _ = @import("test/surfaces.zig");
     _ = @import("test/sp.zig");
+    _ = @import("test/ped_ai_objectives.zig");
+    _ = @import("test/ped_ai_threat.zig");
+    _ = @import("test/ped_ai_combat.zig");
 }
