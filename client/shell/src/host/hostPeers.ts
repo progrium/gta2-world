@@ -134,8 +134,14 @@ export class HostPeers {
     this.sig.onMessage = (from, m) => this.onSignal(from, m);
     this.sig.onPeerLeft = (from) => {
       const p = this.bySignal.get(from);
-      // Signalling may end once the channels run; only drop peers still connecting.
-      if (p && p.view.state === "connecting") this.drop(p);
+      // A joiner ends signalling as soon as its channels open, which can be
+      // before this side has seen them open. Drop it only if it is still not
+      // connected after the grace period.
+      if (!p) return;
+      setTimeout(() => {
+        const st = p.pc?.connectionState;
+        if (p.view.state === "connecting" && st !== "connected" && p.s?.readyState !== "open") this.drop(p);
+      }, this.grace);
     };
     this.sig.onClose = (reason) => this.onError?.(`signalling closed: ${reason}`);
   }
@@ -338,16 +344,17 @@ export class HostPeers {
         p.d = ch;
         ch.onmessage = (ev) => this.datagramIn(p, new Uint8Array(ev.data as ArrayBuffer));
       } else if (ch.label === "f") {
-        const start = (): void => {
+        // Listen at once: the joiner's first lobby message can arrive before our "open" event.
+        const lobby = new LobbyHost(wrapDataChannel(ch), this.files, this.limiter);
+        lobby.onChange = () => this.onChange?.();
+        p.view.lobby = lobby;
+        const opened = (): void => {
           p.maxDatagram = datagramLimit(pc);
-          const lobby = new LobbyHost(wrapDataChannel(ch), this.files, this.limiter);
-          lobby.onChange = () => this.onChange?.();
-          p.view.lobby = lobby;
           if (p.view.state === "connecting") p.view.state = "lobby";
           this.onChange?.();
         };
-        if (ch.readyState === "open") start();
-        else ch.addEventListener("open", start, { once: true });
+        if (ch.readyState === "open") opened();
+        else ch.addEventListener("open", opened, { once: true });
       } else ch.close();
     };
     pc.onconnectionstatechange = () => {
