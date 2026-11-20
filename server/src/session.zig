@@ -458,7 +458,7 @@ pub fn Session(comptime Sim: type) type {
         /// Steps the sim once. `send_snapshot` is true on the ticks where
         /// the 20 Hz snapshot schedule falls.
         pub fn tick(self: *Self, now_ns: u64, send_snapshot: bool) void {
-            const t0 = util.now();
+            const t0 = util.stopwatch();
             const T = self.sim.tick();
 
             // Housekeeping first, so commands land in this step.
@@ -515,7 +515,7 @@ pub fn Session(comptime Sim: type) type {
             self.last_step_ns = now_ns;
             for (&self.slots) |*s| if (s.state == .active) self.advanceAck(s);
 
-            const t1 = util.now();
+            const t1 = util.stopwatch();
             self.steps += 1;
             self.step_ns_last = t1 - t0;
             self.step_ns_max = @max(self.step_ns_max, self.step_ns_last);
@@ -530,7 +530,7 @@ pub fn Session(comptime Sim: type) type {
                     self.sendSnapshot(cl, now_ns);
                 }
             }
-            self.snapshot_ns_sum += util.now() - t1;
+            self.snapshot_ns_sum += util.stopwatch() - t1;
             if (self.replay) |rw| if (self.steps % abi.tick_hz == 0) rw.flush();
 
             if (self.clients.items.len == 0 and self.playerCount() == 0) {
