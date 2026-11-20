@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-wasm="171ea2f4c4">
 <meta charset="utf-8">
 <title>S5 Handling Bench</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -123,22 +123,18 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     <div style="display:grid;gap:4px;min-width:0">
       <div class="label">gta2-world · spike S5</div>
       <h1>Handling bench</h1>
-      <p class="sub">One fixed-point car model, run in WebAssembly at the original's 30 ticks per second, on a flat test map. Drive it next to footage of the original and rate whether it feels like GTA2.</p>
+      <p class="sub">The game's own car handling, rebuilt from written behaviour notes and run in WebAssembly at the original's 30 ticks per second on the synthetic test city. Drive it next to footage of the original and rate whether it feels like GTA2.</p>
     </div>
     <div class="row">
       <span class="chip" id="srcChip"><span class="dot"></span><span id="srcText">Placeholder constants</span></span>
-      <span class="chip" id="hashChip" title="Determinism self-test: 10,000 scripted ticks, hashed. Native build gives 0xb23b1606."><span class="dot"></span><span id="hashText">Self-test pending</span></span>
+      <span class="chip" id="hashChip" title="Determinism self-test: 10,000 scripted ticks, hashed. Native build gives 0x240c6e42."><span class="dot"></span><span id="hashText">Self-test pending</span></span>
     </div>
   </header>
 
-  <section class="panel" role="status" style="border-left:4px solid var(--bad)">
-    <h2>Handling is being rebuilt</h2>
-    <p>The car model that ran on this page has been taken down while it is rebuilt from scratch from written behaviour notes. Driving is off until the new build lands, and ratings from the old build no longer count. Ratings already saved in this browser are kept, and you can still download them and submit them on GitHub.</p>
-  </section>
 
-  <section class="panel" inert style="opacity:.5">
+  <section class="panel">
     <h2>Your data files</h2>
-    <p class="muted">The handling constants are read from your own copy of the game. Files stay in this browser; nothing is uploaded. Until you load them, the car runs on invented placeholder values that are not the original's.</p>
+    <p class="muted">The handling constants are read from your own copy of the game. Files stay in this browser; nothing is uploaded. Until you load them, the car runs on our own placeholder values, which are not the original's. The <span class="mono">.sty</span> gives each car its size and wheel positions; without it every car is a 32 by 64 pixel saloon.</p>
     <div class="drop" id="drop">
       <div class="row">
         <span class="file"><button type="button">Choose nyc.gci</button><input type="file" id="gciFile" accept=".gci,.GCI" aria-label="Choose a .gci handling file"></span>
@@ -150,7 +146,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     </div>
   </section>
 
-  <section class="bench" inert style="opacity:.5">
+  <section class="bench">
     <div class="panel">
       <div class="row" style="justify-content:space-between">
         <h2>Drive</h2>
@@ -194,7 +190,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     <h2>How to run the rating</h2>
     <ol class="steps">
       <li>Load your <span class="mono">nyc.gci</span> and the matching <span class="mono">.sty</span>, pick a car you also have footage of, and open the footage on the right.</li>
-      <li>Each rater drives for about five minutes: a straight run to top speed, the block circuits, the open lot for handbrake turns, and a few hits on walls.</li>
+      <li>Each rater drives for about five minutes: a straight run to top speed along the top road, laps of the city blocks, handbrake turns on the open fields west of the city (turn round from the start), and a few hits on building walls.</li>
       <li>Raters fill in the sheet alone, without seeing the others' answers first.</li>
       <li>The spike passes when three people who know the game each answer yes to "Recognisably GTA2".</li>
     </ol>
@@ -251,7 +247,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     </div>
   </section>
 
-  <details class="panel" id="tuneBox" inert style="opacity:.5">
+  <details class="panel" id="tuneBox">
     <summary>Tune the current car</summary>
     <p class="muted">Changes apply instantly. These are the <span class="mono">.gci</span> fields in file order plus the sprite geometry from the <span class="mono">.sty</span>. Use this if the rating fails and the plan falls back to tuning by hand.</p>
     <div class="tune" id="tune"></div>
@@ -264,31 +260,57 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
 
 <script>
 (() => {
+  // Handling is sim/'s (docs/behaviour/car-handling.md) built into s5.wasm by client/bench.
+  const BUILD = "notes-1";
   const FIELD_NAMES = ["mass","front_drive_bias","front_mass_bias","brake_friction","turn_in","turn_ratio","rear_end_stability","handbrake_slide_value","thrust","max_speed","anti_strength","skid_threshold","gear1_multiplier","gear2_multiplier","gear3_multiplier","gear2_speed","gear3_speed"];
   const DIM_NAMES = ["sprite width px","sprite height px","front wheel px","rear wheel px"];
   const ASPECTS = [["accel","Acceleration"],["top","Top speed"],["steer","Steering response"],["slide","Sliding in corners"],["hand","Handbrake turns"],["brake","Braking and reversing"],["walls","Hitting walls"]];
-  const ONE = 16384, TICK_MS = 1000 / 30;
+  const ONE = 65536, TICK_MS = 1000 / 30, SELF_TEST = "240c6e42";
   const $ = (id) => document.getElementById(id);
   const fx = (r) => r / ONE;
-  let ex = null, mem = null;
+  let ex = null;
+  const mem = () => ex.memory;
 
   // ---------- WASM ----------
   async function boot() {
-    // The handling build was withdrawn while it is rebuilt; nothing to load yet.
-    $("hashText").textContent = "Handling being rebuilt";
-    $("focusHint").textContent = "Handling being rebuilt";
-    return;
+    const res = await fetch("s5.wasm?v=" + (document.documentElement.dataset.wasm || "1"));
+    if (!res.ok) throw new Error("s5.wasm: HTTP " + res.status);
+    const { instance } = await WebAssembly.instantiate(await res.arrayBuffer(), { env: {} });
+    ex = instance.exports;
     ex.init();
     const h = (ex.selfTest() >>> 0).toString(16).padStart(8, "0");
-    const ok = h === "b23b1606";
+    const ok = h === SELF_TEST;
     $("hashChip").classList.toggle("ok", ok);
     $("hashText").textContent = ok ? "Deterministic (matches native)" : "Self-test hash 0x" + h + " differs from native";
     refreshModels(); buildTune(); start();
   }
 
-  function cstr(ptr, max) {
-    const b = new Uint8Array(mem.buffer, ptr, max); let s = "";
-    for (const c of b) { if (!c) break; s += String.fromCharCode(c); }
+  // Car names: the comment just before each .gci record, read here in the page.
+  let gciNames = new Map();
+  function gciCommentNames(text) {
+    const names = new Map(); let bytes = 0, lastComment = "", i = 0;
+    const sep = (ch) => " \t\r\n()".includes(ch);
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === "{") { const j = text.indexOf("}", i); lastComment = text.slice(i + 1, j < 0 ? text.length : j).trim(); i = j < 0 ? text.length : j + 1; continue; }
+      if (sep(ch)) { i++; continue; }
+      let j = i; while (j < text.length && !sep(text[j]) && text[j] !== "{") j++;
+      const tok = text.slice(i, j);
+      if (bytes % 72 === 0) {
+        const model = parseInt(tok, 10);
+        if (!Number.isNaN(model) && lastComment && !names.has(model)) names.set(model, lastComment.slice(0, 32));
+      }
+      const t = tok.replace(/^-/, "");
+      bytes += t[0] === "f" || t[0] === "l" ? 4 : t[0] === "w" ? 2 : 1;
+      lastComment = ""; i = j;
+    }
+    return names;
+  }
+  function modelLabel(i) {
+    const n = ex.modelNumber(i), name = gciNames.get(n);
+    let s = (name ? name + " · " : "") + "model " + n;
+    if (ex.styCount() > 0 && ex.source() === 1 && !ex.hasRecord(i)) s += " (no .gci record)";
+    else if (ex.source() === 1 && !ex.hasStyDims(i)) s += " (size guessed)";
     return s;
   }
   function refreshModels() {
@@ -296,46 +318,59 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     const n = ex.modelCount();
     for (let i = 0; i < n; i++) {
       const o = document.createElement("option"); o.value = i;
-      o.textContent = cstr(ex.modelName(i), 16) + (ex.source() === 1 && !ex.hasStyDims(i) ? " (size guessed)" : "");
+      o.textContent = ex.source() === 1 || ex.styCount() > 0 ? modelLabel(i) : "Placeholder saloon";
       sel.appendChild(o);
     }
     sel.value = ex.currentModel();
     const real = ex.source() === 1;
     $("srcChip").classList.toggle("ok", real);
     $("srcText").textContent = real ? "Constants from your nyc.gci" : "Placeholder constants";
-    skids.length = 0; fillTune();
+    resetView(); fillTune();
   }
-
-  const GCI_ERR = ["", "EOF in comment", "Token too big", "Invalid integer", "Invalid hex number", "Invalid number", "Number too big", "Output too big", "File length is not a whole number of car records"];
-  const STY_ERR = ["", "Not a GTA2 style file (no GBST header)", "File is truncated", "No car info chunk (CARI) in this file", "A car info record is outside what the game accepts (size over 128 px, more than 64 remaps or 5 doors, or a bad sprite flag)"];
+  const GCI_ERR = ["", "A token is not a number the .gci format allows", "File length is not a whole number of car records", "Too many car records"];
+  const STY_ERR = ["", "Not a GTA2 style file (no GBST header)", "The style file is truncated or could not be read", "No car info chunk (CARI) in this file"];
   async function loadFile(file) {
     const buf = new Uint8Array(await file.arrayBuffer());
-    if (buf.length > ex.fileBufferSize()) { msg("That file is larger than 16 MB, so it is probably not a .gci or .sty file.", true); return; }
-    new Uint8Array(mem.buffer, ex.fileBuffer(), buf.length).set(buf);
+    if (buf.length > 64 << 20) { msg("That file is larger than 64 MB, so it is probably not a .gci or .sty file.", true); return; }
+    const p = ex.alloc(buf.length || 1);
+    if (!p) { msg("Not enough memory to read " + file.name + ".", true); return; }
+    new Uint8Array(mem().buffer, p, buf.length).set(buf);
     const name = file.name.toLowerCase();
-    if (name.endsWith(".sty")) {
-      const n = ex.loadSty(buf.length);
-      styCars = n;
-      if (n < 0) msg(file.name + ": " + (STY_ERR[-n] || "could not be read"), true);
-      else {
-        const behind = ex.styWheelsBehind();
-        if (behind > 0) msg(file.name + ": sprite sizes for " + n + " cars loaded, but " + behind + " of them have the front wheel offset at or behind the rear one. The model expects the front ahead, so please report it with your results.", true);
-        else msg(file.name + ": sprite sizes for " + n + " cars loaded, every front wheel ahead of its rear wheel." + (ex.source() === 1 ? "" : " Load nyc.gci too, and the sizes will be used."));
+    try {
+      if (name.endsWith(".sty")) {
+        const n = ex.loadSty(p, buf.length);
+        if (n < 0) msg(file.name + ": " + (STY_ERR[-n] || "could not be read"), true);
+        else {
+          styCars = n;
+          const behind = ex.styWheelsBehind();
+          let t = file.name + ": sizes and wheel positions for " + n + " cars loaded.";
+          if (behind > 0) t += " " + behind + " of them have the front wheel at or behind the rear one; please mention it in your notes.";
+          if (ex.source() !== 1) t += " Load nyc.gci too for the handling numbers.";
+          else if (ex.recordCount() !== n) t += " Your .gci has " + ex.recordCount() + " records for " + n + " style cars; the game would refuse that pair, so check they come from the same install.";
+          msg(t);
+        }
+      } else {
+        const text = new TextDecoder("latin1").decode(buf);
+        const n = ex.loadGci(p, buf.length);
+        if (n < 0) msg(file.name + ": " + (GCI_ERR[-n] || "could not be read"), true);
+        else if (n === 0) msg(file.name + " has no car records.", true);
+        else {
+          gciNames = gciCommentNames(text);
+          const bad = ex.badGears();
+          let t = file.name + ": " + n + " cars loaded.";
+          if (bad > 0) t += " " + bad + " of them break gear 2 speed ≤ gear 3 speed ≤ max speed, which the game would refuse.";
+          if (ex.styCount() === 0) t += " Load a .sty too, so each car gets its real size and wheel positions.";
+          msg(t);
+        }
       }
-    } else {
-      const n = ex.loadGci(buf.length);
-      if (n < 0) msg(file.name + ": " + (GCI_ERR[-n] || "could not be read"), true);
-      else if (n === 0) msg(file.name + " has no car records.", true);
-      else msg(file.name + ": " + n + " cars loaded.");
-    }
+    } finally { ex.free(p, buf.length || 1); }
     refreshModels();
   }
   let styCars = null;
   function msg(t, err) { const m = $("loadMsg"); m.textContent = t; m.classList.toggle("err", !!err); }
-
   $("gciFile").addEventListener("change", (e) => e.target.files[0] && loadFile(e.target.files[0]));
   $("styFile").addEventListener("change", (e) => e.target.files[0] && loadFile(e.target.files[0]));
-  $("usePlaceholders").addEventListener("click", () => { ex.usePlaceholders(); refreshModels(); msg("Back on placeholder constants."); });
+  $("usePlaceholders").addEventListener("click", () => { ex.usePlaceholders(); gciNames = new Map(); styCars = null; refreshModels(); msg("Back on placeholder constants."); });
   const drop = $("drop");
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
@@ -344,8 +379,10 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     const fs = [...e.dataTransfer.files].sort((a, b) => (a.name.toLowerCase().endsWith(".sty") ? -1 : 1));
     for (const f of fs) await loadFile(f);
   });
-  $("modelSel").addEventListener("change", (e) => { ex.selectModel(+e.target.value); skids.length = 0; fillTune(); });
-  $("resetBtn").addEventListener("click", () => { ex.reset(); skids.length = 0; cv.focus(); });
+  function resetView() { skids.length = 0; lastWheel.fill(null); if (ex) { prev = null; cur = snapshot(); } }
+  function resetCar() { ex.resetCar(); resetView(); }
+  $("modelSel").addEventListener("change", (e) => { ex.selectModel(+e.target.value); resetView(); fillTune(); });
+  $("resetBtn").addEventListener("click", () => { resetCar(); cv.focus(); });
 
   // ---------- Input ----------
   const keys = new Set();
@@ -356,7 +393,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     if (typing()) return;
     if (document.activeElement !== cv) return;
     if (DRIVE_KEYS.includes(e.code)) e.preventDefault();
-    if (e.code === "KeyR") { ex.reset(); skids.length = 0; }
+    if (e.code === "KeyR" && ex) resetCar();
     keys.add(e.code);
   });
   window.addEventListener("keyup", (e) => keys.delete(e.code));
@@ -364,10 +401,10 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
   cv.addEventListener("focus", () => $("focusHint").hidden = true);
   cv.addEventListener("blur", () => { $("focusHint").hidden = false; keys.clear(); });
   $("focusHint").addEventListener("click", () => cv.focus());
-
   let padName = "";
   window.addEventListener("gamepadconnected", (e) => { padName = e.gamepad.id; $("padInfo").textContent = "Gamepad: " + padName.slice(0, 40); });
   window.addEventListener("gamepaddisconnected", () => { padName = ""; $("padInfo").textContent = "Gamepad: press any button to connect"; });
+  let padReset = false;
   function inputBits() {
     let b = 0;
     const k = (c) => keys.has(c);
@@ -377,6 +414,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     if (k("ArrowRight") || k("KeyD")) b |= 8;
     if (k("Space")) b |= 16;
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    let start = false;
     for (const p of pads) {
       if (!p) continue;
       const btn = (i) => p.buttons[i] && (p.buttons[i].pressed || p.buttons[i].value > 0.3);
@@ -386,9 +424,11 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
       if (ax < -0.35 || btn(14)) b |= 4;
       if (ax > 0.35 || btn(15)) b |= 8;
       if (btn(1) || btn(5)) b |= 16;         // B or RB
-      if (btn(9)) { ex.reset(); skids.length = 0; }
+      if (btn(9)) start = true;
     }
-    // The original is digital: left+right together is no steering.
+    if (start && !padReset) resetCar();
+    padReset = start;
+    // The original is digital: left+right together is no steering (the bench does that).
     return b;
   }
 
@@ -398,95 +438,106 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
   let prev = null, cur = null;
   const lastWheel = [null, null, null, null];
   let zoom = 44;
-
   function snapshot() {
-    const v = new Int32Array(mem.buffer, ex.view(), 21);
-    return { x: fx(v[0]), y: fx(v[1]), th: v[2], vx: fx(v[3]), vy: fx(v[4]), speed: fx(v[5]), gas: fx(v[7]),
-      skidF: v[8], skidR: v[9], impact: fx(v[10]), w: fx(v[11]), l: fx(v[12]), fw: fx(v[13]), rw: fx(v[14]), tick: v[15],
-      brake: v[16], rev: v[17], hb: v[18], snap: v[19] };
+    const v = new Int32Array(mem().buffer, ex.view(), 24);
+    return { x: fx(v[0]), y: fx(v[1]), z: fx(v[2]), h: v[3], vx: fx(v[4]), vy: fx(v[5]), spin: fx(v[6]), speed: fx(v[7]),
+      pedal: v[8] / 4, brake: v[9], hb: v[10], drive: v[11], flags: v[12], damage: v[13], tick: v[14],
+      hl: fx(v[15]), hw: fx(v[16]), fa: fx(v[17]), ra: fx(v[18]), impact: fx(v[19]), g2: fx(v[20]), g3: fx(v[21]), max: fx(v[22]), fwd: fx(v[23]) };
   }
-  function wheelPos(s, lx, ly) {
-    const a = s.th * Math.PI / 720, sn = Math.sin(a), cs = Math.cos(a);
-    return [s.x + lx * cs + ly * sn, s.y - lx * sn + ly * cs];
+  const ang = (h) => h * Math.PI * 2 / 65536;
+  // A point `along` the heading and `across` it (+ is the car's right on screen).
+  function local(s, along, across) {
+    const a = ang(s.h), c = Math.cos(a), n = Math.sin(a);
+    return [s.x + along * c - across * n, s.y + along * n + across * c];
   }
+  // Skid marks are our own visual cue (the skid-mark note is still to come):
+  // a wheel leaves a mark while its sideways slip is over 0.04 blocks a tick.
   function recordSkids(s) {
-    const hw = s.w * 7 / 16;
-    const wheels = [[-hw, s.rw, s.skidR], [hw, s.rw, s.skidR], [-hw, s.fw, s.skidF], [hw, s.fw, s.skidF]];
-    wheels.forEach(([lx, ly, on], i) => {
-      const p = wheelPos(s, lx, ly);
+    const a = ang(s.h), sx = -Math.sin(a), sy = Math.cos(a);
+    const lat = (d) => Math.abs(s.vx * sx + s.vy * sy + s.spin * d);
+    const onF = lat(s.fa) > 0.04, onR = lat(s.ra) > 0.04 || (s.hb > 0 && s.speed > 0.05);
+    const across = s.hw * 0.8;
+    const wheels = [[s.ra, -across, onR], [s.ra, across, onR], [s.fa, -across, onF], [s.fa, across, onF]];
+    wheels.forEach(([along, ac, on], i) => {
+      const p = local(s, along, ac);
       if (on && lastWheel[i]) skids.push([lastWheel[i][0], lastWheel[i][1], p[0], p[1]]);
       lastWheel[i] = on ? p : null;
     });
     if (skids.length > 4000) skids.splice(0, skids.length - 4000);
   }
-
-  const MAPN = () => ex.mapSize();
-  let mapCanvas = null;
+  let mapCanvas = null, MAPN = 256;
+  const MS = 8;
   function buildMap() {
-    const n = MAPN(), S = 32;
-    mapCanvas = document.createElement("canvas"); mapCanvas.width = n * S; mapCanvas.height = n * S;
+    const n = MAPN = ex.mapSize();
+    mapCanvas = document.createElement("canvas"); mapCanvas.width = n * MS; mapCanvas.height = n * MS;
     const m = mapCanvas.getContext("2d");
-    const col = ["#9c9a92", "#4a4c50", "#6b5f55", "#585a5e"];
+    const ground = ["#7d7a72", "#4a4c50", "#9c9a92", "#5f7148"]; // none, road, pavement, field
+    const roof = ["#8a6f5c", "#7a6252", "#6b5649", "#5d4b40", "#503f36"];
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-      const c = ex.mapCell(x, y), kind = c & 15, arrow = c >> 4;
-      m.fillStyle = col[kind]; m.fillRect(x * S, y * S, S, S);
-      if (kind === 2) { m.fillStyle = "#857667"; m.fillRect(x * S + 2, y * S + 2, S - 4, S - 4); m.fillStyle = "#6b5f55"; m.fillRect(x * S + 8, y * S + 8, S - 16, S - 16); }
-      if (kind === 0) { m.strokeStyle = "#8a887f"; m.strokeRect(x * S + 0.5, y * S + 0.5, S - 1, S - 1); }
-      if (kind === 3) { m.strokeStyle = "#e9e3cf"; m.lineWidth = 1; if (x % 3 === 0) { m.beginPath(); m.moveTo(x * S + 1, y * S + 4); m.lineTo(x * S + 1, y * S + S - 4); m.stroke(); } }
-      if (arrow) {
-        m.strokeStyle = "rgba(255,255,255,0.16)"; m.lineWidth = 2; m.beginPath();
-        if (arrow === 1) { m.moveTo(x * S + 8, y * S + S / 2); m.lineTo(x * S + S - 8, y * S + S / 2); }
-        else { m.moveTo(x * S + S / 2, y * S + 8); m.lineTo(x * S + S / 2, y * S + S - 8); }
-        m.stroke();
+      const c = ex.mapCell(x, y), z = c & 15, shape = (c >> 4) & 7, g = (c >> 8) & 3, arrows = c >> 12;
+      const X = x * MS, Y = y * MS;
+      if (z > 0) {
+        m.fillStyle = shape === 1 ? roof[Math.min(z, 4)] : "#a08c78"; m.fillRect(X, Y, MS, MS);
+        m.fillStyle = "rgba(0,0,0,0.18)"; m.fillRect(X, Y + MS - 1, MS, 1); m.fillRect(X + MS - 1, Y, 1, MS);
+      } else {
+        m.fillStyle = shape === 1 ? ground[g] : "#8f8a7c"; m.fillRect(X, Y, MS, MS);
+        if (g === 2) { m.fillStyle = "rgba(255,255,255,0.08)"; m.fillRect(X, Y, MS, 1); m.fillRect(X, Y, 1, MS); }
+        if (arrows) {
+          m.fillStyle = "rgba(255,255,255,0.18)";
+          if (arrows & 12) m.fillRect(X + 2, Y + MS / 2 - 0.5, MS - 4, 1);
+          if (arrows & 3) m.fillRect(X + MS / 2 - 0.5, Y + 2, 1, MS - 4);
+        }
       }
     }
-    // Centre lines on roads.
-    m.strokeStyle = "#d9b13b"; m.lineWidth = 2; m.setLineDash([10, 12]);
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-      const c = ex.mapCell(x, y), arrow = c >> 4;
-      if (arrow === 1 && y % 12 === 1) { m.beginPath(); m.moveTo(x * S, y * S + S / 2); m.lineTo(x * S + S, y * S + S / 2); m.stroke(); }
-      if (arrow === 2 && x % 12 === 1) { m.beginPath(); m.moveTo(x * S + S / 2, y * S); m.lineTo(x * S + S / 2, y * S + S); m.stroke(); }
+    // Centre lines between the two lanes of each road.
+    m.fillStyle = "#d9b13b";
+    for (let y = 1; y < n; y++) for (let x = 0; x < n; x++) {
+      const a = ex.mapCell(x, y - 1) >> 12, b = ex.mapCell(x, y) >> 12;
+      if ((a & 8) && (b & 4) && x % 2 === 0) m.fillRect(x * MS, y * MS - 1, MS, 2);
     }
-    m.setLineDash([]);
+    for (let y = 0; y < n; y++) for (let x = 1; x < n; x++) {
+      const a = ex.mapCell(x - 1, y) >> 12, b = ex.mapCell(x, y) >> 12;
+      if ((a & 1) && (b & 2) && y % 2 === 0) m.fillRect(x * MS - 1, y * MS, 2, MS);
+    }
   }
-
   function resize() {
     const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
     cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d));
   }
   window.addEventListener("resize", resize);
-
-  function lerpAng(a, b, t) { let d = ((b - a + 2160) % 1440) - 720; return a + d * t; }
+  function lerpH(a, b, t) { const d = ((b - a + 98304) % 65536) - 32768; return a + d * t; }
   function draw(alpha) {
     if (!cur) return;
     const p = prev || cur;
-    const s = { ...cur, x: p.x + (cur.x - p.x) * alpha, y: p.y + (cur.y - p.y) * alpha, th: lerpAng(p.th, cur.th, alpha) };
+    const s = { ...cur, x: p.x + (cur.x - p.x) * alpha, y: p.y + (cur.y - p.y) * alpha, h: lerpH(p.h, cur.h, alpha) };
     const W = cv.width, H = cv.height, base = H / 13;
-    // The original pulls the camera back as speed rises.
+    // Pull the view back as speed rises.
     const target = base * (1.25 - Math.min(cur.speed / 0.35, 1) * 0.45);
     zoom += (target - zoom) * 0.06;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#2b2a28"; ctx.fillRect(0, 0, W, H);
     ctx.setTransform(zoom, 0, 0, zoom, W / 2 - s.x * zoom, H / 2 - s.y * zoom);
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(mapCanvas, 0, 0, MAPN(), MAPN());
+    ctx.drawImage(mapCanvas, 0, 0, MAPN, MAPN);
     ctx.strokeStyle = "rgba(20,20,20,0.55)"; ctx.lineWidth = 3 / 64; ctx.beginPath();
     for (const k of skids) { ctx.moveTo(k[0], k[1]); ctx.lineTo(k[2], k[3]); }
     ctx.stroke();
-    // Car body: local +y is the front.
-    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(-s.th * Math.PI / 720);
-    const w = s.w, l = s.l;
-    ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(-w / 2 + 0.05, -l / 2 + 0.05, w, l);
-    ctx.fillStyle = "#c8312a"; ctx.fillRect(-w / 2, -l / 2, w, l);
-    ctx.fillStyle = "#1d2430"; ctx.fillRect(-w / 2 + w * 0.12, l * 0.12, w * 0.76, l * 0.16);
-    ctx.fillRect(-w / 2 + w * 0.12, -l * 0.34, w * 0.76, l * 0.1);
-    ctx.fillStyle = "#e0d9c0"; ctx.fillRect(-w / 2 + w * 0.08, l / 2 - l * 0.05, w * 0.2, l * 0.05); ctx.fillRect(w / 2 - w * 0.28, l / 2 - l * 0.05, w * 0.2, l * 0.05);
-    if (cur.brake || cur.hb) { ctx.fillStyle = "#ff3b2f"; ctx.fillRect(-w / 2 + w * 0.06, -l / 2, w * 0.22, l * 0.04); ctx.fillRect(w / 2 - w * 0.28, -l / 2, w * 0.22, l * 0.04); }
+    // Car body: local +x is the front.
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(ang(s.h));
+    const l = s.hl * 2, w = s.hw * 2;
+    ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(-l / 2 + 0.05, -w / 2 + 0.05, l, w);
+    const burning = cur.flags & 8, wrecked = cur.flags & 16;
+    ctx.fillStyle = wrecked ? "#333" : burning ? "#8a3a1a" : "#c8312a"; ctx.fillRect(-l / 2, -w / 2, l, w);
+    ctx.fillStyle = "#1d2430";
+    ctx.fillRect(l * 0.12, -w / 2 + w * 0.12, l * 0.16, w * 0.76);
+    ctx.fillRect(-l * 0.34, -w / 2 + w * 0.12, l * 0.1, w * 0.76);
+    ctx.fillStyle = "#e0d9c0"; ctx.fillRect(l / 2 - l * 0.05, -w / 2 + w * 0.08, l * 0.05, w * 0.2); ctx.fillRect(l / 2 - l * 0.05, w / 2 - w * 0.28, l * 0.05, w * 0.2);
+    if (cur.brake || cur.hb) { ctx.fillStyle = "#ff3b2f"; ctx.fillRect(-l / 2, -w / 2 + w * 0.06, l * 0.04, w * 0.22); ctx.fillRect(-l / 2, w / 2 - w * 0.28, l * 0.04, w * 0.22); }
     ctx.restore();
-    const gear = cur.rev ? "R" : (cur.speed > fxGear3 ? 3 : cur.speed > fxGear2 ? 2 : 1);
-    $("hud").innerHTML = `<span><b>${(cur.speed * 30).toFixed(1)}</b> blk/s</span><span>gear <b>${gear}</b></span><span>gas <b>${cur.gas.toFixed(2)}</b></span>${cur.hb ? "<span><b>HANDBRAKE</b></span>" : ""}${cur.snap ? "<span>lane snap</span>" : ""}`;
+    // Gears go by speed (car-handling.md step 3).
+    const gear = cur.drive === 2 ? "R" : (cur.speed >= cur.g3 ? 3 : cur.speed >= cur.g2 ? 2 : 1);
+    $("hud").innerHTML = `<span><b>${(cur.speed * 30).toFixed(1)}</b> blk/s</span><span>gear <b>${gear}</b></span><span>gas <b>${cur.pedal.toFixed(2)}</b></span>${cur.hb ? "<span><b>HANDBRAKE</b></span>" : ""}${cur.damage > 0 ? `<span>damage <b>${cur.damage}</b></span>` : ""}`;
   }
-  let fxGear2 = 0.1, fxGear3 = 0.2;
 
   // ---------- Loop: fixed 30 Hz sim, render interpolated ----------
   let acc = 0, last = 0;
@@ -514,14 +565,14 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     const t = $("tune"); t.innerHTML = "";
     FIELD_NAMES.forEach((n, i) => {
       const d = document.createElement("label"); d.className = "t";
-      d.innerHTML = `<span>${n}</span><input type="number" step="0.01" id="tf${i}">`;
-      d.querySelector("input").addEventListener("change", (e) => { ex.setField(i, Math.round(parseFloat(e.target.value) * ONE)); fillTune(); });
+      d.innerHTML = `<span>${n}</span><input type="number" step="0.001" id="tf${i}">`;
+      d.querySelector("input").addEventListener("change", (e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) ex.setField(i, Math.round(v * ONE)); fillTune(); });
       t.appendChild(d);
     });
     DIM_NAMES.forEach((n, i) => {
       const d = document.createElement("label"); d.className = "t";
       d.innerHTML = `<span>${n}</span><input type="number" step="1" id="td${i}">`;
-      d.querySelector("input").addEventListener("change", (e) => { ex.setDim(i, parseInt(e.target.value, 10)); fillTune(); });
+      d.querySelector("input").addEventListener("change", (e) => { const v = parseInt(e.target.value, 10); if (Number.isFinite(v)) ex.setDim(i, v); fillTune(); });
       t.appendChild(d);
     });
     const d = document.createElement("label"); d.className = "t";
@@ -534,18 +585,17 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     if (!ex || !$("tf0")) return;
     FIELD_NAMES.forEach((n, i) => { const el = $("tf" + i); if (document.activeElement !== el) el.value = +(ex.getField(i) / ONE).toFixed(4); });
     DIM_NAMES.forEach((n, i) => { const el = $("td" + i); if (document.activeElement !== el) el.value = ex.getDim(i); });
-    $("tturbo").checked = ex.turbo();
-    fxGear2 = ex.getField(15) / ONE; fxGear3 = ex.getField(16) / ONE;
-    const nums = FIELD_NAMES.map((n, i) => "f" + +(ex.getField(i) / ONE).toFixed(4) + " {" + n + "}");
-    $("gciOut").textContent = `{ car ${ex.modelNumber(ex.currentModel())} }\n${ex.modelNumber(ex.currentModel())} {model} ${ex.turbo() ? 1 : 0} {turbo} 0 {value} 0 {pad}\n` + nums.join("\n");
+    $("tturbo").checked = !!ex.turbo();
+    const num = ex.modelNumber(ex.currentModel());
+    const nums = FIELD_NAMES.map((n, i) => "f" + (ex.getField(i) / ONE).toFixed(3) + " {" + n + "}");
+    $("gciOut").textContent = `{ ${gciNames.get(num) || "car " + num} }\n${num} {model} ${ex.turbo() ? 1 : 0} {turbo} ${ex.recordValue()} {value} 0 {pad}\n` + nums.join("\n");
     $("metrics").innerHTML = "";
   }
   $("measureBtn").addEventListener("click", () => {
-    const v = new Int32Array(mem.buffer, ex.measure(), 6);
-    const items = [["Top speed", (fx(v[0]) * 30).toFixed(1) + " blk/s"], ["0 to 90% of top", (v[1] / 30).toFixed(2) + " s"], ["Stop from top", (v[2] / 30).toFixed(2) + " s, " + fx(v[3]).toFixed(2) + " blk"], ["Full-lock circle", (v[4] / 30).toFixed(2) + " s, " + fx(v[5]).toFixed(2) + " blk wide"]];
+    const v = new Int32Array(mem().buffer, ex.measure(), 6);
+    const items = [["Top speed", (fx(v[0]) * 30).toFixed(1) + " blk/s"], ["0 to 90% of top", (v[1] / 30).toFixed(2) + " s"], ["Stop from top", (v[2] / 30).toFixed(2) + " s, " + fx(v[3]).toFixed(2) + " blk"], ["Full-lock circle", v[4] ? (v[4] / 30).toFixed(2) + " s, " + fx(v[5]).toFixed(2) + " blk wide" : "did not complete a turn"]];
     $("metrics").innerHTML = items.map(([k, val]) => `<div class="metric"><div class="label">${k}</div><div class="v">${val}</div></div>`).join("");
   });
-
   // ---------- Rating sheet ----------
   const scales = $("scales");
   ASPECTS.forEach(([key, label]) => {
@@ -565,7 +615,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
   window.__s5 = {
     ratings: () => ratings,
     clear: () => { ratings = []; saveLocal(); render(); },
-    current: () => ({ source: ex && ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", selfTest: $("hashText").textContent, gciRecord: $("gciOut").textContent, styCars, styWheelsBehind: ex ? ex.styWheelsBehind() : null }),
+    current: () => ({ build: BUILD, source: ex && ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", selfTest: $("hashText").textContent, gciRecord: $("gciOut").textContent, styCars, styWheelsBehind: ex ? ex.styWheelsBehind() : null }),
   };
   function setRateMsg(t, err) { const m = $("rateMsg"); m.textContent = t; m.classList.toggle("err", !!err); }
   $("rateForm").addEventListener("submit", async (e) => {
@@ -577,7 +627,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     const scores = {};
     for (const [k] of ASPECTS) { const c = document.querySelector(`input[name="s_${k}"]:checked`); scores[k] = c ? +c.value : null; }
     const rec = { name, know: $("rKnow").value, scores, verdict, notes: $("rNotes").value.trim(),
-      source: ex && ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", at: Date.now() };
+      source: ex && ex.source() === 1 ? "gci" : "placeholder", car: $("modelSel").selectedOptions[0]?.textContent || "", build: BUILD, at: Date.now() };
     if (db) {
       try { await db.collection("ratings").add(rec); setRateMsg("Saved."); }
       catch (err) { setRateMsg("Could not save to the shared store (" + (err && err.code || "error") + "). Kept on this page; copy the Markdown before leaving.", true); ratings.push(rec); render(); }
@@ -591,7 +641,7 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
     tbody.innerHTML = "";
     for (const r of ratings) {
       const tr = document.createElement("tr");
-      const cells = [r.name, r.know, ...ASPECTS.map(([k]) => r.scores?.[k] ?? "–"), r.verdict, r.source + (r.car ? " · " + r.car : ""), r.notes || ""];
+      const cells = [r.name, r.know, ...ASPECTS.map(([k]) => r.scores?.[k] ?? "–"), r.verdict, (r.build === BUILD ? "" : "old build · ") + r.source + (r.car ? " · " + r.car : ""), r.notes || ""];
       cells.forEach((c, i) => {
         const td = document.createElement("td"); td.textContent = c;
         if (i >= 2 && i < 2 + ASPECTS.length) td.className = "num";
@@ -600,19 +650,19 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
       });
       tbody.appendChild(tr);
     }
-    const qualified = ratings.filter((r) => r.know !== "little" && r.source === "gci");
+    const qualified = ratings.filter((r) => r.know !== "little" && r.source === "gci" && r.build === BUILD);
     const yes = qualified.filter((r) => r.verdict === "yes").length, no = qualified.length - yes;
     const box = $("verdictBox"); box.classList.remove("pass", "fail");
     if (!ratings.length) { $("verdictText").textContent = "No ratings yet"; $("verdictSub").textContent = "Needs three raters who know the game, driving on your own data files, all answering yes."; }
     else if (no > 0) { box.classList.add("fail"); $("verdictText").textContent = "Fails"; $("verdictSub").textContent = `${no} of ${qualified.length} qualifying raters said no.`; }
     else if (yes >= 3) { box.classList.add("pass"); $("verdictText").textContent = "Passes"; $("verdictSub").textContent = `${yes} qualifying raters said yes.`; }
-    else { $("verdictText").textContent = `${yes} of 3 so far`; $("verdictSub").textContent = "Counts only raters who know the game and drove on your own nyc.gci." + (ratings.length > qualified.length ? ` ${ratings.length - qualified.length} rating(s) not counted.` : ""); }
+    else { $("verdictText").textContent = `${yes} of 3 so far`; $("verdictSub").textContent = "Counts only raters who know the game and drove this build on your own nyc.gci." + (ratings.length > qualified.length ? ` ${ratings.length - qualified.length} rating(s) not counted.` : ""); }
   }
 
   $("copyBtn").addEventListener("click", async () => {
     const head = "| Rater | Knows | " + ASPECTS.map(([, l]) => l).join(" | ") + " | GTA2? | Data | Notes |";
     const sep = "|" + " --- |".repeat(ASPECTS.length + 5);
-    const rows = ratings.map((r) => `| ${r.name} | ${r.know} | ` + ASPECTS.map(([k]) => r.scores?.[k] ?? "").join(" | ") + ` | ${r.verdict} | ${r.source} ${r.car} | ${(r.notes || "").replace(/\|/g, "/").replace(/\n/g, " ")} |`);
+    const rows = ratings.map((r) => `| ${r.name} | ${r.know} | ` + ASPECTS.map(([k]) => r.scores?.[k] ?? "").join(" | ") + ` | ${r.verdict} | ${r.build === BUILD ? "" : "old build "}${r.source} ${r.car} | ${(r.notes || "").replace(/\|/g, "/").replace(/\n/g, " ")} |`);
     const text = `S5 handling rating: ${$("verdictText").textContent}\n\n${head}\n${sep}\n${rows.join("\n")}\n`;
     const out = $("copyOut");
     try { await navigator.clipboard.writeText(text); $("copyBtn").textContent = "Copied"; setTimeout(() => $("copyBtn").textContent = "Copy as Markdown", 1500); }
@@ -653,18 +703,21 @@ pre { font-family: var(--font-mono); font-size: 12px; background: var(--bg); pad
 <script>
 window.TESTER = {
   spike: "s5", title: "Does this car feel like GTA2?", time: "15 minutes per rater",
-  intro: "Not open right now. The car handling is being rebuilt from scratch, so there is nothing to drive on this page until the new build is up.",
-  needs: "nothing for now. When the new build lands this guide will list what to bring again.",
+  intro: "This is GTA2's car handling, rebuilt from written notes on how the game behaves and driven from the game's own handling file. We need people who know the game to say whether it feels right. Ratings made on the earlier build do not count, so please rate again even if you did before.",
+  needs: "your own copy of GTA2 (<code>nyc.gci</code> and a <code>.sty</code> such as <code>wil.sty</code> from its <code>data</code> folder), a keyboard or gamepad, and ideally a video clip of the original game driving. Your files and video stay in this browser and are never uploaded.",
   steps: [
-    "Check back later. The notice at the top of the page goes away when the handling is back.",
-    "If you saved ratings here earlier, press <b>Download results</b> and then <b>Submit on GitHub</b> so they are not lost. They were made on the old build.",
+    "Under <b>Your data files</b>, choose <code>nyc.gci</code> and a <code>.sty</code> file. The chip at the top should change from Placeholder constants. Ratings on placeholder constants do not count.",
+    "Pick a car you know well, and if you have a clip of the original, open it under <b>Original footage</b>.",
+    "Click the driving view and drive for about five minutes: arrows or <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, <kbd>Space</kbd> handbrake, <kbd>R</kbd> reset. Do a straight run to top speed along the top road, laps of the city blocks, handbrake turns on the open fields west of the start, and hit a few building walls.",
+    "Fill in the <b>Rating sheet</b> on your own, without looking at anyone else's answers, and press <b>Save rating</b>. More than one person can rate on the same computer.",
+    "Press <b>Download results</b> and then <b>Submit on GitHub</b>.",
   ],
   fields: [
     { id: "footage", label: "What did you compare against?", type: "radio", options: ["A video clip", "Playing the original just before", "Memory only"] },
     { id: "notes", label: "Other notes", type: "textarea" },
   ],
   collect: () => window.__s5 ? { ratings: window.__s5.ratings(), current: window.__s5.current() } : null,
-  summary: () => { const r = window.__s5 ? window.__s5.ratings() : []; return r.length ? r.map((x) => `${x.name}: ${x.verdict} (${x.source}, ${x.car})`).join("\n") : "No ratings saved yet."; },
+  summary: () => { const r = window.__s5 ? window.__s5.ratings() : []; return r.length ? r.map((x) => `${x.name}: ${x.verdict} (${x.build || "old build"}, ${x.source}, ${x.car})`).join("\n") : "No ratings saved yet."; },
   clear: () => window.__s5 && window.__s5.clear(),
 };
 </script>
