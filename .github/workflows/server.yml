@@ -1,0 +1,61 @@
+name: Server
+
+# Workstream D: server unit tests (including exact replication of the real
+# sim through the I3 codecs) and a headless soak on a synthetic map: bot
+# clients over WebSocket, then every recorded replay re-run and compared
+# tick by tick. No game data is involved.
+
+on:
+  push:
+    paths:
+      - 'server/**'
+      - 'sim/**'
+      - 'interfaces/**'
+      - 'formats/**'
+      - '.github/workflows/server.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'sim/**'
+      - 'interfaces/**'
+      - 'formats/**'
+      - '.github/workflows/server.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: 0.17.0
+  ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+
+jobs:
+  server:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig ${{ env.ZIG_VERSION }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
+          tar xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-$ZIG_VERSION" >> "$GITHUB_PATH"
+      - run: sudo apt-get update && sudo apt-get install -y libgnutls28-dev
+      - uses: actions/cache@v4
+        with:
+          path: server/deps/out
+          key: ngtcp2-${{ runner.os }}-${{ hashFiles('server/scripts/build-deps.sh') }}
+      - name: Build ngtcp2 + nghttp3
+        run: test -f deps/out/lib/libngtcp2.a || sh scripts/build-deps.sh
+      - name: Unit tests
+        run: zig build test
+      - name: Unit tests against the stub sim
+        run: zig build test -Dsim=stub
+      - name: Build
+        run: zig build -Doptimize=ReleaseSafe
+      - name: Bot soak + replay check
+        run: sh scripts/soak.sh 30 4

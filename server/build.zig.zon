@@ -1,0 +1,12 @@
+.{
+    .name = .gta2_server,
+    .version = "0.1.0",
+    .fingerprint = 0x5f083b5975f3e30f,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .interfaces = .{ .path = "../interfaces/zig" },
+        .formats = .{ .path = "../formats" },
+        .sim = .{ .path = "../sim" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "scripts", "deploy", "web" },
+}
