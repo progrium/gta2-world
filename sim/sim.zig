@@ -243,6 +243,7 @@ pub fn Sim(comptime cfg: Config) type {
             self.sysPedControl();
             self.sysCarControl();
             self.sysWeapons();
+            self.sysExplosions();
             self.sysMoveCars();
             self.sysMovePeds();
             self.sysMoveProjectiles();
@@ -555,12 +556,11 @@ pub fn Sim(comptime cfg: Config) type {
 
         fn initCar(self: *Self, id: EntityId, spot: Spot, model: u8) void {
             const w = &self.state.world;
-            const m = T.carModel(model);
             w.get(id, c.Transform).?.* = .{ .x = spot.x, .y = spot.y, .z = spot.z, .heading = spot.heading };
             w.get(id, c.Collider).?.flags = c.Collider.flag_grounded;
-            w.get(id, c.Health).?.* = .{ .hp = m.hp, .last_hit_by = .none };
+            w.get(id, c.Health).?.* = .{ .hp = T.car_damage_max, .last_hit_by = .none };
             w.get(id, c.Controller).?.* = .{ .player = c.Controller.no_player, .prev_buttons = 0, .in = Frame.neutral(0) };
-            w.get(id, c.Vehicle).?.* = .{ .driver = .none, .model = model, .pedal = 0, .steer = 0, .flags = 0, .timer = 0, .ai_dir = 0, .ai_plan = 0 };
+            w.get(id, c.Vehicle).?.* = .{ .driver = .none, .model = model, .pedal = 0, .steer = 0, .flags = 0, .timer = 0, .ai_dir = 0, .ai_plan = 0, .halt = 0, .ai_speed = 0 };
             w.get(id, c.Appearance).?.* = .{ .sprite = model, .remap = c.Appearance.no_remap };
         }
 
@@ -589,7 +589,7 @@ pub fn Sim(comptime cfg: Config) type {
             w.get(id, c.Health).?.* = .{ .hp = T.ped_hp, .last_hit_by = .none };
             w.get(id, c.Riding).?.vehicle = .none;
             w.get(id, c.Controller).?.* = .{ .player = player, .prev_buttons = 0, .in = Frame.neutral(0) };
-            w.get(id, c.Pedestrian).?.* = .{ .ai_timer = 0, .ai_heading = sp.heading, .jump_cooldown = 0, .anim = 0 };
+            w.get(id, c.Pedestrian).?.* = .{ .ai_timer = 0, .ai_heading = sp.heading, .turn = 0, .down = 0, .jump = 0, .anim = 0, .state = 0, .flags = 0 };
             const is_player = player != c.Controller.no_player;
             w.get(id, c.Weapon).?.* = .{ .cooldown = 0, .kind = T.weapon_pistol, .a0 = if (is_player) T.infinite_ammo else 0, .a1 = 0, .a2 = 0, .a3 = 0 };
             w.get(id, c.Appearance).?.* = .{ .sprite = 0, .remap = c.Appearance.no_remap };
@@ -631,8 +631,6 @@ pub fn Sim(comptime cfg: Config) type {
         // ==================================================================
         // Systems, in tick order
 
-        /// Latch each player's frame into the entity they control, and act on
-        /// the enter/exit edge.
         fn sysInput(self: *Self, frames: []const Frame) void {
             const Ctx = struct { sim: *Self, frames: []const Frame };
             self.state.world.eachFiltered(.{ c.Controller, c.Riding, c.Transform }, self.predicting(), Ctx{ .sim = self, .frames = frames }, struct {
@@ -644,10 +642,15 @@ pub fn Sim(comptime cfg: Config) type {
                     const pressed = in.buttons & ~@as(u16, @truncate(ctl.prev_buttons));
                     ctl.prev_buttons = in.buttons;
                     ctl.in = in;
-                    if (pressed & Button.enter_exit != 0) {
-                        if (!ride.vehicle.isNone()) sim.tryExit(id) else sim.tryEnter(id);
-                    }
                     const w = &sim.state.world;
+                    const ped = w.get(id, c.Pedestrian);
+                    const up = if (ped) |p| p.state == c.Pedestrian.state_up else true;
+                    if (pressed & Button.enter_exit != 0) {
+                        if (!ride.vehicle.isNone()) sim.tryExit(id) else if (up) sim.tryEnter(id);
+                    }
+                    if (ride.vehicle.isNone() and pressed & Button.handbrake_jump != 0) {
+                        if (ped) |p| p.flags |= c.Pedestrian.flag_jump_pressed;
+                    }
                     if (pressed & (Button.weapon_next | Button.weapon_prev) != 0) {
                         if (w.get(id, c.Weapon)) |wpn| cycleWeapon(wpn, pressed & Button.weapon_next != 0);
                     }
@@ -663,19 +666,23 @@ pub fn Sim(comptime cfg: Config) type {
             }.f);
         }
 
+
+        /// Get into the nearest free car, searching from half a block in
+        /// front of the ped; the car must be nearly still.
         fn tryEnter(self: *Self, ped: EntityId) void {
             const w = &self.state.world;
             const t = w.get(ped, c.Transform).?;
             const Best = struct { id: EntityId = .none, d: Fx = T.enter_reach };
             var best: Best = .{};
-            const Ctx = struct { best: *Best, t: *const c.Transform };
-            w.each(.{ c.Vehicle, c.Transform, c.Velocity }, Ctx{ .best = &best, .t = t }, struct {
-                fn f(ctx: Ctx, id: EntityId, v: *c.Vehicle, ct: *c.Transform, vel: *c.Velocity) void {
+            const Ctx = struct { best: *Best, x: Fx, y: Fx, z: Fx };
+            const ctx = Ctx{ .best = &best, .x = t.x + fx.mul(fx.cos(t.heading), T.enter_ahead), .y = t.y + fx.mul(fx.sin(t.heading), T.enter_ahead), .z = t.z };
+            w.each(.{ c.Vehicle, c.Transform, c.Velocity }, ctx, struct {
+                fn f(cx: Ctx, id: EntityId, v: *c.Vehicle, ct: *c.Transform, vel: *c.Velocity) void {
                     if (!v.driver.isNone() or v.flags & c.Vehicle.flag_wrecked != 0) return;
-                    if (fx.abs(ct.z - ctx.t.z) > fx.half) return;
-                    if (speedOf(vel) > T.enter_max_speed) return;
-                    const d = fx.length(ct.x - ctx.t.x, ct.y - ctx.t.y);
-                    if (d < ctx.best.d) ctx.best.* = .{ .id = id, .d = d };
+                    if (fx.abs(ct.z - cx.z) > fx.half) return;
+                    if (speedOf(vel) >= T.enter_max_speed) return;
+                    const d = fx.length(ct.x - cx.x, ct.y - cx.y);
+                    if (d < cx.best.d) cx.best.* = .{ .id = id, .d = d };
                 }
             }.f);
             if (best.id.isNone() or !self.writable(best.id)) return;
@@ -688,7 +695,10 @@ pub fn Sim(comptime cfg: Config) type {
             w.get(ped, c.Riding).?.vehicle = car;
             w.get(ped, c.Collider).?.flags = c.Collider.flag_disabled;
             w.get(ped, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
-            w.get(ped, c.Pedestrian).?.anim = c.Pedestrian.anim_stand;
+            const pd = w.get(ped, c.Pedestrian).?;
+            pd.anim = c.Pedestrian.anim_stand;
+            pd.turn = 0;
+            pd.jump = 0;
             const veh = w.get(car, c.Vehicle).?;
             veh.driver = ped;
             veh.flags &= ~c.Vehicle.flag_ai;
@@ -704,11 +714,12 @@ pub fn Sim(comptime cfg: Config) type {
         }
 
         /// Leave on the driver's side (left of travel), else the right, else
-        /// stay in.
+        /// stay in. Only once the car is below 0.3 a tick.
         fn tryExit(self: *Self, ped: EntityId) void {
             const w = &self.state.world;
             const car = w.get(ped, c.Riding).?.vehicle;
             const ct = (w.get(car, c.Transform) orelse return).*;
+            if (speedOf(w.get(car, c.Velocity).?) >= T.exit_max_speed) return;
             const m = T.carModel(w.get(car, c.Vehicle).?.model);
             const off = m.half_wid + T.ped_radius + fx.ratio(1, 10);
             const sides = [2]u16{ ct.heading -% 16384, ct.heading +% 16384 };
@@ -760,28 +771,57 @@ pub fn Sim(comptime cfg: Config) type {
             }.f);
         }
 
-        /// On-foot control: tank (steer turns, throttle walks) or direct
-        /// (turn toward aim, move along it). Jump on handbrake_jump.
+        /// On-foot control (ped-movement.md 3.1-3.6): tank turning that
+        /// builds up while held, one running pace forward and back, and a
+        /// jump on a fresh press that carries the ped forward without
+        /// leaving the ground. Direct mode (sticks) turns toward the aim.
+        /// Knocked-over peds and falling peds take no control.
         fn sysPedControl(self: *Self) void {
             self.state.world.eachFiltered(.{ c.Pedestrian, c.Riding, c.Controller, c.Transform, c.Velocity, c.Collider }, self.predicting(), {}, struct {
                 fn f(_: void, _: EntityId, ped: *c.Pedestrian, ride: *c.Riding, ctl: *c.Controller, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
-                    if (ped.jump_cooldown > 0) ped.jump_cooldown -= 1;
-                    if (!ride.vehicle.isNone()) return;
+                    const jump_pressed = ped.flags & c.Pedestrian.flag_jump_pressed != 0;
+                    ped.flags &= ~c.Pedestrian.flag_jump_pressed;
+                    if (!ride.vehicle.isNone()) {
+                        ped.turn = 0;
+                        ped.jump = 0;
+                        return;
+                    }
+                    if (ped.state != c.Pedestrian.state_up) return;
+                    const grounded = col.flags & c.Collider.flag_grounded != 0;
+                    const jumping = ped.jump > 0;
+                    // Falling: keeps its motion (3.5).
+                    if (!grounded and !jumping) {
+                        ped.anim = c.Pedestrian.anim_jump;
+                        return;
+                    }
                     const in = ctl.in;
                     const run = in.buttons & Button.run != 0;
                     var speed: Fx = 0;
                     var dir: u16 = t.heading;
                     if (in.buttons & Button.direct != 0) {
+                        ped.turn = 0;
                         const diff: i16 = @bitCast(in.aim -% t.heading);
-                        const turn = std.math.clamp(@as(i32, diff), -T.ped_direct_turn, T.ped_direct_turn);
+                        const lim: i32 = if (jumping) T.ped_turn_jump_max else T.ped_direct_turn;
+                        const turn = std.math.clamp(@as(i32, diff), -lim, lim);
                         t.heading +%= @as(u16, @truncate(@as(u32, @bitCast(turn))));
                         if (in.throttle > 0) {
                             speed = fx.mulAxis(if (run) T.ped_run else T.ped_walk, in.throttle);
                             dir = in.aim;
                         }
                     } else {
-                        const turn = @divTrunc(@as(i32, in.steer) * T.ped_tank_turn, 127);
-                        t.heading +%= @as(u16, @truncate(@as(u32, @bitCast(turn))));
+                        if (in.steer == 0) {
+                            ped.turn = 0;
+                        } else {
+                            // The turn speed steps toward the held side, up
+                            // to a cap (a stick's deflection scales the cap).
+                            const aiming = in.buttons & Button.fire != 0 and in.throttle <= 0;
+                            const rate: i32 = if (jumping) T.ped_turn_jump else if (aiming) T.ped_turn_aim else T.ped_tank_turn;
+                            const max: i32 = if (jumping) T.ped_turn_jump_max else T.ped_turn_max;
+                            const cap = @divTrunc(max * @as(i32, @abs(in.steer)), 127);
+                            const sign: i32 = if (in.steer > 0) 1 else -1;
+                            ped.turn = @intCast(std.math.clamp(@as(i32, ped.turn) + sign * rate, -cap, cap));
+                        }
+                        t.heading +%= @as(u16, @bitCast(ped.turn));
                         dir = t.heading;
                         if (in.throttle > 0) {
                             speed = fx.mulAxis(if (run) T.ped_run else T.ped_walk, in.throttle);
@@ -790,17 +830,20 @@ pub fn Sim(comptime cfg: Config) type {
                             dir = t.heading +% 32768;
                         }
                     }
-                    const grounded = col.flags & c.Collider.flag_grounded != 0;
-                    if (grounded) {
-                        vel.vx = fx.mul(fx.cos(dir), speed);
-                        vel.vy = fx.mul(fx.sin(dir), speed);
-                        if (in.buttons & Button.handbrake_jump != 0 and ped.jump_cooldown == 0) {
-                            vel.vz = T.ped_jump_vz;
-                            col.flags &= ~c.Collider.flag_grounded;
-                            ped.jump_cooldown = T.ped_jump_cooldown;
-                        }
+                    if (jumping) {
+                        ped.jump -= 1;
+                    } else if (jump_pressed) {
+                        ped.jump = T.ped_jump_ticks;
                     }
-                    ped.anim = if (!grounded or vel.vz > 0) c.Pedestrian.anim_jump else if (speed == 0) c.Pedestrian.anim_stand else if (run) c.Pedestrian.anim_run else c.Pedestrian.anim_walk;
+                    // A jump always carries him forward at the run pace.
+                    if (ped.jump > 0 and speed == 0) {
+                        speed = T.ped_run;
+                        dir = t.heading;
+                    }
+                    vel.vx = fx.mul(fx.cos(dir), speed);
+                    vel.vy = fx.mul(fx.sin(dir), speed);
+                    vel.vz = 0;
+                    ped.anim = if (ped.jump > 0) c.Pedestrian.anim_jump else if (speed == 0) c.Pedestrian.anim_stand else if (run) c.Pedestrian.anim_run else c.Pedestrian.anim_walk;
                 }
             }.f);
         }
@@ -903,42 +946,45 @@ pub fn Sim(comptime cfg: Config) type {
             }
         }
 
+        /// Fire held: one pull every `cooldown` ticks while there is ammo
+        /// (weapons.md). Ammo is in tenths; a pull spends `tenths_per_pull`.
+        /// The muzzle is a quarter block ahead, and the point halfway there
+        /// must be clear of walls, or nothing is fired and nothing spent.
         fn sysWeapons(self: *Self) void {
             self.state.world.eachFiltered(.{ c.Weapon, c.Controller, c.Transform, c.Velocity, c.Riding }, self.predicting(), self, struct {
                 fn f(sim: *Self, id: EntityId, wpn: *c.Weapon, ctl: *c.Controller, t: *c.Transform, vel: *c.Velocity, ride: *c.Riding) void {
                     if (wpn.cooldown > 0) wpn.cooldown -= 1;
                     if (!ride.vehicle.isNone()) return;
+                    if (sim.state.world.get(id, c.Pedestrian)) |p| {
+                        if (p.state != c.Pedestrian.state_up) return;
+                    }
                     if (wpn.kind >= T.weapon_count) wpn.kind = T.weapon_pistol;
                     if (wpn.rounds()[wpn.kind] == 0) cycleWeapon(wpn, false);
-                    const def = T.weapons[wpn.kind];
-                    if (ctl.in.buttons & Button.fire == 0 or wpn.cooldown != 0 or wpn.rounds()[wpn.kind] == 0) return;
+                    const k = wpn.kind;
+                    const def = T.weapons[k];
+                    const have = wpn.rounds()[k];
+                    if (ctl.in.buttons & Button.fire == 0 or wpn.cooldown != 0 or have == 0) return;
+                    const hx = t.x + fx.mul(fx.cos(t.heading), T.muzzle_ahead >> 1);
+                    const hy = t.y + fx.mul(fx.sin(t.heading), T.muzzle_ahead >> 1);
+                    if (map.blocks(sim.grid, hx, hy, t.z, T.shot_height)) return;
                     wpn.cooldown = def.cooldown;
-                    if (wpn.rounds()[wpn.kind] != T.infinite_ammo) wpn.rounds()[wpn.kind] -= 1;
+                    if (have != T.infinite_ammo) wpn.rounds()[k] = have -| def.tenths_per_pull;
                     sim.scratch.stats.shots += 1;
-                    var aim = t.heading;
-                    if (def.jitter != 0) {
-                        const j = sim.randBelow(id, salt_jitter, 2 * @as(u32, def.jitter) + 1);
-                        aim +%= @as(u16, @truncate(j)) -% def.jitter;
-                    }
+                    // Pellets fan out `spread` apart, centred on the aim.
+                    const first = t.heading -% @as(u16, @truncate(@as(u32, def.spread) * (def.pellets - 1) / 2));
                     var p: u8 = 0;
                     while (p < def.pellets) : (p += 1) {
-                        // Pellets fan evenly across the spread.
-                        var h = aim;
-                        if (def.pellets > 1) {
-                            const gap: u32 = def.spread / (def.pellets - 1);
-                            h = aim -% (def.spread / 2) +% @as(u16, @truncate(gap * p));
-                        }
-                        sim.fire(id, t, vel, h, wpn.kind, def);
+                        sim.fire(id, t, vel, first +% @as(u16, @truncate(@as(u32, def.spread) * p)), k, def);
                     }
                 }
             }.f);
         }
 
+
         fn fire(self: *Self, shooter: EntityId, t: *const c.Transform, vel: *const c.Velocity, heading: u16, weapon: u8, def: T.WeaponDef) void {
             const dx = fx.cos(heading);
             const dy = fx.sin(heading);
-            const off = T.ped_radius + fx.ratio(2, 10);
-            const st: c.Transform = .{ .x = t.x + fx.mul(dx, off), .y = t.y + fx.mul(dy, off), .z = t.z + fx.ratio(1, 2), .heading = heading };
+            const st: c.Transform = .{ .x = t.x + fx.mul(dx, T.muzzle_ahead), .y = t.y + fx.mul(dy, T.muzzle_ahead), .z = t.z + T.shot_height, .heading = heading };
             if (self.predicting()) {
                 self.pushIntent(.spawn, .projectile, shooter, st);
                 return;
@@ -946,36 +992,90 @@ pub fn Sim(comptime cfg: Config) type {
             const w = &self.state.world;
             const sid = w.spawn(Shot) orelse return;
             w.get(sid, c.Transform).?.* = st;
+            // Shots carry the shooter's own velocity (projectiles.md 3.1).
             w.get(sid, c.Velocity).?.* = .{ .vx = vel.vx + fx.mul(dx, def.speed), .vy = vel.vy + fx.mul(dy, def.speed), .vz = 0, .spin = 0 };
-            w.get(sid, c.Projectile).?.* = .{ .owner = shooter, .ttl = def.ttl, .damage = def.damage, .weapon = weapon };
+            w.get(sid, c.Projectile).?.* = .{ .owner = shooter, .ttl = def.ttl, .damage = 0, .weapon = weapon };
         }
 
-        /// Damage and push everything within the blast radius; reported as an
-        /// event. `by` gets the credit.
-        fn explode(self: *Self, x: Fx, y: Fx, z: Fx, by: EntityId, cause: u8) void {
+
+        /// Start an explosion (explosions-and-damage.md): an entity that
+        /// stays put for 99 ticks and acts from the next tick. `kind` 0 is
+        /// small (rockets), 1 a car. `by` is credited.
+        fn explodeAt(self: *Self, x: Fx, y: Fx, z: Fx, by: EntityId, kind: u8) void {
+            if (self.predicting()) return;
             self.scratch.stats.explosions += 1;
-            self.pushEvent(.{ .kind = .explosion, .a = cause, .x = x, .y = y, .z = z });
-            const Ctx = struct { sim: *Self, x: Fx, y: Fx, z: Fx, by: EntityId, r: Fx };
-            const ctx = Ctx{ .sim = self, .x = x, .y = y, .z = z, .by = by, .r = if (cause == 1) T.car_explosion_radius else T.explosion_radius };
-            self.state.world.each(.{ c.Transform, c.Velocity, c.Health, c.Collider }, ctx, struct {
-                fn f(cx: Ctx, id: EntityId, t: *c.Transform, vel: *c.Velocity, h: *c.Health, col: *c.Collider) void {
-                    _ = h;
-                    if (fx.abs(t.z - cx.z) > fx.one) return;
-                    const ddx = t.x - cx.x;
-                    const ddy = t.y - cx.y;
-                    if (fx.abs(ddx) >= cx.r or fx.abs(ddy) >= cx.r) return;
-                    const d = fx.length(ddx, ddy);
-                    if (d >= cx.r) return;
-                    const near = fx.clamp(fx.div(cx.r - d, cx.r - T.explosion_core), 0, fx.one);
-                    cx.sim.hurt(id, fx.toInt(fx.mul(near, fx.fromInt(T.explosion_damage))), cx.by);
-                    if (col.flags & c.Collider.flag_disabled != 0 or !cx.sim.writable(id)) return;
-                    const push = fx.mul(near, T.explosion_push);
-                    const nx = if (d == 0) fx.one else fx.div(ddx, d);
-                    const ny = if (d == 0) 0 else fx.div(ddy, d);
-                    // Cars are heavy and move a third as much.
-                    const scale: i32 = if (cx.sim.state.world.get(id, c.Vehicle) != null) 3 else 1;
-                    vel.vx += @divTrunc(fx.mul(nx, push), scale);
-                    vel.vy += @divTrunc(fx.mul(ny, push), scale);
+            self.pushEvent(.{ .kind = .explosion, .a = kind, .x = x, .y = y, .z = z });
+            const w = &self.state.world;
+            const id = w.spawn(Shot) orelse return;
+            w.get(id, c.Transform).?.* = .{ .x = x, .y = y, .z = z, .heading = 0 };
+            w.get(id, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
+            w.get(id, c.Projectile).?.* = .{ .owner = by, .ttl = T.explosion_ticks, .damage = 0, .weapon = c.Projectile.explosion_bit | kind };
+        }
+
+        fn isExplosion(p: *const c.Projectile) bool {
+            return p.weapon & c.Projectile.explosion_bit != 0;
+        }
+
+        /// Every explosion, every tick: on its first tick it pushes cars
+        /// outward; while its timer is above 50 it throws peds and, in two
+        /// windows, wrecks cars in its radius. Distances are square
+        /// (Chebyshev), with a vertical reach of 0.2.
+        fn sysExplosions(self: *Self) void {
+            if (self.predicting()) return;
+            self.state.world.each(.{ c.Transform, c.Projectile }, self, struct {
+                fn f(sim: *Self, id: EntityId, t: *c.Transform, p: *c.Projectile) void {
+                    if (!isExplosion(p)) return;
+                    if (p.ttl == 0) return sim.kill(id);
+                    const timer = p.ttl;
+                    p.ttl -= 1;
+                    const r = if (p.weapon & 3 == 1) T.explosion_car else T.explosion_small;
+                    const Ctx = struct { sim: *Self, x: Fx, y: Fx, z: Fx, r: Fx, timer: u16, by: EntityId };
+                    const ctx = Ctx{ .sim = sim, .x = t.x, .y = t.y, .z = t.z, .r = r, .timer = timer, .by = p.owner };
+                    const car_window = (timer >= 81 and timer <= 89) or (timer >= 51 and timer <= 59);
+                    if (timer == T.explosion_ticks or car_window) {
+                        sim.state.world.each(.{ c.Vehicle, c.Transform, c.Velocity }, ctx, struct {
+                            fn g(cx: Ctx, cid: EntityId, v: *c.Vehicle, ct: *c.Transform, vel: *c.Velocity) void {
+                                if (v.flags & c.Vehicle.flag_wrecked != 0) return;
+                                if (fx.abs(ct.z - cx.z) > T.explosion_reach_z) return;
+                                const dx = ct.x - cx.x;
+                                const dy = ct.y - cx.y;
+                                if (@max(fx.abs(dx), fx.abs(dy)) > cx.r) return;
+                                if (cx.timer == T.explosion_ticks) {
+                                    // Outward push of 1 / (4 x distance), by mass.
+                                    const d = @max(fx.length(dx, dy), fx.ratio(1, 4));
+                                    const imp = fx.div(fx.one, d * 4);
+                                    const dv = fx.div(imp, T.carModel(v.model).mass);
+                                    vel.vx += fx.mul(fx.div(dx, d), dv);
+                                    vel.vy += fx.mul(fx.div(dy, d), dv);
+                                } else {
+                                    cx.sim.damageCar(cid, @as(i64, T.blast_car_damage) << fx.frac_bits, cx.by);
+                                }
+                            }
+                        }.g);
+                    }
+                    if (timer <= T.explosion_active_above) return;
+                    sim.state.world.each(.{ c.Pedestrian, c.Transform, c.Riding, c.Controller }, ctx, struct {
+                        fn g(cx: Ctx, pid: EntityId, ped: *c.Pedestrian, pt: *c.Transform, ride: *c.Riding, ctl: *c.Controller) void {
+                            if (ped.state != c.Pedestrian.state_up or !ride.vehicle.isNone()) return;
+                            if (fx.abs(pt.z - cx.z) > T.explosion_reach_z) return;
+                            const dx = pt.x - cx.x;
+                            const dy = pt.y - cx.y;
+                            const d = @max(fx.abs(dx), fx.abs(dy));
+                            if (d > 2 * cx.r) return;
+                            const len = fx.length(dx, dy);
+                            const nx = if (len == 0) fx.one else fx.div(dx, len);
+                            const ny = if (len == 0) 0 else fx.div(dy, len);
+                            const S = c.Pedestrian;
+                            if (d <= cx.r >> 1) {
+                                cx.sim.knock(pid, S.state_fatal, nx, ny, T.blast_throw, T.blast_lift_close, cx.by);
+                            } else if (d <= cx.r) {
+                                const player = ctl.player != c.Controller.no_player;
+                                cx.sim.knock(pid, if (player) S.state_down else S.state_fatal, nx, ny, T.blast_throw, T.blast_lift, cx.by);
+                            } else if (cx.timer > T.explosion_knock_above) {
+                                cx.sim.knock(pid, S.state_over, nx, ny, T.blast_knock, 0, cx.by);
+                            }
+                        }
+                    }.g);
                 }
             }.f);
         }
@@ -1023,7 +1123,7 @@ pub fn Sim(comptime cfg: Config) type {
         }
 
         /// Gravity, floor following and landing for any body.
-        fn settle(self: *const Self, t: *c.Transform, vel: *c.Velocity, col: *c.Collider, step_h: Fx) void {
+        fn settle(self: *const Self, t: *c.Transform, vel: *c.Velocity, col: *c.Collider, step_h: Fx, grav: Fx, max_fall: Fx) void {
             const floor = map.floorAt(self.grid, t.x, t.y, t.z, step_h);
             const grounded = col.flags & c.Collider.flag_grounded != 0;
             if (grounded and vel.vz <= 0 and floor >= t.z - T.snap_down) {
@@ -1031,7 +1131,7 @@ pub fn Sim(comptime cfg: Config) type {
                 vel.vz = 0;
                 return;
             }
-            vel.vz = @max(vel.vz - T.gravity, -T.max_fall);
+            vel.vz = @max(vel.vz - grav, -max_fall);
             // Rising into a ceiling stops the rise.
             if (vel.vz > 0 and map.blocks(self.grid, t.x, t.y, t.z + vel.vz, step_h)) vel.vz = 0;
             t.z += vel.vz;
@@ -1042,26 +1142,128 @@ pub fn Sim(comptime cfg: Config) type {
             } else col.flags &= ~c.Collider.flag_grounded;
         }
 
+
+        /// Peds move a step at a time; a blocked step slides along one map
+        /// axis at half speed (ped-movement.md 3.3). Mid-jump a ped never
+        /// drops below the height he jumped from (3.6). Knocked bodies are
+        /// thrown and slide (`moveThrown`).
         fn sysMovePeds(self: *Self) void {
             self.state.world.eachFiltered(.{ c.Pedestrian, c.Transform, c.Velocity, c.Collider }, self.predicting(), self, struct {
-                fn f(sim: *Self, _: EntityId, _: *c.Pedestrian, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
+                fn f(sim: *Self, id: EntityId, ped: *c.Pedestrian, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
                     if (col.flags & c.Collider.flag_disabled != 0) return;
+                    if (ped.state != c.Pedestrian.state_up) return sim.moveThrown(id, ped, t, vel, col);
                     const n = substeps(vel);
                     const sx = @divTrunc(vel.vx, n);
                     const sy = @divTrunc(vel.vy, n);
                     var i: i32 = 0;
                     while (i < n) : (i += 1) {
-                        if (sx != 0 and !sim.circleBlocked(t.x + sx, t.y, t.z, T.ped_radius, T.ped_step)) t.x += sx;
-                        if (sy != 0 and !sim.circleBlocked(t.x, t.y + sy, t.z, T.ped_radius, T.ped_step)) t.y += sy;
+                        if (!sim.pedBlocked(t.x + sx, t.y + sy, t.z)) {
+                            t.x += sx;
+                            t.y += sy;
+                            continue;
+                        }
+                        const hx = sx >> T.ped_slide_shift;
+                        const hy = sy >> T.ped_slide_shift;
+                        const x_first = fx.abs(sx) >= fx.abs(sy);
+                        if (x_first and hx != 0 and !sim.pedBlocked(t.x + hx, t.y, t.z)) {
+                            t.x += hx;
+                        } else if (hy != 0 and !sim.pedBlocked(t.x, t.y + hy, t.z)) {
+                            t.y += hy;
+                        } else if (!x_first and hx != 0 and !sim.pedBlocked(t.x + hx, t.y, t.z)) {
+                            t.x += hx;
+                        }
                     }
-                    sim.settle(t, vel, col, T.ped_step);
+                    if (ped.jump > 0) {
+                        // Up a step if the ground rises; never down.
+                        const floor = map.floorAt(sim.grid, t.x, t.y, t.z, T.ped_step);
+                        if (floor > t.z) t.z = floor;
+                        vel.vz = 0;
+                        col.flags |= c.Collider.flag_grounded;
+                        return;
+                    }
+                    sim.settle(t, vel, col, T.ped_step, T.ped_gravity, T.ped_max_fall);
                 }
             }.f);
         }
 
+        fn pedBlocked(self: *const Self, x: Fx, y: Fx, z: Fx) bool {
+            return self.circleBlocked(x, y, z, T.ped_radius, T.ped_step);
+        }
+
+        /// A knocked ped (explosions-and-damage.md 3.9): carried at its
+        /// speed with gravity 0.02, stopped by walls, sliding to rest on the
+        /// ground. At rest: a fatal throw kills; otherwise he lies for
+        /// `down` ticks and gets up.
+        fn moveThrown(self: *Self, id: EntityId, ped: *c.Pedestrian, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
+            ped.anim = c.Pedestrian.anim_down;
+            ped.jump = 0;
+            ped.turn = 0;
+            const n = substeps(vel);
+            const sx = @divTrunc(vel.vx, n);
+            const sy = @divTrunc(vel.vy, n);
+            var i: i32 = 0;
+            while (i < n) : (i += 1) {
+                if (sx != 0) {
+                    if (self.pedBlocked(t.x + sx, t.y, t.z)) vel.vx = 0 else t.x += sx;
+                }
+                if (sy != 0) {
+                    if (self.pedBlocked(t.x, t.y + sy, t.z)) vel.vy = 0 else t.y += sy;
+                }
+            }
+            const in_air = col.flags & c.Collider.flag_grounded == 0 or vel.vz > 0;
+            self.settle(t, vel, col, T.ped_step, T.thrown_gravity, T.max_fall);
+            if (in_air) return;
+            // Sliding on the ground.
+            const sp = fx.length(vel.vx, vel.vy);
+            if (sp > T.thrown_friction) {
+                const k = fx.div(sp - T.thrown_friction, sp);
+                vel.vx = fx.mul(vel.vx, k);
+                vel.vy = fx.mul(vel.vy, k);
+                return;
+            }
+            vel.vx = 0;
+            vel.vy = 0;
+            if (ped.state == c.Pedestrian.state_fatal) {
+                if (self.state.world.get(id, c.Health)) |h| h.hp = 0;
+                return;
+            }
+            if (ped.down > 0) {
+                ped.down -= 1;
+                return;
+            }
+            ped.state = c.Pedestrian.state_up;
+            ped.anim = c.Pedestrian.anim_stand;
+        }
+
+        /// Knock ped `id` off his feet: thrown along (nx, ny) at `speed`,
+        /// rising at `lift`. `by` is credited if he dies of it.
+        fn knock(self: *Self, id: EntityId, state: u8, nx: Fx, ny: Fx, speed: Fx, lift: Fx, by: EntityId) void {
+            if (!self.writable(id)) return;
+            const w = &self.state.world;
+            const ped = w.get(id, c.Pedestrian) orelse return;
+            if (!w.get(id, c.Riding).?.vehicle.isNone()) return;
+            ped.state = state;
+            ped.down = if (state == c.Pedestrian.state_over) T.knock_over_ticks else T.knock_down_ticks;
+            ped.jump = 0;
+            ped.turn = 0;
+            ped.anim = c.Pedestrian.anim_down;
+            const vel = w.get(id, c.Velocity).?;
+            vel.* = .{ .vx = fx.mul(nx, speed), .vy = fx.mul(ny, speed), .vz = lift, .spin = 0 };
+            if (lift > 0) w.get(id, c.Collider).?.flags &= ~c.Collider.flag_grounded;
+            if (!by.isNone()) w.get(id, c.Health).?.last_hit_by = by;
+        }
+
+        /// A ped is killed where he stands (by a hit that kills outright).
+        fn killPed(self: *Self, id: EntityId, by: EntityId) void {
+            if (!self.writable(id)) return;
+            const h = self.state.world.get(id, c.Health) orelse return;
+            h.hp = 0;
+            if (!by.isNone()) h.last_hit_by = by;
+        }
+
         fn sysMoveCars(self: *Self) void {
             self.state.world.eachFiltered(.{ c.Vehicle, c.Transform, c.Velocity, c.Collider }, self.predicting(), self, struct {
-                fn f(sim: *Self, _: EntityId, v: *c.Vehicle, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
+                fn f(sim: *Self, id: EntityId, v: *c.Vehicle, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
                     const m = T.carModel(v.model);
                     // Rotate first; a turn that would put a corner in a wall
                     // does not happen.
@@ -1078,24 +1280,30 @@ pub fn Sim(comptime cfg: Config) type {
                         const sy = @divTrunc(vel.vy, n);
                         if (sx != 0) {
                             if (sim.boxBlocked(t.x + sx, t.y, t.z, t.heading, m)) {
-                                sim.wallHit(vel, true, m);
+                                sim.wallHit(id, vel, true, m);
                             } else t.x += sx;
                         }
                         if (sy != 0) {
                             if (sim.boxBlocked(t.x, t.y + sy, t.z, t.heading, m)) {
-                                sim.wallHit(vel, false, m);
+                                sim.wallHit(id, vel, false, m);
                             } else t.y += sy;
                         }
                     }
-                    sim.settle(t, vel, col, T.car_step);
+                    sim.settle(t, vel, col, T.car_step, T.gravity, T.max_fall);
                 }
             }.f);
         }
 
-        /// Bounce off a wall along one axis and scrub some speed along the
-        /// other.
-        fn wallHit(self: *Self, vel: *c.Velocity, x_axis: bool, m: *const T.CarModel) void {
+        /// Bounce off a wall along one axis (restitution 0.25) and scrub some
+        /// speed along the other. The impulse, (1 + e) x speed x mass,
+        /// damages the car (car-collision.md 3.5).
+        fn wallHit(self: *Self, id: EntityId, vel: *c.Velocity, x_axis: bool, m: *const T.CarModel) void {
             self.scratch.stats.wall_hits += 1;
+            const vn = fx.abs(if (x_axis) vel.vx else vel.vy);
+            if (vn > T.impact_min_speed) {
+                const j: i64 = (@as(i64, vn) * m.mass * (8 + m.restitution_8ths)) >> (fx.frac_bits + 3);
+                self.damageCar(id, j * T.impact_damage, .none);
+            }
             if (x_axis) {
                 vel.vx = -@divTrunc(vel.vx * m.restitution_8ths, 8);
                 vel.vy -= vel.vy >> 3;
@@ -1109,24 +1317,24 @@ pub fn Sim(comptime cfg: Config) type {
             if (self.predicting()) return; // not predicted; replicated only
             self.state.world.each(.{ c.Transform, c.Velocity, c.Projectile }, self, struct {
                 fn f(sim: *Self, id: EntityId, t: *c.Transform, vel: *c.Velocity, p: *c.Projectile) void {
-                    const explosive = p.weapon < T.weapon_count and T.weapons[p.weapon].explosive;
-                    if (p.ttl == 0) {
-                        if (explosive) sim.explode(t.x, t.y, t.z - fx.half, p.owner, 0);
-                        return sim.kill(id);
-                    }
+                    if (isExplosion(p)) return;
+                    // Out of range: gone (a rocket too, without exploding).
+                    if (p.ttl == 0) return sim.kill(id);
                     p.ttl -= 1;
+                    const explosive = p.weapon < T.weapon_count and T.weapons[p.weapon].explosive;
+                    const base = t.z - T.shot_height;
                     // Four samples along the move, so a fast round cannot
                     // skip the corner of a block.
                     var i: i32 = 1;
                     while (i <= 4) : (i += 1) {
                         const x = t.x + @divTrunc(vel.vx * i, 4);
                         const y = t.y + @divTrunc(vel.vy * i, 4);
-                        if (map.blocks(sim.grid, x, y, t.z - fx.half, 0)) {
+                        if (map.blocks(sim.grid, x, y, base, T.shot_height)) {
                             if (explosive) {
                                 // Blow up just short of the wall.
                                 const bx = t.x + @divTrunc(vel.vx * (i - 1), 4);
                                 const by = t.y + @divTrunc(vel.vy * (i - 1), 4);
-                                sim.explode(bx, by, t.z - fx.half, p.owner, 0);
+                                sim.explodeAt(bx, by, base, p.owner, 0);
                             }
                             t.x = x;
                             t.y = y;
@@ -1215,6 +1423,10 @@ pub fn Sim(comptime cfg: Config) type {
 
         fn resolvePair(self: *Self, a: *Entry, b: *Entry) void {
             if (!a.movable and !b.movable) return;
+            const a_car = a.id.kind() == @intFromEnum(abi.Kind.car);
+            const b_car = b.id.kind() == @intFromEnum(abi.Kind.car);
+            if (a_car and !b_car) return self.carPed(a, b);
+            if (b_car and !a_car) return self.carPed(b, a);
             const w = &self.state.world;
             const ta = w.get(a.id, c.Transform).?;
             const tb = w.get(b.id, c.Transform).?;
@@ -1233,14 +1445,14 @@ pub fn Sim(comptime cfg: Config) type {
             const ny = if (d == 0) 0 else fx.div(ddy, d);
             const pen = rr - d;
             // An immovable side acts as infinitely heavy.
-            const ma: i64 = if (a.movable) a.mass else 1 << 20;
-            const mb: i64 = if (b.movable) b.mass else 1 << 20;
+            const ma: i64 = if (a.movable) a.mass else 1 << 40;
+            const mb: i64 = if (b.movable) b.mass else 1 << 40;
             const total = ma + mb;
             const push_a: Fx = @intCast(@divTrunc(@as(i64, pen) * mb, total));
             const push_b = pen - push_a;
             // Do not push a body into a wall.
-            const ma_step: Fx = if (w.get(a.id, c.Vehicle) != null) T.car_step else T.ped_step;
-            const mb_step: Fx = if (w.get(b.id, c.Vehicle) != null) T.car_step else T.ped_step;
+            const ma_step: Fx = if (a_car) T.car_step else T.ped_step;
+            const mb_step: Fx = if (b_car) T.car_step else T.ped_step;
             if (a.movable) {
                 const x = ta.x - fx.mul(nx, push_a);
                 const y = ta.y - fx.mul(ny, push_a);
@@ -1257,11 +1469,13 @@ pub fn Sim(comptime cfg: Config) type {
                     tb.y = y;
                 }
             }
-            // Exchange normal momentum (inelastic).
+            // Exchange normal momentum: car against car bounces with
+            // restitution 0.5 (car-collision.md); peds just stop.
             const rel = fx.mul(vb.vx - va.vx, nx) + fx.mul(vb.vy - va.vy, ny);
             if (rel < 0) {
-                const imp_a: Fx = @intCast(@divTrunc(@as(i64, rel) * mb, total));
-                const imp_b = rel - imp_a;
+                const e8: i64 = if (a_car) 8 + T.car_restitution_8ths else 8;
+                const imp_a: Fx = @intCast(@divTrunc(@as(i64, rel) * mb * e8, total * 8));
+                const imp_b: Fx = @intCast(@divTrunc(@as(i64, rel) * ma * e8, total * 8));
                 if (a.movable) {
                     va.vx += fx.mul(nx, imp_a);
                     va.vy += fx.mul(ny, imp_a);
@@ -1270,13 +1484,14 @@ pub fn Sim(comptime cfg: Config) type {
                     vb.vx -= fx.mul(nx, imp_b);
                     vb.vy -= fx.mul(ny, imp_b);
                 }
-                // Damage scales with closing speed; peds hit by cars hurt most.
-                const speed = -rel;
-                if (speed > T.impact_threshold) {
+                // Damage from the impulse, both cars alike, credited to the
+                // other car (its driver).
+                if (a_car and -rel > T.impact_min_speed) {
                     self.scratch.stats.impacts += 1;
-                    const dmg: i32 = fx.toInt(fx.mul(speed, fx.fromInt(T.impact_damage)));
-                    self.hurt(b.id, if (a.mass > b.mass) dmg * 4 else dmg, a.id);
-                    self.hurt(a.id, if (b.mass > a.mass) dmg * 4 else dmg, b.id);
+                    const m_eff: i64 = @intCast(@divTrunc(@as(i128, ma) * mb, total));
+                    const j: i64 = @divTrunc(-@as(i64, rel) * m_eff * e8, 8 << fx.frac_bits);
+                    self.damageCar(a.id, j * T.impact_damage, b.id);
+                    self.damageCar(b.id, j * T.impact_damage, a.id);
                 }
             }
             a.x = ta.x;
@@ -1284,6 +1499,69 @@ pub fn Sim(comptime cfg: Config) type {
             b.x = tb.x;
             b.y = tb.y;
         }
+
+        /// A car touching a ped (car-collision.md 3.6): the ped is pushed
+        /// clear and, if the car was moving into him, handed a knock-back
+        /// of 2 x the car's closing speed x mc / (mc + 0.5) (restitution 1,
+        /// ped mass 0.5). The car takes nothing.
+        fn carPed(self: *Self, car: *Entry, ped: *Entry) void {
+            if (!ped.movable) return;
+            const w = &self.state.world;
+            const tc = w.get(car.id, c.Transform).?;
+            const tp = w.get(ped.id, c.Transform).?;
+            if (fx.abs(tc.z - tp.z) > fx.half) return;
+            const ddx = tp.x - tc.x;
+            const ddy = tp.y - tc.y;
+            const rr = car.r + ped.r;
+            if (fx.abs(ddx) >= rr or fx.abs(ddy) >= rr) return;
+            const d = fx.length(ddx, ddy);
+            if (d >= rr) return;
+            self.scratch.stats.contacts += 1;
+            const nx = if (d == 0) fx.one else fx.div(ddx, d);
+            const ny = if (d == 0) 0 else fx.div(ddy, d);
+            const x = tp.x + fx.mul(nx, rr - d);
+            const y = tp.y + fx.mul(ny, rr - d);
+            if (!self.circleBlocked(x, y, tp.z, fx.ratio(1, 8), T.ped_step)) {
+                tp.x = x;
+                tp.y = y;
+            }
+            ped.x = tp.x;
+            ped.y = tp.y;
+            const vc = w.get(car.id, c.Velocity).?;
+            const closing = fx.mul(vc.vx, nx) + fx.mul(vc.vy, ny);
+            if (closing <= T.car_hit_min) return;
+            const mc: i64 = car.mass;
+            var k: Fx = @intCast(@divTrunc(2 * @as(i64, closing) * mc, mc + T.ped_mass));
+            k = @max(k, fx.ratio(1, 16));
+            self.carHitPed(car.id, ped.id, nx, ny, k);
+        }
+
+        /// What a car hit does to a ped (ped-movement.md 3.8), for a
+        /// knock-back of length `k` along (nx, ny).
+        fn carHitPed(self: *Self, car: EntityId, ped: EntityId, nx: Fx, ny: Fx, k: Fx) void {
+            const w = &self.state.world;
+            const pd = w.get(ped, c.Pedestrian) orelse return;
+            if (!w.get(ped, c.Riding).?.vehicle.isNone()) return;
+            const v = w.get(car, c.Vehicle).?;
+            if (v.flags & c.Vehicle.flag_ai != 0 and self.writable(car)) v.halt = T.traffic_hit_stop;
+            const player = w.get(ped, c.Controller).?.player != c.Controller.no_player;
+            const lying = pd.state != c.Pedestrian.state_up;
+            var player_driving = false;
+            if (w.get(v.driver, c.Controller)) |dc| player_driving = dc.player != c.Controller.no_player;
+            const S = c.Pedestrian;
+            if (k < T.knock_light) {
+                if (lying) self.killPed(ped, car) else self.knock(ped, S.state_over, nx, ny, k, 0, car);
+            } else if (!player or k >= T.knock_hard) {
+                self.killPed(ped, car);
+            } else if (k < T.knock_mid) {
+                self.knock(ped, if (player_driving) S.state_fatal else S.state_down, nx, ny, k >> 1, T.knock_lift_light, car);
+            } else if (!player_driving and !lying) {
+                self.knock(ped, S.state_down, nx, ny, k >> 1, T.knock_lift_mid, car);
+            } else {
+                self.killPed(ped, car);
+            }
+        }
+
 
         fn hurt(self: *Self, id: EntityId, dmg: i32, by: EntityId) void {
             if (!self.writable(id)) return;
@@ -1293,10 +1571,27 @@ pub fn Sim(comptime cfg: Config) type {
             }
         }
 
+        /// Add `raw` damage (fixed point, 16 fraction bits) to a car, scaled
+        /// by its model's anti-strength: at least 1 unless that is 0, up to
+        /// the 32000 cap; a wreck takes none (car-collision.md 3.5).
+        fn damageCar(self: *Self, id: EntityId, raw: i64, by: EntityId) void {
+            if (!self.writable(id)) return;
+            const w = &self.state.world;
+            const v = w.get(id, c.Vehicle) orelse return;
+            if (v.flags & c.Vehicle.flag_wrecked != 0) return;
+            const anti: i64 = T.carModel(v.model).anti_strength;
+            if (anti == 0) return;
+            const dmg: i64 = @max(1, (raw * anti) >> (2 * fx.frac_bits));
+            const h = w.get(id, c.Health).?;
+            h.hp = @intCast(@max(0, h.hp - @min(dmg, T.car_damage_max)));
+            if (!by.isNone()) h.last_hit_by = by;
+        }
+
         fn sysProjectileHits(self: *Self) void {
             if (self.predicting()) return;
             self.state.world.each(.{ c.Transform, c.Velocity, c.Projectile }, self, struct {
                 fn f(sim: *Self, id: EntityId, t: *c.Transform, vel: *c.Velocity, p: *c.Projectile) void {
+                    if (isExplosion(p)) return;
                     const sc = &sim.scratch;
                     // Swept test: the segment travelled this tick against each
                     // body's circle; the earliest hit along the segment wins.
@@ -1320,7 +1615,7 @@ pub fn Sim(comptime cfg: Config) type {
                             while (j != nil) : (j = sc.entries[j].next) {
                                 const e = sc.entries[j];
                                 if (eql(e.id, p.owner)) continue;
-                                if (fx.abs(e.z + fx.half - t.z) > fx.one) continue;
+                                if (t.z < e.z or t.z > e.z + fx.half) continue;
                                 const fxv: i64 = e.x - x0;
                                 const fyv: i64 = e.y - y0;
                                 var tq: i64 = if (dd == 0) 0 else @divTrunc((fxv * vel.vx + fyv * vel.vy) << 16, dd);
@@ -1329,7 +1624,8 @@ pub fn Sim(comptime cfg: Config) type {
                                 const py: i64 = y0 + ((vel.vy * tq) >> 16);
                                 const ex = e.x - px;
                                 const ey = e.y - py;
-                                if (ex * ex + ey * ey < @as(i64, e.r) * e.r and tq < best_t) {
+                                const rr: i64 = e.r + T.shot_radius;
+                                if (ex * ex + ey * ey < rr * rr and tq < best_t) {
                                     best_t = tq;
                                     best = j;
                                 }
@@ -1338,10 +1634,19 @@ pub fn Sim(comptime cfg: Config) type {
                     }
                     if (best != nil and p.ttl != 0) {
                         sc.stats.shot_hits += 1;
-                        if (p.weapon < T.weapon_count and T.weapons[p.weapon].explosive) {
-                            const e = sc.entries[best];
-                            sim.explode(e.x, e.y, e.z, p.owner, 0);
-                        } else sim.hurt(sc.entries[best].id, p.damage, p.owner);
+                        const e = sc.entries[best];
+                        const def = T.weapons[@min(p.weapon, T.weapon_count - 1)];
+                        const ww = &sim.state.world;
+                        if (ww.get(e.id, c.Vehicle) != null) {
+                            // Cars: raw damage by anti-strength; a rocket
+                            // blows up at the hit point.
+                            sim.damageCar(e.id, @as(i64, def.damage_car) << fx.frac_bits, p.owner);
+                            if (def.explosive) sim.explodeAt((t.x + e.x) >> 1, (t.y + e.y) >> 1, e.z, p.owner, 0);
+                        } else {
+                            const player = ww.get(e.id, c.Controller).?.player != c.Controller.no_player;
+                            sim.hurt(e.id, if (player) def.damage_player else def.damage_other, p.owner);
+                            if (def.explosive) sim.explodeAt(e.x, e.y, e.z, p.owner, 0);
+                        }
                         p.ttl = 0;
                         sim.kill(id);
                     }
@@ -1360,7 +1665,9 @@ pub fn Sim(comptime cfg: Config) type {
         }
 
         fn sysHealth(self: *Self) void {
-            // Cars: catch fire, burn, explode, and stay as a wreck a while.
+            // Cars (explosions-and-damage.md 3.5-3.6): on fire from 16000
+            // damage, burning on by itself from 25000, exploding at 32000;
+            // then a wreck for a while.
             self.state.world.eachFiltered(.{ c.Vehicle, c.Health, c.Transform, c.Appearance }, self.predicting(), self, struct {
                 fn f(sim: *Self, id: EntityId, v: *c.Vehicle, h: *c.Health, t: *c.Transform, look: *c.Appearance) void {
                     if (sim.predicting()) return; // fire and wrecks come from the server
@@ -1374,24 +1681,23 @@ pub fn Sim(comptime cfg: Config) type {
                         if (cfg.ambient_cars > 0) _ = sim.spawnAmbientCar(true, sim.randomPlayerBlock(id));
                         return;
                     }
-                    if (h.hp <= T.car_burn_hp and v.flags & c.Vehicle.flag_burning == 0) v.flags |= c.Vehicle.flag_burning;
-                    if (v.flags & c.Vehicle.flag_burning != 0) h.hp -= T.car_burn_rate;
+                    const damage = T.car_damage_max - h.hp;
+                    if (damage >= T.car_fire_damage) v.flags |= c.Vehicle.flag_burning;
+                    if (damage >= T.car_fire2_damage) h.hp -= T.car_burn_rate;
                     if (h.hp > 0) return;
-                    // Explodes. The driver gets out if there is room; the
-                    // blast does the rest.
+                    // Explodes: everyone inside dies, credited to whoever
+                    // destroyed it.
                     const driver = v.driver;
-                    if (!driver.isNone() and w.get(driver, c.Riding) != null) {
-                        sim.tryExit(driver);
-                        if (w.get(driver, c.Riding)) |r| {
-                            if (!r.vehicle.isNone()) {
-                                r.vehicle = .none;
-                                w.get(driver, c.Collider).?.flags = c.Collider.flag_grounded;
-                                if (w.get(driver, c.Controller)) |dc| {
-                                    if (dc.player != c.Controller.no_player) sim.state.players[dc.player].car = .none;
-                                }
-                            }
+                    if (w.get(driver, c.Riding)) |r| {
+                        r.vehicle = .none;
+                        w.get(driver, c.Collider).?.flags = c.Collider.flag_grounded;
+                        w.get(driver, c.Transform).?.* = t.*;
+                        if (w.get(driver, c.Controller)) |dc| {
+                            if (dc.player != c.Controller.no_player) sim.state.players[dc.player].car = .none;
                         }
-                        sim.hurt(driver, T.wreck_driver_damage, h.last_hit_by);
+                        const dh = w.get(driver, c.Health).?;
+                        dh.hp = 0;
+                        dh.last_hit_by = h.last_hit_by;
                     }
                     sim.scratch.stats.car_wrecks += 1;
                     sim.releaseCar(id);
@@ -1401,7 +1707,7 @@ pub fn Sim(comptime cfg: Config) type {
                     v.steer = 0;
                     h.hp = 0;
                     look.remap = T.wreck_remap;
-                    sim.explode(t.x, t.y, t.z, h.last_hit_by, 1);
+                    sim.explodeAt(t.x, t.y, t.z, h.last_hit_by, 1);
                 }
             }.f);
             self.state.world.eachFiltered(.{ c.Pedestrian, c.Health, c.Controller, c.Riding }, self.predicting(), self, struct {
@@ -1532,7 +1838,7 @@ pub fn Sim(comptime cfg: Config) type {
         fn initPickup(self: *Self, id: EntityId, x: Fx, y: Fx, z: Fx, kind: u8) void {
             const w = &self.state.world;
             w.get(id, c.Transform).?.* = .{ .x = x, .y = y, .z = z, .heading = 0 };
-            const amount: u16 = if (kind < T.weapon_count) T.weapons[kind].pickup_ammo else @intCast(T.health_pickup_hp);
+            const amount: u16 = if (kind < T.weapon_count) T.weapons[kind].pickup_rounds * 10 else 0;
             w.get(id, c.Weapon).?.* = .{ .cooldown = T.pickup_life, .kind = kind, .a0 = amount, .a1 = 0, .a2 = 0, .a3 = 0 };
             w.get(id, c.Appearance).?.* = .{ .sprite = kind, .remap = c.Appearance.no_remap };
         }
@@ -1543,15 +1849,14 @@ pub fn Sim(comptime cfg: Config) type {
             if (give.kind == T.pickup_health) {
                 const h = w.get(ped, c.Health) orelse return false;
                 if (h.hp >= T.ped_hp) return false;
-                h.hp = @min(T.ped_hp, h.hp + give.a0);
+                h.hp = T.ped_hp;
                 return true;
             }
             if (give.kind >= T.weapon_count) return false;
             const wpn = w.get(ped, c.Weapon) orelse return false;
-            const def = T.weapons[give.kind];
             const have = wpn.rounds()[give.kind];
-            if (have >= def.max_ammo) return false;
-            wpn.rounds()[give.kind] = @min(def.max_ammo, have + give.a0);
+            if (have == T.infinite_ammo or have >= T.max_ammo_tenths) return false;
+            wpn.rounds()[give.kind] = @min(T.max_ammo_tenths, have + give.a0);
             // A new weapon goes straight into the hand over the pistol.
             if (have == 0 and wpn.kind == T.weapon_pistol) wpn.kind = give.kind;
             return true;
@@ -1626,9 +1931,12 @@ pub fn Sim(comptime cfg: Config) type {
             return @popCount(a);
         }
 
-        /// Traffic drives along the lane arrows, picks a way at junctions,
-        /// keeps to the middle of its lane, brakes for anything ahead and
-        /// backs out when stuck against a wall.
+        /// Traffic (traffic-and-car-ai.md) drives along the lane arrows, goes
+        /// straight on at junctions where it can (else a 50/50 left or right
+        /// pick, made once), keeps to the middle of its lane, ramps its speed
+        /// setting toward 0.1 a tick, brakes for anything 1.75 blocks ahead
+        /// (1 while turning), halts for 100 ticks after hitting someone and
+        /// backs out when stuck.
         fn sysTrafficAi(self: *Self) void {
             if (self.predicting()) return; // traffic is never predicted
             self.buildBroadphase();
@@ -1638,6 +1946,17 @@ pub fn Sim(comptime cfg: Config) type {
                     if (v.flags & (c.Vehicle.flag_wrecked | c.Vehicle.flag_burning) != 0) {
                         // A burning car stops; its driver has fled.
                         ctl.in = Frame.neutral(0);
+                        return;
+                    }
+                    const fwd_x = fx.cos(t.heading);
+                    const fwd_y = fx.sin(t.heading);
+                    const vf = fx.mul(vel.vx, fwd_x) + fx.mul(vel.vy, fwd_y);
+                    if (v.halt > 0) {
+                        // Forced stop: brake, with the handbrake above 0.05.
+                        v.halt -= 1;
+                        v.ai_speed = 0;
+                        const hb: u16 = if (vf > fx.ratio(5, 100)) Button.handbrake_jump else 0;
+                        ctl.in = .{ .steer = 0, .throttle = if (vf > fx.ratio(1, 100)) -127 else 0, .buttons = hb, .aim = 0, .seq = 0 };
                         return;
                     }
                     const cell = map.floorCell(sim.grid, t.x, t.y, t.z, T.car_step);
@@ -1650,9 +1969,13 @@ pub fn Sim(comptime cfg: Config) type {
                         v.ai_dir = d;
                         v.ai_plan &= ~c.Vehicle.plan_in_junction;
                     } else if (on_road) {
+                        const straight = sim.roadAhead(t, v.ai_dir, T.traffic_junction_probe);
                         if (v.ai_plan & c.Vehicle.plan_in_junction == 0) {
-                            // Entering a junction: straight on, left or right.
-                            v.ai_plan = c.Vehicle.plan_in_junction | @as(u8, @truncate(sim.randBelow(id, salt_ai_plan, 3)));
+                            // Entering a junction: straight on if the road
+                            // goes on, else left or right.
+                            v.ai_plan = c.Vehicle.plan_in_junction | (if (straight) 0 else sim.turnPick(id));
+                        } else if (v.ai_plan & 3 == 0 and !straight) {
+                            v.ai_plan = c.Vehicle.plan_in_junction | sim.turnPick(id);
                         }
                         const plan = v.ai_plan & 3;
                         if (plan != 0) {
@@ -1691,15 +2014,18 @@ pub fn Sim(comptime cfg: Config) type {
                     }
                     const diff: i16 = @bitCast(target -% t.heading);
                     var steer = std.math.clamp(@divTrunc(@as(i32, diff) * 127, 3500), -127, 127);
-                    const fwd_x = fx.cos(t.heading);
-                    const fwd_y = fx.sin(t.heading);
-                    const vf = fx.mul(vel.vx, fwd_x) + fx.mul(vel.vy, fwd_y);
-                    var cruise = T.traffic_speed;
-                    if (@abs(@as(i32, diff)) > 6000) cruise = T.traffic_speed >> 1;
-                    var throttle: i32 = if (vf < cruise) 100 else 0;
-                    const blocked = sim.bodyAhead(id, t);
+                    const turning = @abs(@as(i32, diff)) > 6000;
+                    const blocked = sim.bodyAhead(id, t, if (turning) T.traffic_look_turning else T.traffic_look);
+                    // The speed setting ramps toward the target: up by 0.01
+                    // a tick, down by 0.08.
+                    const goal: Fx = if (blocked) 0 else T.traffic_speed;
+                    var sp: Fx = v.ai_speed;
+                    sp = if (sp < goal) @min(sp + T.traffic_accel, goal) else @max(sp - T.traffic_decel, goal);
+                    v.ai_speed = @intCast(sp);
+                    var throttle: i32 = if (vf < sp) 100 else if (vf > sp + fx.ratio(2, 100)) -127 else 0;
+                    var buttons: u16 = 0;
                     if (blocked) {
-                        throttle = if (vf > fx.ratio(2, 100)) -127 else 0;
+                        if (vf > T.traffic_handbrake_speed) buttons = Button.handbrake_jump;
                         if (v.timer < c.Vehicle.reverse_base) v.timer = 0;
                     }
                     // Stuck against a wall: back out with the wheels turned
@@ -1713,18 +2039,30 @@ pub fn Sim(comptime cfg: Config) type {
                         v.timer += 1;
                         if (v.timer >= T.traffic_stuck_ticks) v.timer = c.Vehicle.reverse_base + T.traffic_reverse_ticks;
                     } else if (!blocked) v.timer = 0;
-                    ctl.in = .{ .steer = @intCast(steer), .throttle = @intCast(throttle), .buttons = 0, .aim = 0, .seq = 0 };
+                    ctl.in = .{ .steer = @intCast(steer), .throttle = @intCast(throttle), .buttons = buttons, .aim = 0, .seq = 0 };
                 }
             }.f);
         }
 
+        /// Left (1) or right (2), 50/50.
+        fn turnPick(self: *Self, id: EntityId) u8 {
+            return 1 + @as(u8, @truncate(self.randBelow(id, salt_ai_plan, 2)));
+        }
+
+        /// Is there road running direction `dir` `dist` blocks ahead?
+        fn roadAhead(self: *Self, t: *const c.Transform, dir: u8, dist: Fx) bool {
+            const h = dir_heading[dir & 3];
+            const cell = map.floorCell(self.grid, t.x + fx.mul(fx.cos(h), dist), t.y + fx.mul(fx.sin(h), dist), t.z, T.car_step);
+            return map.groundOf(cell) == map.Ground.road and map.arrowsOf(cell) & dir_arrow[dir & 3] != 0;
+        }
+
         /// Is there a body in the box ahead of a car?
-        fn bodyAhead(self: *Self, self_id: EntityId, t: *const c.Transform) bool {
+        fn bodyAhead(self: *Self, self_id: EntityId, t: *const c.Transform, look: Fx) bool {
             const sc = &self.scratch;
             const fwd_x = fx.cos(t.heading);
             const fwd_y = fx.sin(t.heading);
-            const cxf = t.x + fx.mul(fwd_x, T.traffic_look >> 1);
-            const cyf = t.y + fx.mul(fwd_y, T.traffic_look >> 1);
+            const cxf = t.x + fx.mul(fwd_x, look >> 1);
+            const cyf = t.y + fx.mul(fwd_y, look >> 1);
             const ccx: i32 = std.math.clamp(cxf >> cell_shift, 0, cells_x - 1);
             const ccy: i32 = std.math.clamp(cyf >> cell_shift, 0, cells_y - 1);
             var dy: i32 = -1;
@@ -1745,7 +2083,7 @@ pub fn Sim(comptime cfg: Config) type {
                         const ry = e.y - t.y;
                         const along = fx.mul(rx, fwd_x) + fx.mul(ry, fwd_y);
                         const side = fx.mul(rx, -fwd_y) + fx.mul(ry, fwd_x);
-                        if (along > fx.ratio(3, 10) and along < T.traffic_look and fx.abs(side) < T.traffic_look_side + (e.r >> 1)) return true;
+                        if (along > fx.ratio(3, 10) and along < look and fx.abs(side) < T.traffic_look_side + (e.r >> 1)) return true;
                     }
                 }
             }

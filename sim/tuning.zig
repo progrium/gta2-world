@@ -2,9 +2,11 @@
 //! they cost no save or snapshot bytes. Units: blocks, blocks per tick and
 //! binary angle units per tick, at 30 ticks per second.
 //!
-//! The car numbers are a placeholder handling model of our own, tuned by
-//! feel. Authentic GTA2 handling comes later from clean-room behaviour notes;
-//! nothing here was taken from the original game or its decompilation.
+//! Numbers marked "notes" come from the clean-room behaviour notes in
+//! docs/behaviour/ (the file named beside them); GTA2 also runs at 30 ticks
+//! per second, so tick counts carry over unchanged. Unmarked numbers are our
+//! own, tuned by feel. Nothing here was taken from the original game's
+//! executable or its decompilation.
 //!
 //! The car models and the on-foot speeds are `var`s so a local, offline host
 //! (the browser build's tuning panel) can change them between ticks. Every
@@ -14,27 +16,57 @@
 const fx = @import("fixed.zig");
 const Fx = fx.Fx;
 
-// --- Pedestrians -----------------------------------------------------------
+// --- Pedestrians (notes: ped-movement.md) --------------------------------
 
-pub const ped_radius = fx.ratio(3, 16);
-pub const ped_mass: i32 = 1;
+/// Half the 0.2 x 0.2 block collision square.
+pub const ped_radius = fx.ratio(1, 10);
+/// Collision height.
+pub const ped_height = fx.ratio(1, 4);
+/// Mass for impacts (car-collision.md).
+pub const ped_mass = fx.half;
 pub const ped_hp: i32 = 100;
-/// Walking and running speed (blocks per tick). 0.06 is 1.8 blocks/s.
-pub var ped_walk = fx.ratio(6, 100);
-pub var ped_run = fx.ratio(11, 100);
-/// Backward walking in tank mode is slower.
-pub var ped_back = fx.ratio(4, 100);
-/// Tank mode turn rate at full steer (about 230 degrees per second).
-pub var ped_tank_turn: i32 = 1400;
-/// Direct mode turn rate toward the aim heading (about 650 degrees per second).
+/// The one running pace, forward and back: 1/16 block per tick. GTA2 has no
+/// separate walk or run; `ped_run` exists for the tuning panel and is the
+/// same by default.
+pub var ped_walk = fx.ratio(1, 16);
+pub var ped_run = fx.ratio(1, 16);
+pub var ped_back = fx.ratio(1, 16);
+/// Tank turning builds up by this many angle units a tick (11 of 1440
+/// steps), to at most `ped_turn_max` (48 steps, 12 degrees); faster build-up
+/// while aiming (fire held, not moving forward); slower in a jump.
+pub var ped_tank_turn: i32 = 501;
+pub const ped_turn_aim: i32 = 546;
+pub const ped_turn_max: i32 = 2185;
+pub const ped_turn_jump: i32 = 182;
+pub const ped_turn_jump_max: i32 = 1092;
+/// Direct mode (our addition for sticks): turn rate toward the aim heading.
 pub var ped_direct_turn: i32 = 4000;
-/// Jump take-off speed and the ticks before another jump.
+/// A jump: this many ticks moving forward at the run pace, at the take-off
+/// height (GTA2 jumps do not leave the ground; 8 animation frames, frame
+/// length not in the notes, so ours). `ped_jump_vz` is unused and kept for
+/// the tuning panel.
+pub const ped_jump_ticks: u8 = 16;
 pub var ped_jump_vz = fx.ratio(15, 100);
 pub const ped_jump_cooldown: u8 = 20;
-/// How far a ped reaches to get into a car (centre to centre), and the
-/// fastest a car may be moving to be entered.
+/// Hitting a wall: slide along it at half speed.
+pub const ped_slide_shift: u5 = 1;
+/// Falling: 0.01 a tick more, to at most 0.1 a tick.
+pub const ped_gravity = fx.ratio(1, 100);
+pub const ped_max_fall = fx.ratio(1, 10);
+/// Knocked over (gets straight up) and knocked down (lies a while): ticks on
+/// the ground. The notes leave the timing to animations; ours.
+pub const knock_over_ticks: u16 = 20;
+pub const knock_down_ticks: u16 = 50;
+/// Thrown bodies: gravity, and how fast a sliding body on the ground slows.
+pub const thrown_gravity = fx.ratio(2, 100);
+pub const thrown_friction = fx.ratio(1, 64);
+/// Entering (entering-and-exiting-cars.md): the search starts half a block
+/// in front of the ped; the car must be slower than 0.2 a tick. Getting out
+/// needs the car below 0.3 a tick.
 pub const enter_reach = fx.ratio(3, 2);
-pub const enter_max_speed = fx.ratio(8, 100);
+pub const enter_ahead = fx.ratio(1, 2);
+pub const enter_max_speed = fx.ratio(2, 10);
+pub const exit_max_speed = fx.ratio(3, 10);
 
 // --- Bodies ------------------------------------------------------------------
 
@@ -58,8 +90,11 @@ pub const CarModel = struct {
     half_wid: Fx,
     /// Radius used against other bodies (peds, cars).
     radius: Fx,
-    mass: i32,
-    hp: i32,
+    /// Mass for impacts (car-collision.md; real models: the .gci mass x 1.1).
+    mass: Fx,
+    /// Scales the raw damage of every hit (the .gci's 15th field); 0 is
+    /// indestructible.
+    anti_strength: Fx,
     /// Top speed forward and in reverse.
     max_speed: Fx,
     max_reverse: Fx,
@@ -93,8 +128,8 @@ pub const default_car_models = [_]CarModel{.{
     .half_len = fx.ratio(56, 100),
     .half_wid = fx.ratio(27, 100),
     .radius = fx.ratio(42, 100),
-    .mass = 12,
-    .hp = 400,
+    .mass = fx.fromInt(18),
+    .anti_strength = fx.one,
     .max_speed = fx.ratio(42, 100), // about 13 blocks per second
     .max_reverse = fx.ratio(12, 100),
     .accel = fx.ratio(24, 1000),
@@ -117,28 +152,29 @@ pub fn carModel(m: u8) *const CarModel {
     return &car_models[if (m < car_models.len) m else 0];
 }
 
-// --- Weapons -----------------------------------------------------------------
-//
-// Our own set, tuned by feel: nothing here came from the original game.
+// --- Weapons (notes: weapons.md, projectiles.md) --------------------------
 
 pub const WeaponDef = struct {
-    /// Ticks between shots while fire is held.
+    /// Ticks between trigger pulls while fire is held.
     cooldown: u16,
-    /// Damage per projectile on a direct hit (0 for explosive rounds).
-    damage: u16,
+    /// Damage per projectile to a player's ped, and to anyone else.
+    damage_player: u16,
+    damage_other: u16,
+    /// Raw damage to a car (before anti-strength).
+    damage_car: u16,
     speed: Fx,
     /// Lifetime of a projectile in ticks (range = speed x ttl).
     ttl: u16,
-    /// Projectiles per shot, fanned across `spread` (angle units).
+    /// Projectiles per pull, `spread` angle units apart, centred on the aim.
     pellets: u8,
     spread: u16,
-    /// Random aim error per shot, up to this many angle units either way.
-    jitter: u16,
-    /// Explodes where it lands instead of hitting one body.
+    /// Explodes (a small explosion) on whatever it touches.
     explosive: bool,
-    /// Rounds a pickup gives, and the most a ped can carry.
-    pickup_ammo: u16,
-    max_ammo: u16,
+    /// Ammo is kept in tenths of a displayed round; each pull spends this.
+    tenths_per_pull: u8,
+    /// Displayed rounds a pickup gives (ours: the notes leave pickups to a
+    /// future note).
+    pickup_rounds: u16,
 };
 
 pub const weapon_pistol: u8 = 0;
@@ -150,25 +186,81 @@ pub const weapon_count = 4;
 pub const pickup_health: u8 = 4;
 pub const pickup_kinds = 5;
 pub const infinite_ammo: u16 = 0xFFFF;
+/// Most ammo held for any weapon: 99 displayed rounds, in tenths.
+pub const max_ammo_tenths: u16 = 990;
+/// 6 degrees in angle units.
+const deg6: u16 = 1092;
 
 pub const weapons = [weapon_count]WeaponDef{
-    // Pistol: always in hand, never runs out.
-    .{ .cooldown = 8, .damage = 25, .speed = fx.ratio(9, 10), .ttl = 30, .pellets = 1, .spread = 0, .jitter = 0, .explosive = false, .pickup_ammo = 0, .max_ammo = infinite_ammo },
-    // Machine gun: fast, light, a little wild.
-    .{ .cooldown = 3, .damage = 12, .speed = fx.ratio(1, 1), .ttl = 24, .pellets = 1, .spread = 0, .jitter = 700, .explosive = false, .pickup_ammo = 80, .max_ammo = 240 },
-    // Shotgun: six pellets in a fan, short range.
-    .{ .cooldown = 24, .damage = 16, .speed = fx.ratio(8, 10), .ttl = 10, .pellets = 6, .spread = 4200, .jitter = 300, .explosive = false, .pickup_ammo = 12, .max_ammo = 40 },
-    // Rocket launcher: slow rocket, explodes on contact or at the end.
-    .{ .cooldown = 36, .damage = 0, .speed = fx.ratio(4, 10), .ttl = 70, .pellets = 1, .spread = 0, .jitter = 0, .explosive = true, .pickup_ammo = 4, .max_ammo = 12 },
+    // Pistol: the player's own bullet, twice the damage of others.
+    .{ .cooldown = 20, .damage_player = 20, .damage_other = 50, .damage_car = 1600, .speed = fx.ratio(2, 10), .ttl = 25, .pellets = 1, .spread = 0, .explosive = false, .tenths_per_pull = 10, .pickup_rounds = 0 },
+    // Machine gun: a bullet every 2 ticks; a displayed round is 10 shots.
+    .{ .cooldown = 2, .damage_player = 10, .damage_other = 25, .damage_car = 800, .speed = fx.ratio(2, 10), .ttl = 25, .pellets = 1, .spread = 0, .explosive = false, .tenths_per_pull = 1, .pickup_rounds = 30 },
+    // Shotgun: five pellets at 0, +-6 and +-12 degrees, short range.
+    .{ .cooldown = 40, .damage_player = 10, .damage_other = 25, .damage_car = 800, .speed = fx.ratio(4, 10), .ttl = 8, .pellets = 5, .spread = deg6, .explosive = false, .tenths_per_pull = 10, .pickup_rounds = 15 },
+    // Rocket launcher: wrecks a car outright, small explosion on contact.
+    .{ .cooldown = 50, .damage_player = 10, .damage_other = 25, .damage_car = 32000, .speed = fx.ratio(4, 10), .ttl = 50, .pellets = 1, .spread = 0, .explosive = true, .tenths_per_pull = 10, .pickup_rounds = 6 },
 };
 
-/// Explosions: full damage out to `explosion_core`, falling to zero at the
-/// radius (larger for a car), and a push away from the centre.
-pub const explosion_radius = fx.ratio(2, 1);
-pub const car_explosion_radius = fx.ratio(25, 10);
-pub const explosion_core = fx.ratio(9, 10);
-pub const explosion_damage: i32 = 300;
-pub const explosion_push = fx.ratio(25, 100);
+/// Shots start this far in front of the shooter; the point halfway there
+/// must be clear of walls or the shot is not fired.
+pub const muzzle_ahead = fx.ratio(1, 4);
+/// Added to a body's radius when a projectile is tested against it (ours:
+/// a bullet's own size).
+pub const shot_radius = fx.ratio(1, 16);
+/// Shots fly this far above the shooter's feet (ours: about a ped's middle).
+pub const shot_height = fx.ratio(1, 8);
+
+// --- Explosions (notes: explosions-and-damage.md) ---------------------------
+
+/// Explosions live 99 ticks; they hurt while the timer is above 50.
+pub const explosion_ticks: u16 = 99;
+pub const explosion_active_above: u16 = 50;
+/// Blast radius (Chebyshev distance, blocks): small (rockets) and car.
+pub const explosion_small = fx.ratio(1, 2);
+pub const explosion_car = fx.one;
+/// How far above or below the blast it reaches.
+pub const explosion_reach_z = fx.ratio(2, 10);
+/// Thrown outward at this speed; lifted this much within half the radius,
+/// this much within the radius; knocked over outside the radius (but inside
+/// twice it) while the timer is above `explosion_knock_above`.
+pub const blast_throw = fx.ratio(9, 100);
+pub const blast_lift_close = fx.ratio(3, 10);
+pub const blast_lift = fx.ratio(1, 10);
+pub const blast_knock = fx.ratio(15, 100);
+pub const explosion_knock_above: u16 = 70;
+/// Cars in the radius take this raw damage in two windows of the timer.
+pub const blast_car_damage: i32 = 32000;
+
+// --- Car damage (notes: car-collision.md, explosions-and-damage.md) --------
+
+/// Cars count damage up to 32000; `Health.hp` on a car is 32000 minus it.
+pub const car_damage_max: i32 = 32000;
+/// First fire at 16000 damage; a larger fire at 25000.
+pub const car_fire_damage: i32 = 16000;
+pub const car_fire2_damage: i32 = 25000;
+/// Whether burning cars blow up on their own is open in the notes; ours:
+/// from the larger fire, damage keeps rising until the car explodes (about
+/// 3 s).
+pub const car_burn_rate: i32 = 80;
+/// Raw damage per unit of impact, before anti-strength; restitution of
+/// walls and of car against car.
+pub const impact_damage: i32 = 200;
+pub const wall_restitution_8ths: i32 = 2;
+pub const car_restitution_8ths: i32 = 4;
+/// Closing speeds below this do no damage (ours: so a car pushing on a wall
+/// or another car is not ground down; the notes' dent threshold for walls).
+pub const impact_min_speed = fx.ratio(3, 100);
+/// A car closing on a ped faster than this hits him (ours); slower, he is
+/// just pushed aside.
+pub const car_hit_min = fx.ratio(2, 100);
+/// Lift of a player thrown by a car hit of 0.1-0.2 and of 0.2-0.3.
+pub const knock_lift_light = fx.ratio(5, 100);
+pub const knock_lift_mid = fx.ratio(1, 10);
+/// Ped knock-back thresholds from a car hit (ped-movement.md 3.8).
+pub const knock_light = fx.ratio(1, 10);
+pub const knock_mid = fx.ratio(2, 10);
+pub const knock_hard = fx.ratio(3, 10);
 
 // --- Pickups -----------------------------------------------------------------
 
@@ -181,34 +273,42 @@ pub const pickup_near_min: i32 = 3;
 /// A pickup nobody takes disappears after this many ticks (60 s).
 pub const pickup_life: u16 = 1800;
 pub const pickup_reach = fx.ratio(6, 10);
-pub const health_pickup_hp: i32 = 50;
+/// Health pickups restore full health (power-ups-death-and-arrest.md).
 /// Odds of each pickup kind, out of 100: machine gun, shotgun, rockets, health.
 pub const pickup_odds = [pickup_kinds]u32{ 0, 35, 25, 15, 25 };
 
-// --- Cars on fire -----------------------------------------------------------
+// --- Wrecks -----------------------------------------------------------------
 
-/// Below this much health a car catches fire, then loses `burn_rate` a tick
-/// until it explodes (about 3 s from catching).
-pub const car_burn_hp: i32 = 100;
-pub const car_burn_rate: i32 = 1;
-/// A burnt-out wreck stays for this many ticks (10 s).
+/// A burnt-out wreck stays for this many ticks (10 s), then a new traffic
+/// car appears elsewhere.
 pub const wreck_ticks: u16 = 300;
 /// `Appearance.remap` of a burnt-out wreck (a dark palette in the style).
 pub const wreck_remap: u16 = 0;
 
-// --- Traffic -----------------------------------------------------------------
+// --- Traffic (notes: traffic-and-car-ai.md) --------------------------------
 
-/// Of the ambient cars, this many in 8 drive (the rest are parked).
+/// Of the ambient cars, this many in 8 drive (the rest are parked; ours).
 pub const traffic_8ths: u32 = 5;
-pub const traffic_speed = fx.ratio(17, 100); // about 5 blocks per second
-/// The look-ahead box for braking: from the car's centre, this far along the
-/// lane and this far either side of it.
-pub const traffic_look = fx.ratio(19, 10);
-pub const traffic_look_side = fx.ratio(55, 100);
-/// Ticks without moving (and nothing in the way) before backing out, and
-/// ticks spent backing out.
-pub const traffic_stuck_ticks: u16 = 45;
+/// Speed setting: default target 0.1 a tick, rising 0.01 a tick, falling
+/// 0.08 a tick when above the target.
+pub const traffic_speed = fx.ratio(1, 10);
+pub const traffic_accel = fx.ratio(1, 100);
+pub const traffic_decel = fx.ratio(8, 100);
+/// Look-ahead: 1.75 blocks ahead (1 while turning), then 1.
+pub const traffic_look = fx.ratio(175, 100);
+pub const traffic_look_turning = fx.one;
+pub const traffic_look_side = fx.ratio(45, 100);
+/// Above this speed a car braking for something ahead also uses the
+/// handbrake.
+pub const traffic_handbrake_speed = fx.ratio(4, 10);
+/// Ticks an AI driver stops for after hitting a pedestrian.
+pub const traffic_hit_stop: u16 = 100;
+/// Junction probe: how far ahead the straight-on check looks.
+pub const traffic_junction_probe = fx.ratio(8, 10);
+/// Ticks spent backing out once blocked at a standstill (the notes back out
+/// until reversing speed reaches the setting; ours bounds it).
 pub const traffic_reverse_ticks: u16 = 25;
+pub const traffic_stuck_ticks: u16 = 10;
 
 // --- Ambient population near players ---------------------------------------
 
@@ -228,13 +328,11 @@ pub const frag_limit: i32 = 10;
 
 // --- Health and respawn ---------------------------------------------------
 
-pub const respawn_ticks: u32 = 90;
+/// The "wasted" countdown before respawning (power-ups-death-and-arrest.md).
+pub const respawn_ticks: u32 = 70;
 /// A player (joining or respawning) appears on pavement within this many
 /// blocks of another active player, and at least `spawn_near_min` away,
 /// when such a spot exists; otherwise anywhere on pavement.
 pub const spawn_near_radius: i32 = 12;
 pub const spawn_near_min: i32 = 3;
-pub const wreck_driver_damage: i32 = 60;
-/// Closing speed above which a contact hurts, and damage per block/tick.
-pub const impact_threshold = fx.ratio(1, 10);
-pub const impact_damage: i32 = 120;
+

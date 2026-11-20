@@ -38,12 +38,12 @@ s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = 0 }});
 
 | Area | Behaviour |
 | --- | --- |
-| Players | `join` spawns a ped on foot, at the hint or on a random pavement cell; `leave` despawns it and frees a car it was driving. Dead players respawn on foot after 3 s. |
-| On foot, tank | `steer` turns (about 230°/s), `throttle` walks forward or back (back is slower). `run` held runs. |
+| Players | `join` spawns a ped on foot, at the hint or on a random pavement cell; `leave` despawns it and frees a car it was driving. Dead players respawn on foot after 70 ticks (2.3 s). |
+| On foot, tank | `steer` turns, the turn speed building up while held (to 12° a tick); `throttle` moves forward or back at the one running pace, 1/16 block a tick (`run` changes nothing). A blocked step slides along a wall at half speed. |
 | On foot, direct | With the `direct` bit, the ped moves along `aim` at a speed set by `throttle` and turns its body toward it (about 650°/s). |
-| Jump | `handbrake_jump` on foot jumps when on the ground. |
+| Jump | A fresh `handbrake_jump` press on the ground jumps: 16 ticks moving forward at the running pace, with slower turning, at the take-off height (a jump never drops into a gap; it falls once the jump ends). |
 | Cars | Placeholder handling, ours, tuned by feel (below). |
-| Enter, exit | `enter_exit` (rising edge) on foot enters the nearest free car within 1.5 blocks that is nearly stopped. In a car it exits on the driver's side (left of travel), else the right, else not at all. Entering sets `Riding.vehicle`, the car's `Vehicle.driver` and `Controller.player`, and `PlayerRow.car`; exiting clears them. `PlayerRow.car` is the car the player is in now, none on foot. |
+| Enter, exit | `enter_exit` (rising edge) on foot enters the nearest free car within 1.5 blocks of a point half a block ahead, if it is slower than 0.2 a tick. In a car, below 0.3 a tick, it exits on the driver's side (left of travel), else the right, else not at all. Entering sets `Riding.vehicle`, the car's `Vehicle.driver` and `Controller.player`, and `PlayerRow.car`; exiting clears them. `PlayerRow.car` is the car the player is in now, none on foot. |
 | Map collision | Every cell shape reduces to "is there matter at this point, and how high is its top". Walls block; ramps (all 44 codes), partial blocks (53-61) and diagonal walls (45-48) are exact; diagonal slopes (49-52) act as diagonal walls for now. Peds climb 5/16 of a block, cars 7/10 (so a car's nose does not catch at the top of a ramp). Bodies fall, land and follow ramps down. |
 | Bodies | Peds are circles sampled at 9 points; cars are boxes sampled at 8 points against the map and circles against each other. Moves are sub-stepped at a quarter block so nothing tunnels. |
 | Weapons | A pistol for players on foot (M3 adds the rest, below). |
@@ -52,15 +52,16 @@ s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = 0 }});
 
 ## What M3 adds
 
-All of it is our own design, tuned by feel; every number is in `tuning.zig`.
+The rules follow the clean-room behaviour notes in `docs/behaviour/` where they cover them (the file is named beside each number in `tuning.zig`); the rest is our own, tuned by feel.
 
 | Area | Behaviour |
 | --- | --- |
-| Weapons | Pistol (infinite), machine gun, shotgun (6 pellets), rocket launcher. `weapon_next`/`weapon_prev` cycle through the ones with rounds. Rounds per weapon live in `Weapon.a0..a3`. |
-| Explosions | Rockets explode at a wall, a body or the end of their range; cars explode when they burn out. Damage falls off from a core radius to the edge and pushes bodies away. |
-| Cars | Below `car_burn_hp` a car burns and loses health, then explodes and becomes a wreck that cannot be entered, then despawns and a new traffic car appears elsewhere. |
-| Pickups | Weapon and health pickups (2 + 2 per player) appear on pavement near players, spin, and expire after a minute. |
-| Traffic | Cars with `flag_ai` follow lane arrows, choose a turn at junctions, keep to the lane centre, brake for bodies ahead and back out when stuck. Getting in takes the car over. |
+| Weapons | Pistol (infinite), machine gun (a bullet every 2 ticks), shotgun (5 pellets 6° apart, short range), rocket launcher (`weapons.md`, `projectiles.md`). Ammo is kept in tenths of a displayed round (a machine-gun round is 10 bullets). Shots start a quarter block ahead and are not fired if the point halfway there is in a wall; they carry the shooter's velocity and vanish at the end of their range. Bullets do 10 to a player and 25 to anyone else (the pistol twice that), and 1600 (pistol) or 800 raw damage to a car. `weapon_next`/`weapon_prev` cycle through the ones with ammo. |
+| Explosions | An explosion is an entity in the projectile table (`Projectile.weapon` has `explosion_bit`) with a 99-tick timer (`explosions-and-damage.md`). A rocket makes a small one (radius 0.5) on whatever it touches, a car a radius-1 one. Distances are square, with a vertical reach of 0.2. On its first tick it pushes cars outward; above 50 it throws standing peds (killed within half the radius; within it a non-player is killed and a player knocked down; up to twice the radius, above 70, knocked over) and, in ticks 81-89 and 51-59, does 32000 raw damage to cars in the radius, so explosions chain. |
+| Car damage | `Health.hp` on a car is 32000 minus its damage. Hits add raw damage times the model's anti-strength (`car-collision.md`): impacts with walls and cars by impulse, (1 + e) x closing speed x mass x 200 (restitution 0.25 and 0.5; below 0.03 a tick, none), bullets and blasts by their figures. From 16000 a car burns, from 25000 it burns on by itself, at 32000 it explodes: everyone inside dies, credited to whoever destroyed it, and it becomes a wreck that cannot be entered, then despawns and a new traffic car appears elsewhere. |
+| Knock-downs | A car moving into a ped hands him a knock-back of about twice its closing speed (`ped-movement.md` 3.8): under 0.1 he is knocked over; from 0.1 a non-player dies; a player is thrown and knocked down up to 0.3 (killed in between if a player was driving); from 0.3 anyone dies. Thrown bodies fly with gravity 0.02, slide to rest, then get up, lie a while, or die. The AI driver stops for 100 ticks. |
+| Pickups | Weapon and health pickups (2 + 2 per player) appear on pavement near players, spin, and expire after a minute. Health restores full health. |
+| Traffic | Cars with `flag_ai` follow lane arrows; at a junction they go straight on if the road goes on, else pick left or right once (`traffic-and-car-ai.md`). They keep to the lane centre, ramp a speed setting toward 0.1 a tick (up 0.01, down 0.08 a tick), brake for bodies 1.75 blocks ahead (1 while turning, with the handbrake above 0.4), halt 100 ticks after hitting someone and back out when stuck. Getting in takes the car over. |
 | Ambient | Peds and traffic far from every player are moved back near one, at most 2 per tick. |
 | Scoring | A kill is a point; a suicide (including your own rocket or a car you set burning) costs one. The first to `frag_limit` (10) ends the round: a `round_end` event, and every score resets. |
 | Events | `events()` returns this tick's kill, explosion, round end and pickup events; the server sends them as I3 `event` messages. |

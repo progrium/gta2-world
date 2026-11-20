@@ -323,7 +323,8 @@ export fn playerInfo(slot: u32) [*]const i32 {
             const k = @min(w.kind, sim.tuning.weapon_count - 1);
             player_buf[8] = k;
             const r = w.rounds()[k];
-            player_buf[9] = if (r == sim.tuning.infinite_ammo) -1 else r;
+            // Ammo is kept in tenths; show whole rounds, rounding up.
+            player_buf[9] = if (r == sim.tuning.infinite_ammo) -1 else @divTrunc(@as(i32, r) + 9, 10);
         }
     }
     return &player_buf;
@@ -388,6 +389,9 @@ const spr = struct {
     const pickup_frames: u16 = 8;
 };
 
+/// `Instance.kind` marking an instance `decorate` drops.
+const hidden_kind = 0xFF;
+
 const Effect = struct { x: f32, y: f32, z: f32, t0: f64 };
 var effects: [32]Effect = undefined;
 var effects_next: usize = 0;
@@ -436,6 +440,11 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
         switch (in.kind) {
             @intFromEnum(abi.Kind.projectile) => {
                 const p = readAt(sim.c.Projectile, state, proj_col orelse continue, in.index) orelse continue;
+                if (p.weapon & sim.c.Projectile.explosion_bit != 0) {
+                    // Drawn from its event (`effectExplosion`); dropped below.
+                    in.kind = hidden_kind;
+                    continue;
+                }
                 in.sprite = @intCast(code + if (p.weapon == sim.tuning.weapon_rocket) spr.rocket else spr.bullet);
                 in.flags |= list.Instance.flag_glow;
                 in.palette = list.Instance.own_palette;
@@ -461,6 +470,14 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
             else => {},
         }
     }
+    // Drop hidden instances, keeping the order of the rest.
+    var kept: usize = 0;
+    for (0..n) |i| {
+        if (instances[i].kind == hidden_kind) continue;
+        instances[kept] = instances[i];
+        kept += 1;
+    }
+    n = kept;
     for (effects[0..effects_len]) |e| {
         const age = now_ms - e.t0;
         if (age < 0 or age >= spr.explosion_ms or n >= instances.len) continue;
@@ -549,6 +566,7 @@ fn watch(state: []const u8, own_slot: u32) void {
             if (g == seen_proj_gen[i]) continue;
             seen_proj_gen[i] = g;
             const p = readAt(sim.c.Projectile, state, pc, @intCast(i)) orelse continue;
+            if (p.weapon & sim.c.Projectile.explosion_bit != 0) continue;
             if (sim.ecs.eql(p.owner, own) or sim.ecs.eql(p.owner, last_owner)) continue;
             last_owner = p.owner;
             if (readAt(abi.Transform, state, tc, @intCast(i))) |t| cue(cue_shot, p.weapon, t);
@@ -719,7 +737,7 @@ const tune_entries = blk: {
 fn unitOf(comptime F: type, comptime name: []const u8) []const u8 {
     if (F != i32) return "shift";
     // Fx is i32 too; the fields that are plain integers are named here.
-    const ints = [_][]const u8{ "mass", "hp", "steer_gain", "max_yaw", "handbrake_yaw_8ths", "pedal_rate", "steer_rate", "restitution_8ths" };
+    const ints = [_][]const u8{ "steer_gain", "max_yaw", "handbrake_yaw_8ths", "pedal_rate", "steer_rate", "restitution_8ths" };
     for (ints) |n| if (std.mem.eql(u8, n, name)) return "int";
     return "fx";
 }

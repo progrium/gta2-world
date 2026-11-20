@@ -105,8 +105,10 @@ test "tank controls: walk forward, turn, walls stop you" {
     // Turn half way round with full steer, then walk back.
     h.frames[0].throttle = 0;
     h.frames[0].steer = 127;
-    const turns = @divTrunc(32768 + T.ped_tank_turn - 1, T.ped_tank_turn);
-    h.run(@intCast(turns));
+    // The turn speed builds up to its cap, so half a turn takes a while.
+    var turned: u32 = 0;
+    while (@abs(@as(i32, @as(i16, @bitCast(t.heading -% 32768)))) > T.ped_turn_max and turned < 100) : (turned += 1) h.run(1);
+    try std.testing.expect(turned > @divTrunc(32768, T.ped_turn_max));
     h.frames[0].steer = 0;
     const x0 = t.x;
     h.frames[0].throttle = 127;
@@ -124,14 +126,14 @@ test "direct controls: turn toward aim and move along it" {
     h.run(10);
     try std.testing.expectEqual(@as(u16, 16384), t.heading);
     try std.testing.expect(t.y > y0);
-    // Run is faster than walk.
+    // One pace: run is no faster than walk (ped-movement.md 3.2).
     const y1 = t.y;
     h.frames[0].buttons |= Button.run;
     h.run(5);
-    try std.testing.expect(t.y - y1 > fx.mulAxis(T.ped_walk, 127) * 5);
+    try std.testing.expectEqual(fx.mulAxis(T.ped_run, 127) * 5, t.y - y1);
 }
 
-test "walk up the 45 degree ramp onto the platform, then jump off" {
+test "walk up the 45 degree ramp onto the platform, then jump along it" {
     var h = try Harness.init(.authoritative);
     defer h.deinit();
     h.join(0, testmap.yard_x, testmap.yard_y + 4);
@@ -140,14 +142,19 @@ test "walk up the 45 degree ramp onto the platform, then jump off" {
     h.run(60);
     try std.testing.expectEqual(fx.fromInt(2), t.z);
     try std.testing.expect(t.x > fx.fromInt(testmap.yard_x + 3));
-    // Jump: leaves the floor, then lands again.
+    // Jump: carries him forward at the run pace without leaving the floor.
     h.frames[0].throttle = 0;
     h.frames[0].buttons = Button.handbrake_jump;
-    h.run(2);
-    try std.testing.expect(t.z > fx.fromInt(2));
-    h.frames[0].buttons = 0;
-    h.run(40);
+    const x0 = t.x;
+    h.run(4);
     try std.testing.expectEqual(fx.fromInt(2), t.z);
+    try std.testing.expect(t.x > x0);
+    // Holding the key does not jump again.
+    h.run(T.ped_jump_ticks);
+    const x1 = t.x;
+    h.run(4);
+    try std.testing.expectEqual(x1, t.x);
+    h.frames[0].buttons = 0;
 }
 
 test "enter a car, drive it, get out" {
@@ -281,7 +288,7 @@ test "predict mode with everything predicted matches authoritative" {
     var p = try Harness.init(.predict);
     defer p.deinit();
     a.join(0, 60, 35);
-    _ = a.sim.spawnCarAt(blk(61), fx.fromInt(35), 0, 0).?;
+    const car = a.sim.spawnCarAt(blk(61), fx.fromInt(35), 0, 0).?;
     a.run(2);
     // Hand the client the server's state and predict everything.
     var buf: [S.state_size]u8 = undefined;
@@ -312,7 +319,9 @@ test "predict mode with everything predicted matches authoritative" {
         p.sim.step(&frames, &.{});
         try std.testing.expectEqual(a.sim.hash(), p.sim.hash());
     }
-    // Firing in predict mode reports an intent instead of spawning.
+    // Firing in predict mode reports an intent instead of spawning. (Stop
+    // the car first: nobody gets out above 0.3 a tick.)
+    p.sim.state.world.get(car, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
     frames[0] = .{ .steer = 0, .throttle = 0, .buttons = Button.enter_exit, .aim = 0, .seq = 0 };
     p.sim.step(&frames, &.{});
     frames[0].buttons = Button.fire;
@@ -387,7 +396,7 @@ test "dm16 session with ambient population runs and stays deterministic" {
     try std.testing.expectEqual(@as(u32, 0), below);
 }
 
-test "bottomless columns act as walls; ceilings stop a jump" {
+test "bottomless columns act as walls; a jump stays on the ground" {
     var h = try Harness.init(.authoritative);
     defer h.deinit();
     // Dig a void: the whole column at (54, 40) down to the bottom.
@@ -405,13 +414,12 @@ test "bottomless columns act as walls; ceilings stop a jump" {
     h.sim.state.world.get(h.sim.pedOf(0).?, c.Transform).?.* = .{ .x = blk(50), .y = blk(40), .z = fx.one, .heading = 0 };
     h.frames[0] = Frame.neutral(0);
     h.frames[0].buttons = Button.handbrake_jump;
-    var top: fx.Fx = 0;
+    const x0 = t.x;
     for (0..30) |_| {
         h.run(1);
-        top = @max(top, t.z);
+        try std.testing.expectEqual(fx.one, t.z);
     }
-    try std.testing.expect(top > fx.one);
-    try std.testing.expect(top + map.body_height <= fx.fromInt(2) + T.ped_jump_vz);
+    try std.testing.expect(t.x > x0);
 }
 
 test "a player joining without a hint spawns near someone already playing" {
@@ -467,7 +475,7 @@ test "pickups give weapons; the machine gun runs dry back to the pistol" {
     h.run(1);
     try std.testing.expect(hasEvent(h.sim.events(), .pickup));
     try std.testing.expectEqual(T.weapon_smg, wpn.kind);
-    try std.testing.expectEqual(T.weapons[T.weapon_smg].pickup_ammo, wpn.rounds()[T.weapon_smg]);
+    try std.testing.expectEqual(T.weapons[T.weapon_smg].pickup_rounds * 10, wpn.rounds()[T.weapon_smg]);
     try std.testing.expectEqual(@as(u32, 0), h.sim.state.world.count(S.Pickup));
     // Cycling goes to the pistol and back.
     h.tap(0, Button.weapon_next);
@@ -476,7 +484,8 @@ test "pickups give weapons; the machine gun runs dry back to the pistol" {
     try std.testing.expectEqual(T.weapon_smg, wpn.kind);
     // Empty the machine gun (into the building next door).
     h.frames[0].buttons = Button.fire;
-    h.run(@as(u32, T.weapons[T.weapon_smg].cooldown) * T.weapons[T.weapon_smg].pickup_ammo + 10);
+    const smg = T.weapons[T.weapon_smg];
+    h.run(@as(u32, smg.cooldown) * smg.pickup_rounds * 10 / smg.tenths_per_pull + 10);
     h.frames[0].buttons = 0;
     try std.testing.expectEqual(@as(u16, 0), wpn.rounds()[T.weapon_smg]);
     try std.testing.expectEqual(T.weapon_pistol, wpn.kind);
@@ -495,13 +504,13 @@ test "a rocket kills another player and credits the shooter; your own costs a po
     const ped0 = h.sim.pedOf(0).?;
     h.ped(0).heading = 16384; // down the road toward slot 1
     const wpn = w.get(ped0, c.Weapon).?;
-    wpn.rounds()[T.weapon_rocket] = 4;
+    wpn.rounds()[T.weapon_rocket] = 40;
     wpn.kind = T.weapon_rocket;
     h.frames[0].buttons = Button.fire;
     h.run(1);
     h.frames[0].buttons = 0;
     var saw_kill = false;
-    for (0..40) |_| {
+    for (0..90) |_| {
         h.run(1);
         for (h.sim.events()) |e| {
             if (e.kind == .kill) {
@@ -519,15 +528,15 @@ test "a rocket kills another player and credits the shooter; your own costs a po
     try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[1].deaths);
     // Now point-blank at a building wall: the blast kills the shooter.
     const t0 = h.ped(0);
-    t0.x = blk(36);
+    // Within half the blast radius a player is killed (further out, but
+    // inside it, only knocked down).
+    t0.x = fx.fromInt(37) + fx.ratio(3, 4);
     t0.y = blk(41);
     t0.heading = 0; // +x: building wall at x = 38
     h.frames[0].buttons = Button.fire;
     h.run(1);
     h.frames[0].buttons = 0;
-    for (0..10) |_| {
-        h.run(1);
-    }
+    h.run(60);
     try std.testing.expect(h.sim.pedOf(0) == null);
     try std.testing.expectEqual(@as(i32, 0), h.sim.state.players[0].score);
     try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].kills);
@@ -536,20 +545,27 @@ test "a rocket kills another player and credits the shooter; your own costs a po
 test "a shot-up car catches fire, explodes and burns out" {
     var h = try Harness.init(.authoritative);
     defer h.deinit();
-    h.join(0, 33, 62);
+    h.join(0, 33, 61);
     const car = h.sim.spawnCarAt(blk(33), fx.fromInt(60) + fx.ratio(3, 10), 0, 0).?;
     const w = &h.sim.state.world;
-    w.get(car, c.Health).?.hp = T.car_burn_hp - 10;
+    // Damage at the larger fire: it burns on by itself until it explodes.
+    w.get(car, c.Health).?.hp = T.car_damage_max - T.car_fire2_damage;
     h.run(1);
-    try std.testing.expect(w.get(car, c.Vehicle).?.flags & c.Vehicle.flag_burning != 0);
-    h.run(@intCast(T.car_burn_hp));
     const v = w.get(car, c.Vehicle).?;
+    try std.testing.expect(v.flags & c.Vehicle.flag_burning != 0);
+    var ticks: u32 = 0;
+    while (v.flags & c.Vehicle.flag_wrecked == 0 and ticks < 200) : (ticks += 1) h.run(1);
     try std.testing.expect(v.flags & c.Vehicle.flag_wrecked != 0);
     try std.testing.expectEqual(@as(u64, 1), h.sim.scratch.stats.explosions);
-    // The player beside it was hurt but lives; the wreck cannot be entered.
+    // The player 1.2 blocks away (inside twice the radius) is knocked over,
+    // then gets up; the wreck cannot be entered.
     const ped = h.sim.pedOf(0).?;
-    try std.testing.expect(w.get(ped, c.Health).?.hp < T.ped_hp);
-    h.ped(0).y = blk(61);
+    h.run(2);
+    try std.testing.expectEqual(c.Pedestrian.state_over, w.get(ped, c.Pedestrian).?.state);
+    h.run(60);
+    try std.testing.expectEqual(c.Pedestrian.state_up, w.get(ped, c.Pedestrian).?.state);
+    try std.testing.expectEqual(T.ped_hp, w.get(ped, c.Health).?.hp);
+    h.ped(0).* = .{ .x = blk(33), .y = blk(61), .z = h.ped(0).z, .heading = 16384 * 3 };
     h.tap(0, Button.enter_exit);
     try std.testing.expect(w.get(ped, c.Riding).?.vehicle.isNone());
     h.run(T.wreck_ticks + 2);
@@ -565,7 +581,7 @@ test "traffic follows its lane and brakes for a ped in the road" {
     const v = w.get(car, c.Vehicle).?;
     v.flags = c.Vehicle.flag_ai;
     v.ai_dir = 0;
-    h.run(75);
+    h.run(90);
     const t = h.sim.transformOf(car).?;
     try std.testing.expect(t.x > blk(44));
     try std.testing.expect(fx.abs(t.y - blk(34)) < fx.half);
