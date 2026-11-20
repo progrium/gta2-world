@@ -865,3 +865,30 @@ test "a car driven off the top of a ramp flies, and a car over a ledge tips off"
     try std.testing.expectEqual(fx.one, t2.z);
     try std.testing.expect(t2.x > fx.fromInt(50) + fx.half);
 }
+
+test "an off-centre car hit spins the car struck; a glancing wall hit spins the car" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    const a = h.sim.spawnCarAt(fx.fromInt(60), fx.fromInt(49) + fx.half, 0, 0).?;
+    const b = h.sim.spawnCarAt(fx.fromInt(63), fx.fromInt(50) + fx.ratio(1, 10), 16384, 0).?;
+    const w = &h.sim.state.world;
+    w.get(a, c.Velocity).?.vx = fx.ratio(3, 10);
+    var spun = false;
+    for (0..20) |_| {
+        h.run(1);
+        if (w.get(b, c.Velocity).?.spin != 0) spun = true;
+    }
+    try std.testing.expect(spun);
+    try std.testing.expect(h.sim.scratch.stats.impacts > 0);
+    // A car driven at a building wall at an angle comes away turning.
+    const d = h.sim.spawnCarAt(fx.fromInt(50), fx.fromInt(60) + fx.half, 16384 + 3000, 0).?;
+    const dv = w.get(d, c.Velocity).?;
+    dv.vx = fx.ratio(5, 100);
+    dv.vy = fx.ratio(3, 10);
+    var turned = false;
+    for (0..20) |_| {
+        h.run(1);
+        if (dv.spin != 0) turned = true;
+    }
+    try std.testing.expect(turned);
+}

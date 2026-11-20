@@ -1671,18 +1671,49 @@ pub fn Sim(comptime cfg: Config) type {
                     }
                     const n = substeps(vel);
                     var i: i32 = 0;
+                    var moved = false;
+                    var blocked_x: Fx = 0;
+                    var blocked_y: Fx = 0;
                     while (i < n) : (i += 1) {
                         const sx = @divTrunc(vel.vx, n);
                         const sy = @divTrunc(vel.vy, n);
                         if (sx != 0) {
                             if (sim.boxBlocked(t.x + sx, t.y, t.z, t.heading, m)) {
-                                sim.wallHit(id, vel, true, m);
-                            } else t.x += sx;
+                                sim.wallHit(id, t, vel, true, sx, m);
+                                blocked_x = sx;
+                            } else {
+                                t.x += sx;
+                                moved = true;
+                            }
                         }
                         if (sy != 0) {
                             if (sim.boxBlocked(t.x, t.y + sy, t.z, t.heading, m)) {
-                                sim.wallHit(id, vel, false, m);
-                            } else t.y += sy;
+                                sim.wallHit(id, t, vel, false, sy, m);
+                                blocked_y = sy;
+                            } else {
+                                t.y += sy;
+                                moved = true;
+                            }
+                        }
+                    }
+                    // Unstick (car-collision.md 3.2): fully blocked with gas
+                    // or reverse held, turn 1 degree toward running along
+                    // the wall and step 1/64 away from it.
+                    if (!moved and (blocked_x != 0 or blocked_y != 0) and v.drive != c.Vehicle.drive_none) {
+                        const travel = if (v.drive == c.Vehicle.drive_reverse) t.heading +% 32768 else t.heading;
+                        // Parallel to a wall across x is +-y (16384 or
+                        // 49152), to one across y is 0 or 32768.
+                        const off: i16 = @bitCast(travel -% @as(u16, if (blocked_x != 0) 16384 else 0));
+                        const far_side = @abs(off) > 16384;
+                        const toward_plus = (off > 0) == far_side;
+                        const turn: u16 = if (toward_plus) T.unstick_turn else 0 -% T.unstick_turn;
+                        const h = t.heading +% turn;
+                        if (!sim.boxBlocked(t.x, t.y, t.z, h, m)) t.heading = h;
+                        const px: Fx = if (blocked_x > 0) -T.unstick_push else if (blocked_x < 0) T.unstick_push else 0;
+                        const py: Fx = if (blocked_y > 0) -T.unstick_push else if (blocked_y < 0) T.unstick_push else 0;
+                        if (!sim.boxBlocked(t.x + px, t.y + py, t.z, t.heading, m)) {
+                            t.x += px;
+                            t.y += py;
                         }
                     }
                     sim.carSettle(t, vel, col, m);
@@ -1693,19 +1724,39 @@ pub fn Sim(comptime cfg: Config) type {
         /// Bounce off a wall along one axis (restitution 0.25) and scrub some
         /// speed along the other. The impulse, (1 + e) x speed x mass,
         /// damages the car (car-collision.md 3.5).
-        fn wallHit(self: *Self, id: EntityId, vel: *c.Velocity, x_axis: bool, m: *const T.CarModel) void {
+        fn wallHit(self: *Self, id: EntityId, t: *const c.Transform, vel: *c.Velocity, x_axis: bool, dir: Fx, m: *const T.CarModel) void {
             self.scratch.stats.wall_hits += 1;
-            const vn = fx.abs(if (x_axis) vel.vx else vel.vy);
-            if (vn > T.impact_min_speed) {
-                const j: i64 = (@as(i64, vn) * m.mass * (8 + m.restitution_8ths)) >> (fx.frac_bits + 3);
-                self.damageCar(id, j * T.impact_damage, .none);
+            // Contact point: the corner furthest along the blocked move
+            // (car-collision.md 3.3); n is the wall's axis, toward the car.
+            var r: [2]Fx = .{ 0, 0 };
+            var far: Fx = std.math.minInt(Fx);
+            for (carCorners(t, m)) |k| {
+                const along = if (x_axis) k[0] else k[1];
+                const a = if (dir > 0) along else -along;
+                if (a > far) {
+                    far = a;
+                    r = k;
+                }
             }
-            if (x_axis) {
-                vel.vx = -@divTrunc(vel.vx * m.restitution_8ths, 8);
-                vel.vy -= vel.vy >> 3;
-            } else {
-                vel.vy = -@divTrunc(vel.vy * m.restitution_8ths, 8);
-                vel.vx -= vel.vx >> 3;
+            const nx: Fx = if (x_axis) (if (dir > 0) -fx.one else fx.one) else 0;
+            const ny: Fx = if (x_axis) 0 else (if (dir > 0) -fx.one else fx.one);
+            const vpx = vel.vx - fx.mul(vel.spin, r[1]);
+            const vpy = vel.vy + fx.mul(vel.spin, r[0]);
+            const vn = fx.mul(vpx, nx) + fx.mul(vpy, ny);
+            if (vn < 0) {
+                const rn = fx.mul(r[0], ny) - fx.mul(r[1], nx);
+                const denom = fx.div(fx.one, m.mass) + fx.div(fx.mul(rn, rn), m.inertia);
+                const j: Fx = @intCast(@divTrunc(@as(i64, -fx.div(vn, denom)) * (8 + m.restitution_8ths), 8));
+                applyImpulse(vel, m, r[0], r[1], fx.mul(j, nx), fx.mul(j, ny));
+                // The normal speed never stays pointing into the wall.
+                if (x_axis and fx.mul(vel.vx, nx) < 0) vel.vx = 0;
+                if (!x_axis and fx.mul(vel.vy, ny) < 0) vel.vy = 0;
+                if (fx.length(vel.vx, vel.vy) > T.impact_min_speed) self.damageCar(id, @as(i64, j) * T.impact_damage, .none);
+            }
+            // Airborne and rising or level: bounce down (0.7, cut at 1/32).
+            if (vel.vz >= 0 and self.state.world.get(id, c.Collider).?.flags & c.Collider.flag_grounded == 0) {
+                vel.vz = -fx.mul(vel.vz, fx.ratio(7, 10));
+                if (fx.abs(vel.vz) < fx.one / 32) vel.vz = 0;
             }
         }
 
@@ -1872,12 +1923,169 @@ pub fn Sim(comptime cfg: Config) type {
             }
         }
 
+        /// A car's ground rectangle as corners, relative to its centre.
+        fn carCorners(t: *const c.Transform, m: *const T.CarModel) [4][2]Fx {
+            const cs = fx.cos(t.heading);
+            const sn = fx.sin(t.heading);
+            const k = [_][2]Fx{ .{ m.half_len, m.half_wid }, .{ m.half_len, -m.half_wid }, .{ -m.half_len, -m.half_wid }, .{ -m.half_len, m.half_wid } };
+            var out: [4][2]Fx = undefined;
+            for (k, &out) |p, *o| o.* = .{ fx.mul(p[0], cs) - fx.mul(p[1], sn), fx.mul(p[0], sn) + fx.mul(p[1], cs) };
+            return out;
+        }
+
+        /// Is world point (px, py) inside the car rectangle at `t`?
+        fn inRect(t: *const c.Transform, m: *const T.CarModel, px: Fx, py: Fx) bool {
+            const dx = px - t.x;
+            const dy = py - t.y;
+            const cs = fx.cos(t.heading);
+            const sn = fx.sin(t.heading);
+            const u = fx.mul(dx, cs) + fx.mul(dy, sn);
+            const v = fx.mul(dy, cs) - fx.mul(dx, sn);
+            return fx.abs(u) < m.half_len and fx.abs(v) < m.half_wid;
+        }
+
+        /// Separating axes for two car rectangles: null if apart, else the
+        /// smallest overlap and its axis (unit, pointing from a to b).
+        fn rectOverlap(ta: *const c.Transform, ma: *const T.CarModel, tb: *const c.Transform, mb: *const T.CarModel) ?struct { depth: Fx, nx: Fx, ny: Fx } {
+            const axes = [_][2]Fx{ .{ fx.cos(ta.heading), fx.sin(ta.heading) }, .{ -fx.sin(ta.heading), fx.cos(ta.heading) }, .{ fx.cos(tb.heading), fx.sin(tb.heading) }, .{ -fx.sin(tb.heading), fx.cos(tb.heading) } };
+            const ca = carCorners(ta, ma);
+            const cb = carCorners(tb, mb);
+            var best: Fx = std.math.maxInt(Fx);
+            var bn: [2]Fx = .{ fx.one, 0 };
+            const dx = tb.x - ta.x;
+            const dy = tb.y - ta.y;
+            for (axes) |ax| {
+                var ra: Fx = 0;
+                var rb: Fx = 0;
+                for (ca) |p| ra = @max(ra, fx.mul(p[0], ax[0]) + fx.mul(p[1], ax[1]));
+                for (cb) |p| rb = @max(rb, fx.mul(p[0], ax[0]) + fx.mul(p[1], ax[1]));
+                const d = fx.mul(dx, ax[0]) + fx.mul(dy, ax[1]);
+                const overlap = ra + rb - fx.abs(d);
+                if (overlap <= 0) return null;
+                if (overlap < best) {
+                    best = overlap;
+                    bn = if (d >= 0) ax else .{ -ax[0], -ax[1] };
+                }
+            }
+            return .{ .depth = best, .nx = bn[0], .ny = bn[1] };
+        }
+
+        /// Car against car (car-collision.md 3.3, 3.6): their rectangles
+        /// overlap; the contact point is a corner of one inside the other.
+        /// They are pushed apart along the shallowest axis, then take the
+        /// rigid-body impulse with restitution 0.5 along the line from the
+        /// contact point to car a's centre, so off-centre hits spin both.
+        fn carCar(self: *Self, a: *Entry, b: *Entry) void {
+            const w = &self.state.world;
+            const ta = w.get(a.id, c.Transform).?;
+            const tb = w.get(b.id, c.Transform).?;
+            if (fx.abs(ta.z - tb.z) > fx.half) return;
+            const rr = a.r + b.r;
+            if (fx.abs(tb.x - ta.x) >= rr or fx.abs(tb.y - ta.y) >= rr) return;
+            const ma = T.carModel(w.get(a.id, c.Vehicle).?.model);
+            const mb = T.carModel(w.get(b.id, c.Vehicle).?.model);
+            const ov = rectOverlap(ta, ma, tb, mb) orelse return;
+            self.scratch.stats.contacts += 1;
+            // Contact point: a corner of one inside the other, else midway.
+            var px = (ta.x + tb.x) >> 1;
+            var py = (ta.y + tb.y) >> 1;
+            find: {
+                for (carCorners(ta, ma)) |k| if (inRect(tb, mb, ta.x + k[0], ta.y + k[1])) {
+                    px = ta.x + k[0];
+                    py = ta.y + k[1];
+                    break :find;
+                };
+                for (carCorners(tb, mb)) |k| if (inRect(ta, ma, tb.x + k[0], tb.y + k[1])) {
+                    px = tb.x + k[0];
+                    py = tb.y + k[1];
+                    break :find;
+                };
+            }
+            // Separate along the shallowest axis, by mass.
+            const mass_a: i64 = if (a.movable) a.mass else 1 << 40;
+            const mass_b: i64 = if (b.movable) b.mass else 1 << 40;
+            const total = mass_a + mass_b;
+            const push_a: Fx = @intCast(@divTrunc(@as(i64, ov.depth) * mass_b, total));
+            const push_b = ov.depth - push_a;
+            if (a.movable) {
+                const x = ta.x - fx.mul(ov.nx, push_a);
+                const y = ta.y - fx.mul(ov.ny, push_a);
+                if (!self.boxBlocked(x, y, ta.z, ta.heading, ma)) {
+                    ta.x = x;
+                    ta.y = y;
+                }
+            }
+            if (b.movable) {
+                const x = tb.x + fx.mul(ov.nx, push_b);
+                const y = tb.y + fx.mul(ov.ny, push_b);
+                if (!self.boxBlocked(x, y, tb.z, tb.heading, mb)) {
+                    tb.x = x;
+                    tb.y = y;
+                }
+            }
+            a.x = ta.x;
+            a.y = ta.y;
+            b.x = tb.x;
+            b.y = tb.y;
+            // n: from the contact point toward a's centre.
+            var nx = ta.x - px;
+            var ny = ta.y - py;
+            const nl = fx.length(nx, ny);
+            if (nl == 0) return;
+            nx = fx.div(nx, nl);
+            ny = fx.div(ny, nl);
+            const va = w.get(a.id, c.Velocity).?;
+            const vb = w.get(b.id, c.Velocity).?;
+            const rax = px - ta.x;
+            const ray = py - ta.y;
+            const rbx = px - tb.x;
+            const rby = py - tb.y;
+            // Contact point velocities, rotation included.
+            const vax = va.vx - fx.mul(va.spin, ray);
+            const vay = va.vy + fx.mul(va.spin, rax);
+            const vbx = vb.vx - fx.mul(vb.spin, rby);
+            const vby = vb.vy + fx.mul(vb.spin, rbx);
+            const vn = fx.mul(vax - vbx, nx) + fx.mul(vay - vby, ny);
+            if (vn >= 0) return; // separating
+            const ran = fx.mul(rax, ny) - fx.mul(ray, nx);
+            const rbn = fx.mul(rbx, ny) - fx.mul(rby, nx);
+            var denom: Fx = 0;
+            if (a.movable) denom += fx.div(fx.one, ma.mass) + fx.div(fx.mul(ran, ran), ma.inertia);
+            if (b.movable) denom += fx.div(fx.one, mb.mass) + fx.div(fx.mul(rbn, rbn), mb.inertia);
+            if (denom <= 0) return;
+            const e8: i64 = 8 + T.car_restitution_8ths;
+            const j: Fx = @intCast(@divTrunc(@as(i64, -fx.div(vn, denom)) * e8, 8));
+            const jx = fx.mul(j, nx);
+            const jy = fx.mul(j, ny);
+            if (a.movable) applyImpulse(va, ma, rax, ray, jx, jy);
+            if (b.movable) applyImpulse(vb, mb, rbx, rby, -jx, -jy);
+            if (j > T.impact_min_speed) {
+                self.scratch.stats.impacts += 1;
+                self.damageCar(a.id, @as(i64, j) * T.impact_damage, b.id);
+                self.damageCar(b.id, @as(i64, j) * T.impact_damage, a.id);
+            }
+        }
+
+        /// Impulse (jx, jy) at offset (rx, ry) from a car's centre
+        /// (car-collision.md 3.4): velocity by impulse / mass, spin by the
+        /// torque over the moment of inertia; an impulse under 0.01 per unit
+        /// of mass leaves the car alone.
+        fn applyImpulse(vel: *c.Velocity, m: *const T.CarModel, rx: Fx, ry: Fx, jx: Fx, jy: Fx) void {
+            const dvx = fx.div(jx, m.mass);
+            const dvy = fx.div(jy, m.mass);
+            if (fx.length(dvx, dvy) <= T.impulse_min) return;
+            vel.vx += dvx;
+            vel.vy += dvy;
+            vel.spin += fx.div(fx.mul(rx, jy) - fx.mul(ry, jx), m.inertia);
+        }
+
         fn resolvePair(self: *Self, a: *Entry, b: *Entry) void {
             if (!a.movable and !b.movable) return;
             const a_car = a.id.kind() == @intFromEnum(abi.Kind.car);
             const b_car = b.id.kind() == @intFromEnum(abi.Kind.car);
             if (a_car and !b_car) return self.carPed(a, b);
             if (b_car and !a_car) return self.carPed(b, a);
+            if (a_car and b_car) return self.carCar(a, b);
             const w = &self.state.world;
             const ta = w.get(a.id, c.Transform).?;
             const tb = w.get(b.id, c.Transform).?;

@@ -504,6 +504,12 @@ pub const car_burn_rate: i32 = 80;
 pub const impact_damage: i32 = 200;
 pub const wall_restitution_8ths: i32 = 2;
 pub const car_restitution_8ths: i32 = 4;
+/// An impulse moving a car by less than this a tick leaves it alone
+/// (car-collision.md 3.4).
+pub const impulse_min = fx.ratio(1, 100);
+/// Unstick nudge against a wall: 1 degree and 1/64 block a tick.
+pub const unstick_turn: u16 = 182;
+pub const unstick_push: Fx = fx.one / 64;
 /// Closing speeds below this do no damage (ours: so a car pushing on a wall
 /// or another car is not ground down; the notes' dent threshold for walls).
 pub const impact_min_speed = fx.ratio(3, 100);
