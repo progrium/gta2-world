@@ -12,4 +12,5 @@ test {
     _ = @import("test/bodies_void.zig");
     _ = @import("test/police_wanted.zig");
     _ = @import("test/career.zig");
+    _ = @import("test/script_world_cmds.zig");
 }

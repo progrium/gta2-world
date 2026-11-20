@@ -16,6 +16,7 @@ const EntityId = prelude.EntityId;
 const Frame = prelude.Frame;
 const Button = prelude.Button;
 const eql = prelude.eql;
+const sp_world = @import("../script/world.zig");
 
 pub fn Sys(comptime Self: type) type {
     return struct {
@@ -53,7 +54,13 @@ pub fn Sys(comptime Self: type) type {
                     _ = t;
                     if (ctl.player == c.Controller.no_player) return;
                     const sim = ctx.sim;
-                    const in = if (ctl.player < ctx.frames.len) ctx.frames[ctl.player].sanitize() else Frame.neutral(0);
+                    var in = if (ctl.player < ctx.frames.len) ctx.frames[ctl.player].sanitize() else Frame.neutral(0);
+                    // Script control locks (script-player 2.4, A2).
+                    if (comptime Self.single_player) {
+                        const locks = ctx.sim.state.sp.world.flags;
+                        if (locks & sp_world.State.flag_no_controls != 0) in = Frame.neutral(in.seq);
+                        if (locks & sp_world.State.flag_no_enter != 0 and ride.vehicle.isNone()) in.buttons &= ~Button.enter_exit;
+                    } else _ = &in;
                     const pressed = in.buttons & ~@as(u16, @truncate(ctl.prev_buttons));
                     ctl.prev_buttons = in.buttons;
                     ctl.in = in;
