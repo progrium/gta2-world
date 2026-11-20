@@ -58,8 +58,8 @@ test "a car fully in deep water loses drive and sinks with its driver; one half 
     const car = h.sim.spawnCarAt(blk(43), blk(34), 0, 0).?;
     h.run(1);
     const me = h.sim.pedOf(0).?;
-    h.ped(0).* = .{ .x = blk(43), .y = fx.fromInt(33), .z = z, .heading = 16384 };
-    h.tap(0, Button.enter_exit);
+    // Seated directly: walking to the door over deep water would drown him.
+    h.sim.board(me, car);
     if (!eql(w.get(me, c.Riding).?.vehicle, car)) return error.TestNotBoarded;
     h.frames[0].throttle = 127;
     h.run(2);

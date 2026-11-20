@@ -28,6 +28,8 @@ const t_traffic = @import("tuning/traffic.zig");
 const t_ambient = @import("tuning/ambient.zig");
 const t_scoring = @import("tuning/scoring.zig");
 const t_respawn = @import("tuning/respawn.zig");
+/// Getting in and out of cars (D2).
+pub const enter_exit = @import("tuning/enter_exit.zig");
 
 // --- peds.zig
 pub const ped_radius = t_peds.ped_radius;

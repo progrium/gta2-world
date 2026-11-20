@@ -9,4 +9,6 @@ test {
     _ = @import("test/scoring.zig");
     _ = @import("test/surfaces.zig");
     _ = @import("test/sp.zig");
+    _ = @import("test/enter_exit_cars.zig");
+    _ = @import("test/gangs_respect.zig");
 }

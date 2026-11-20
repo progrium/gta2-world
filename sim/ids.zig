@@ -57,8 +57,8 @@ pub const ObjectKind = enum(u8) {
 
 /// No gang (`Group.gang`).
 pub const gang_none: u8 = 0xFF;
-/// Gangs a level can declare (script-declarations 2.11).
-pub const max_gangs = 8;
+/// Gangs a level can declare: up to 10 (gangs-and-respect.md 2, 4).
+pub const max_gangs = 10;
 
 /// `abi.rand` salt ranges, one per workstream (see `prelude.zig`). A new
 /// call site takes the next unused salt in its range.

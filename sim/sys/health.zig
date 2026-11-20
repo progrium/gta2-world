@@ -138,6 +138,7 @@ pub fn Sys(comptime Self: type) type {
                     }
                     sim.scratch.stats.car_wrecks += 1;
                     sim.scoreWreck(v, h.last_hit_by);
+                    if (comptime Self.single_player) Self.gangs.onCarDestroyed(sim, id, h.last_hit_by); // D2
                     sim.releaseCar(id);
                     v.flags = c.Vehicle.flag_wrecked;
                     v.timer = T.wreck_ticks;
@@ -159,6 +160,7 @@ pub fn Sys(comptime Self: type) type {
                     if (!r.vehicle.isNone()) sim.releaseCar(r.vehicle);
                     sim.scratch.stats.ped_deaths += 1;
                     sim.scoreKill(id, ctl.player != c.Controller.no_player, h.last_hit_by);
+                    if (comptime Self.single_player) Self.gangs.onPedDeath(sim, id, h.last_hit_by); // D2
                     w.despawn(id);
                     if (ctl.player != c.Controller.no_player) {
                         sim.creditKill(ctl.player, h.last_hit_by, id);
