@@ -226,7 +226,11 @@ pub fn Sys(comptime Self: type) type {
                 },
                 // Waiting on another system: report a false condition so
                 // a thread polling one does not branch on garbage.
-                188, 246, 247, 305, 200, 241, 267, 417, 358, 366 => return condStub(ctx, false),
+                358, 366 => {
+                    ctx.setCond(H.hitOnce(self, ctx.handle(p.u16_(0)), if (cmd.kind == 358) @truncate(p.u32_(4)) else null));
+                    return if (@hasDecl(Self.script, "hitBy")) .done else .stubbed;
+                },
+                188, 246, 247, 305, 200, 241, 267, 417 => return condStub(ctx, false),
                 374, 316, 303, 310, 278, 311, 312, 313, 361 => return .stubbed,
                 else => return .unhandled,
             }

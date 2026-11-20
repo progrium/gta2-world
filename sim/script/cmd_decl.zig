@@ -101,7 +101,10 @@ pub fn Sys(comptime Self: type) type {
                     s.mission_flags[which] = p.u16_(2);
                     ctx.setMissionFlag(which, p.u16_(2));
                 },
-                435, 436, 437 => s.fail_base[cmd.kind - 435] = @truncate(p.u32_(4)),
+                435, 436, 437 => {
+                    s.fail_base[cmd.kind - 435] = @truncate(p.u32_(4));
+                    ctx.setFailBase(@intCast(cmd.kind - 435), @truncate(p.u32_(4)));
+                },
                 304 => Player.setMaxWanted(self, p.u16_(2)),
                 343 => s.finish_score = p.i32_(0),
                 344 => s.totals[0] = p.u16_(2),

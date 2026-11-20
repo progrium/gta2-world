@@ -15,10 +15,12 @@
 //!   setCond(b: bool)              the thread's condition result
 //!   counter(num: u16) ?*i32       a declared counter
 //!   addCleanup(id: EntityId)      the mission cleanup list
-//!   string(offset: u16) []const u8  a string table entry's text
+//!   string(key: u16) []const u8  the text of the string-table entry with
+//!                                 that key (the owning command's number)
 //!   deathArrestFlag() *bool       443: the last mission failed by death or arrest
 //!   notifyDeathArrest() *bool     432: the script asked to be told
 //!   setMissionFlag(which: u2, counter: u16)  240, 429-431
+//!   setFailBase(gang: u2, base: u16)  435-437 (gang 0-2 = gangs 1-3)
 //!   player(slot: u8) EntityId     the player's ped
 //!
 //! Parameter layouts were read from the player's own `.scr` files (the
@@ -257,6 +259,25 @@ pub fn Helpers(comptime Self: type) type {
             const f = map.floorAt(self.grid, p.x, p.y, from, step);
             q.z = if (f < 0) (if (p.ground) 0 else p.z) else f;
             return q;
+        }
+
+        /// Was `id` hit by script weapon `weapon` (any weapon if null)
+        /// since the last time it was asked? Fires once, then resets
+        /// (script-cars 2.7, script-characters 2.7). Reads A1's hit record
+        /// once it exists; until then never.
+        pub fn hitOnce(self: *Self, id: EntityId, weapon: ?u8) bool {
+            if (comptime !@hasDecl(Self.script, "hitBy")) return false;
+            var k: u8 = 0;
+            while (k < 32) : (k += 1) {
+                if (weapon) |w| {
+                    if (k != w & 31) continue;
+                }
+                if (Self.script.hitBy(self, id, k)) {
+                    Self.script.clearHit(self, id, k);
+                    return true;
+                }
+            }
+            return false;
         }
 
         pub fn tag(self: *Self, id: EntityId, num: u16, flags: u16) void {

@@ -12,8 +12,8 @@
 //!   357      character @0, facing @2 (always 0 in the data), position @4
 //!   138      entity @0, weapon @2;  266  entity @0, weapon @2, ammo @4
 //!   126      character @0, health @2;  363, 432, 306, 384, 385  character @0, on @2
-//!   258, 232, 242  character @0, name (string table offset) @2
-//!   262, 393 gang name @0, steps i16 @2, character @4
+//!   258, 232, 242  character @0, name (string key) @2
+//!   262, 393 gang name (string key) @0, steps i16 @2, character @4
 //!   198, 199, 231  character @0, level i16 @2, gang name @4
 //!   151, 152, 153, 234, 237, 244, 156  character @0, value @2
 //!   235, 236, 259, 252, 264  character @0, character @2
@@ -340,7 +340,11 @@ pub fn Sys(comptime Self: type) type {
                 },
                 410 => Self.objectives.setOccupation(self, ped, occupation(p.u16_(4))),
                 // Conditions waiting on another system read false.
-                232, 198, 199, 231, 255, 264, 320, 244, 369, 176, 165, 251 => return condStub(ctx, false),
+                320 => {
+                    ctx.setCond(H.hitOnce(self, ped, @truncate(p.u16_(4))));
+                    return if (@hasDecl(Self.script, "hitBy")) .done else .stubbed;
+                },
+                232, 198, 199, 231, 255, 264, 244, 369, 176, 165, 251 => return condStub(ctx, false),
                 258, 225, 262, 393, 359, 408, 383, 307, 306, 411, 412, 252, 384, 385, 370 => return .stubbed,
                 else => return .unhandled,
             }
