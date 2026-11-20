@@ -1,0 +1,48 @@
+name: Netcode
+
+# Workstream C: snapshot coding round trips, client and server units, a
+# wasm32 build of the netcode, and a short headless network soak.
+
+on:
+  push:
+    paths:
+      - 'net/**'
+      - 'interfaces/zig/**'
+      - '.github/workflows/net.yml'
+  pull_request:
+    paths:
+      - 'net/**'
+      - 'interfaces/zig/**'
+      - '.github/workflows/net.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: 0.17.0
+  ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+
+jobs:
+  net:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: net
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig ${{ env.ZIG_VERSION }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
+          tar xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-$ZIG_VERSION" >> "$GITHUB_PATH"
+      - run: zig build test
+      - run: zig build test -Doptimize=ReleaseSafe
+      - run: zig build wasm
+      - name: Soak (30 s per case)
+        run: |
+          zig build -Doptimize=ReleaseSafe
+          zig-out/bin/soak 30 | tee soak.md
+          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat soak.md >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>S3 Prediction Feel</title>
+<style>
+  :root {
+    --panel-bg: rgba(250, 250, 248, 0.94);
+    --panel-fg: #1d1f21;
+    --muted: #5b6066;
+    --accent: #c0392b;
+    --border: rgba(0, 0, 0, 0.12);
+    --btn-bg: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --panel-bg: rgba(24, 26, 28, 0.92);
+      --panel-fg: #e8e8e6;
+      --muted: #a2a7ad;
+      --accent: #ff6b5b;
+      --border: rgba(255, 255, 255, 0.14);
+      --btn-bg: #2c2f33;
+    }
+  }
+  :root[data-theme="dark"] {
+    --panel-bg: rgba(24, 26, 28, 0.92);
+    --panel-fg: #e8e8e6;
+    --muted: #a2a7ad;
+    --accent: #ff6b5b;
+    --border: rgba(255, 255, 255, 0.14);
+    --btn-bg: #2c2f33;
+  }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2b2d2f; }
+  body { font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+  #panel {
+    position: fixed; top: 12px; left: 12px; width: 300px; max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 24px); overflow: auto; box-sizing: border-box;
+    padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--panel-bg); color: var(--panel-fg);
+  }
+  h1 { font-size: 14px; margin: 0 0 4px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 12px 0 6px; }
+  p { margin: 4px 0; color: var(--muted); }
+  .row { display: grid; grid-template-columns: 1fr 96px 62px; gap: 6px; align-items: center; margin: 3px 0; }
+  .row b { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+  input[type=range] { width: 100%; }
+  button, select {
+    font: inherit; color: var(--panel-fg); background: var(--btn-bg);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; cursor: pointer;
+  }
+  button.primary { border-color: var(--accent); }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+  #abLabel { font-size: 22px; font-weight: 700; color: var(--accent); min-width: 1.2em; display: inline-block; }
+  #stats { white-space: pre; font: 11px/1.45 ui-monospace, Menlo, monospace; margin-top: 8px; }
+  kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-size: 11px; }
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+<div id="panel">
+  <h1>S3: prediction feel</h1>
+  <p><kbd>WASD</kbd>/arrows drive, <kbd>Space</kbd> handbrake, gamepad works too. <kbd>Tab</kbd> switch A/B, <kbd>R</kbd> reset, <kbd>H</kbd> hide panel, <kbd>G</kbd> debug.</p>
+
+  <h2>Blind trials</h2>
+  <p id="trialMsg">Each trial resets the car and secretly picks zero latency or the network settings below.</p>
+  <div class="btns"><button id="startTrial" class="primary">Start trial</button></div>
+  <div class="btns" id="guess" hidden>
+    <button id="saysLocal">Felt like zero latency</button>
+    <button id="saysNet">Felt networked</button>
+  </div>
+  <p id="tally"></p>
+
+  <div id="abRow">
+    <h2>Free A/B</h2>
+    <div class="btns" style="align-items:center">
+      Showing <span id="abLabel">A</span>
+      <button id="reveal">Reveal and reshuffle</button>
+    </div>
+    <p id="abReveal">One of A and B is networked, the other is zero latency.</p>
+  </div>
+
+  <h2>Network</h2>
+  <div id="sliders"></div>
+  <label class="row"><span>Other car</span>
+    <select id="bot"><option value="off">off</option><option value="wander" selected>wanders</option><option value="chase">chases you</option></select><b></b>
+  </label>
+  <label class="row"><span>Draw other car</span>
+    <select id="remoteView"><option value="interpolated" selected>interpolated</option><option value="predicted">predicted</option></select><b></b>
+  </label>
+  <label><input type="checkbox" id="debug"> Debug overlay</label>
+  <div id="stats" hidden></div>
+</div>
+<script type="module">
+/*BUNDLE*/
+</script>
+</body>
+</html>
