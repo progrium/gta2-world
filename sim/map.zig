@@ -10,8 +10,10 @@
 //!            wall: only the closed half is solid.
 //!   slope    Codes 1-44: a ramp whose surface rises from low/denom to
 //!            high/denom of a block toward `dir` (the decoding S1's
-//!            `formats/gmp.zig` uses: up = toward smaller y). Codes 49-52
-//!            (diagonal slopes) are treated as diagonal walls for now.
+//!            `formats/gmp.zig` uses: up = toward smaller y). Codes 45-48
+//!            are diagonal walls (this is how `formats.grid` writes them).
+//!            Codes 49-52 (diagonal slopes) are treated as diagonal walls
+//!            for now.
 //!   partial  Codes 53-61: a partial block that fills part of the footprint
 //!            to the full height.
 //!   water    No floor. Treated as air for movement.
@@ -182,6 +184,7 @@ pub fn topInCell(c: Cell, x: Fx, y: Fx) ?Fx {
         },
         Shape.slope => {
             if (code >= 1 and code <= 44) return rampFrac(code, u, v);
+            if (code >= 45 and code <= 48) return if (inDiagonal(@truncate(code - 45), u, v)) fx.one else null;
             if (code >= 49 and code <= 52) return if (inDiagonal(@truncate(code - 49), u, v)) fx.one else null;
             return fx.one;
         },
@@ -205,18 +208,38 @@ pub fn topAt(g: *const Grid, x: Fx, y: Fx, cz: i32) ?Fx {
 /// on the block at its top; a full block (1.0) always blocks both.
 pub const ped_step = fx.ratio(5, 16);
 /// Height of a body for wall tests: matter whose base is below z + this and
-/// whose top is above z + step blocks.
-pub const body_height = fx.ratio(3, 4);
+/// whose top is above z + step blocks. Half a block, so a ped walks up a
+/// ramp under a one-block ceiling.
+pub const body_height = fx.half;
 
 /// Does matter at (x, y) block a body standing at height z?
 pub fn blocks(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) bool {
     var l = fx.toInt(z);
-    while (l <= fx.toInt(z + body_height)) : (l += 1) {
+    // Layers whose base is strictly below the top of the body.
+    while (l <= fx.toInt(z + body_height - 1)) : (l += 1) {
         if (topAt(g, x, y, l)) |top| {
             if (top > z + step) return true;
         }
     }
     return false;
+}
+
+/// Is the column under (x, y) empty all the way down from height z (no
+/// floor at any depth)? Real maps have such voids at their edges and around
+/// some structures; the original's water may be among them. Bodies treat a
+/// void as a wall rather than falling out of the world.
+pub fn isVoid(g: *const Grid, x: Fx, y: Fx, z: Fx) bool {
+    var l = fx.toInt(z);
+    if (l >= size_z) l = size_z - 1;
+    while (l >= 0) : (l -= 1) {
+        if (topAt(g, x, y, l) != null) return false;
+    }
+    return true;
+}
+
+/// `blocks`, or a void below: what stops a ped or a car.
+pub fn blocksBody(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) bool {
+    return blocks(g, x, y, z, step) or isVoid(g, x, y, z + step);
 }
 
 /// The floor under (x, y) for a body at height z: the highest top of matter
