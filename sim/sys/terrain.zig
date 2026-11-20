@@ -40,6 +40,7 @@ pub fn Sys(comptime Self: type) type {
             if (map.isVoid(self.grid, x, y, z + step_h)) return true;
             for (pts) |p| {
                 if (map.blocks(self.grid, x + p[0], y + p[1], z, step_h)) return true;
+                if (map.pastTopEdge(x + p[0], y + p[1], z)) return true;
             }
             // Wall faces, against the body's square (a ped is a small
             // square: shape-and-map-collision.md 2).
@@ -67,6 +68,7 @@ pub fn Sys(comptime Self: type) type {
                 const px = x + fx.mul(p[0], cx) - fx.mul(p[1], sy);
                 const py = y + fx.mul(p[0], sy) + fx.mul(p[1], cx);
                 if (map.blocks(self.grid, px, py, z, T.car_step)) return true;
+                if (map.pastTopEdge(px, py, z)) return true;
                 // Voids: checked at the middle of the front and the back.
                 if (i >= 6 and map.isVoid(self.grid, px, py, z + T.car_step)) return true;
             }

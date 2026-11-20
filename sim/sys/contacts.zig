@@ -376,7 +376,7 @@ pub fn Sys(comptime Self: type) type {
             const v = w.get(car, c.Vehicle).?;
             if (v.flags & c.Vehicle.flag_ai != 0 and self.writable(car)) v.halt = T.traffic_hit_stop;
             const player = w.get(ped, c.Controller).?.player != c.Controller.no_player;
-            const lying = pd.state != c.Pedestrian.state_up;
+            const lying = pd.state != c.Pedestrian.state_up and pd.state != c.Pedestrian.state_falling;
             var player_driving = false;
             if (w.get(v.driver, c.Controller)) |dc| player_driving = dc.player != c.Controller.no_player;
             const S = c.Pedestrian;

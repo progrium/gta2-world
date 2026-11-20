@@ -35,6 +35,11 @@ pub const Vehicle = extern struct {
     drive: u8,
     /// Ticks spent sinking in deep water (car-height.md 3.5).
     sink: u8 = 0,
+    /// Ticks left spinning on an oil slick (car-handling.md, Oil slick).
+    oil: u8 = 0,
+    /// The oil spin's direction: 0 or 1.
+    oil_dir: u8 = 0,
+    _pad: [2]u8 = .{ 0, 0 },
 
     pub const drive_none: u8 = 0;
     pub const drive_forward: u8 = 1;
