@@ -161,5 +161,6 @@ S5's lane snapping needs the arrows, and traction needs the ground type. S2's on
 1. **`Shape.slab` (5):** a floor with no walls, such as an overpass deck.
 2. **`Grid.walls`:** the wall-face table described above.
 3. **`PlayerRow` meanings:** `kills` holds frags and `score` holds points. Same layout.
+4. **`Shape.water` (4) is deep water,** a surface at the top of its cell that bodies rest on (peds drown, cars sink), where it was "no floor". No map produced it before. Approved within the project under the rule below.
 
 From here on, small additive interface changes are approved within the project and recorded in this section; changes that break compatibility or change the golden replay still go to Jeff.

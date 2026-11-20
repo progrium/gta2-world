@@ -58,7 +58,8 @@ pub const Vehicle = extern struct {
     handbrake_n: u8,
     /// What drove the car last tick: `drive_*`.
     drive: u8,
-    _pad: u8 = 0,
+    /// Ticks spent sinking in deep water (car-height.md 3.5).
+    sink: u8 = 0,
 
     pub const drive_none: u8 = 0;
     pub const drive_forward: u8 = 1;
@@ -73,6 +74,8 @@ pub const Vehicle = extern struct {
     pub const flag_burning: u8 = 8;
     /// Burnt out: cannot be driven or entered.
     pub const flag_wrecked: u8 = 16;
+    /// Fully over deep water: no engine and no brakes.
+    pub const flag_in_water: u8 = 32;
 
     pub const reverse_base: u16 = 1000;
     pub const plan_in_junction: u8 = 0x80;
@@ -116,6 +119,12 @@ pub const Pedestrian = extern struct {
     combo_timer: u8 = 0,
     car_combo: u8 = 0,
     car_combo_timer: u8 = 0,
+    /// Ticks since `Health.last_hit_by` last changed, up to 255: a drowning
+    /// is credited only to an attacker within `drown_credit_ticks`.
+    hit_age: u8 = 0,
+    _pad: [3]u8 = .{ 0, 0, 0 },
+    /// `Health.last_hit_by` as last seen, to notice a new attacker.
+    prev_hit: abi.EntityId = .none,
 
     pub const anim_stand: u8 = 0;
     pub const anim_walk: u8 = 1;
@@ -133,6 +142,8 @@ pub const Pedestrian = extern struct {
 
     /// Jump was pressed this tick (a fresh press, set by the input system).
     pub const flag_jump_pressed: u8 = 1;
+    /// Died in deep water (for scoring).
+    pub const flag_drowned: u8 = 2;
 };
 
 /// On a ped: the weapon in hand and the ammo held for each weapon, in tenths

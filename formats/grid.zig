@@ -82,8 +82,20 @@ fn hasWallSide(b: gmp.Block) bool {
 }
 
 /// The I1 cell for one block.
+/// Deep-water lid tiles: the sea's animation frames, 608-619. Ours, from
+/// every map in the player's files: each column whose top is at level 0 has
+/// one of these lids (the notes say the style marks water lids, without the
+/// field; this stands in for it).
+pub const water_tile_first = 608;
+pub const water_tile_last = 619;
+
+pub fn isWater(b: gmp.Block) bool {
+    return b.slopeCode() == 0 and !b.lid.isEmpty() and b.lid.tile >= water_tile_first and b.lid.tile <= water_tile_last and !hasWallSide(b);
+}
+
 pub fn cellOf(b: gmp.Block) abi.Cell {
     if (b.isAir()) return 0;
+    if (isWater(b)) return encode(.water, 0, .none, 0);
     const code = b.slopeCode();
     const ground: abi.Ground = @enumFromInt(@intFromEnum(b.ground()));
     const shape: abi.Shape = switch (code) {
@@ -188,6 +200,10 @@ test "cell mapping" {
     try testing.expectEqual(abi.Shape.air, cellShape(cellOf(.{ .lid = face(1, false) })));
     try testing.expectEqual(abi.Shape.slab, cellShape(cellOf(.{ .slope_type = 2 })));
     try testing.expectEqual(@as(abi.Cell, 0), cellOf(.{ .lid = face(1, false), .arrows = 0xFF }) & 0x8000);
+    // A sea lid (608-619) on a flat block, with ground or without: water.
+    try testing.expectEqual(abi.Shape.water, cellShape(cellOf(.{ .lid = face(608, false), .slope_type = 3 })));
+    try testing.expectEqual(abi.Shape.water, cellShape(cellOf(.{ .lid = face(612, false) })));
+    try testing.expectEqual(abi.Shape.slab, cellShape(cellOf(.{ .lid = face(620, false), .slope_type = 3 })));
 }
 
 test "grid from a synthetic map" {

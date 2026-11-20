@@ -716,6 +716,62 @@ test "points: civilian kills build a combo, hijacks and wrecks pay the car's val
     try std.testing.expect(row.score >= before + T.default_car_value * (1 + T.destroy_value_factor));
 }
 
+/// Turn the floor cells under (x0..x1, y0..y1) at standing height `z` into
+/// deep water.
+fn flood(h: *Harness, x0: usize, y0: usize, x1: usize, y1: usize, z: fx.Fx) void {
+    const l: usize = @intCast(fx.toInt(z) - 1);
+    for (y0..y1 + 1) |y| for (x0..x1 + 1) |x| {
+        h.grid.blocks[l][y][x] = map.makeCell(map.Shape.water, 0, map.Ground.none, 0);
+    };
+}
+
+test "deep water drowns a ped, credited to a recent attacker" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 36, 40);
+    h.join(1, 36, 44);
+    const w = &h.sim.state.world;
+    const z = h.ped(1).z;
+    flood(&h, 40, 44, 41, 44, z);
+    // Hurt by player 0 just now, then walked into the water.
+    const vh = w.get(h.sim.pedOf(1).?, c.Health).?;
+    vh.last_hit_by = h.sim.pedOf(0).?;
+    h.ped(1).x = blk(40);
+    h.ped(1).y = blk(44);
+    h.run(3);
+    try std.testing.expect(h.sim.pedOf(1) == null);
+    try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].kills);
+    try std.testing.expectEqual(T.points_player_electro, h.sim.state.players[0].score);
+}
+
+test "a car fully in deep water loses drive and sinks with its driver; one half in is pulled in" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 36, 40);
+    const w = &h.sim.state.world;
+    const z = h.ped(0).z;
+    flood(&h, 38, 33, 46, 35, z);
+    // Half on the water: drawn in.
+    const half = h.sim.spawnCarAt(fx.fromInt(38), blk(34), 0, 0).?;
+    const x0 = h.sim.transformOf(half).?.x;
+    h.run(10);
+    try std.testing.expect(h.sim.transformOf(half).?.x > x0);
+    // Fully on it, driven by the player: no drive, then it sinks.
+    const car = h.sim.spawnCarAt(blk(43), blk(34), 0, 0).?;
+    h.run(1);
+    const me = h.sim.pedOf(0).?;
+    h.ped(0).* = .{ .x = blk(43), .y = fx.fromInt(33), .z = z, .heading = 16384 };
+    h.tap(0, Button.enter_exit);
+    if (!eql(w.get(me, c.Riding).?.vehicle, car)) return error.TestNotBoarded;
+    h.frames[0].throttle = 127;
+    h.run(2);
+    try std.testing.expect(w.get(car, c.Vehicle).?.flags & c.Vehicle.flag_in_water != 0);
+    try std.testing.expect(fx.length(w.get(car, c.Velocity).?.vx, w.get(car, c.Velocity).?.vy) == 0);
+    h.run(40);
+    try std.testing.expect(!w.isAlive(car));
+    try std.testing.expect(h.sim.pedOf(0) == null);
+}
+
 fn arm(h: *Harness, slot: u32, k: u8, tenths: u16) *c.Weapon {
     const wpn = h.sim.state.world.get(h.sim.pedOf(slot).?, c.Weapon).?;
     wpn.rounds()[k] = tenths;

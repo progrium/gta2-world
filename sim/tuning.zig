@@ -83,6 +83,13 @@ pub const car_gravity: Fx = fx.one / 64;
 pub const car_max_fall: Fx = fx.one / 8;
 pub const car_drop = fx.half;
 pub const car_tip_div: i32 = 50;
+/// Deep water (car-height.md 3.5): a car fully over it at this speed or
+/// less sinks, shrinking 2 pixels a tick; gone when its width is.
+pub const sink_speed: Fx = fx.ratio(5, 100);
+pub const sink_px_per_tick: i32 = 2;
+/// A ped who drowns is credited to whoever hurt him within this many ticks
+/// (ped-movement.md 3.7).
+pub const drown_credit_ticks: u8 = 50;
 pub const car_ceiling: Fx = fx.fromInt(8) - fx.one / 64;
 /// A grounded body follows the floor down by up to this much per tick
 /// (driving down a ramp); further than that it falls.

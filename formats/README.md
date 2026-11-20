@@ -24,3 +24,5 @@ cd formats && zig build test   # Zig 0.17.0
 ## Car models
 
 `sty.zig` reads the CARI chunk (car info, from the public DMA style document) into `Style.cars`; `Style.carSprite(i)` gives a model's sprite within the car group. `gci.zig` parses the player's `.gci` handling file as described in `docs/behaviour/car-handling.md` (text tokens packed into 72-byte records, fractions with 14 bits). `cars.zig` joins the two by model number into one spec per style car for `sim.tuning.deriveModel`.
+
+Deep water: `grid.zig` makes a flat block whose lid is one of the sea tiles 608-619 a `water` cell. The notes say the style marks water lids without naming the field; on every map in the player's files each column whose top is at level 0 has one of these lids, so the tile range stands in for it (ours).

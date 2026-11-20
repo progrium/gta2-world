@@ -16,7 +16,9 @@
 //!            for now.
 //!   partial  Codes 53-61: a partial block that fills part of the footprint
 //!            to the full height.
-//!   water    No floor. Treated as air for movement.
+//!   water    Deep water (car-height.md, ped-movement.md 3.7): a surface at
+//!            the top of the cell, like a slab, that bodies rest on. Peds on
+//!            it drown; cars on it lose drive and sink (the sim's rules).
 //!   air      Nothing.
 //!
 //! Every shape is reduced to one question: at point (x, y) inside the cell,
@@ -191,7 +193,7 @@ pub fn topInCell(c: Cell, x: Fx, y: Fx) ?Fx {
             if (code >= 49 and code <= 52) return if (inDiagonal(@truncate(code - 49), u, v)) fx.one else null;
             return fx.one;
         },
-        Shape.slab => return fx.one,
+        Shape.slab, Shape.water => return fx.one,
         Shape.partial => {
             if (code >= 53 and code <= 61) return if (inPartial(code - 53, u, v)) fx.one else null;
             return fx.one;
@@ -224,7 +226,8 @@ pub fn blocks(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) bool {
     // Layers whose base is strictly below the top of the body.
     while (l <= fx.toInt(z + body_height - 1)) : (l += 1) {
         if (topAt(g, x, y, l)) |top| {
-            const bottom = if (shapeOf(cellAt(g, fx.toInt(x), fx.toInt(y), l)) == Shape.slab) top - slab_thickness else fx.fromInt(l);
+            const sh = shapeOf(cellAt(g, fx.toInt(x), fx.toInt(y), l));
+            const bottom = if (sh == Shape.slab or sh == Shape.water) top - slab_thickness else fx.fromInt(l);
             if (top > z + step and bottom < z + body_height) return true;
         }
     }
@@ -260,6 +263,11 @@ pub fn floorAt(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) Fx {
         }
     }
     return -fx.one;
+}
+
+/// Is the floor under (x, y) at height z deep water?
+pub fn waterAt(g: *const Grid, x: Fx, y: Fx, z: Fx) bool {
+    return shapeOf(floorCell(g, x, y, z, fx.ratio(1, 16))) == Shape.water;
 }
 
 /// Ground type and arrows of the floor cell under (x, y) at height z.
@@ -512,3 +520,16 @@ test "wall faces are lines, not blocks" {
     try std.testing.expect(moveHitsWall(g, fx.fromInt(11) + fx.half, y, fx.fromInt(10) + fx.half, y, z, bullet));
     try std.testing.expect(!moveHitsWall(g, fx.fromInt(10) + fx.half, y, fx.fromInt(10) + fx.half, fx.fromInt(12), z, bullet));
 }
+
+test "deep water is a surface, and waterAt finds it" {
+    const g = try std.testing.allocator.create(Grid);
+    defer std.testing.allocator.destroy(g);
+    g.* = std.mem.zeroes(Grid);
+    set(g, 10, 10, 0, makeCell(Shape.water, 0, Ground.none, 0));
+    set(g, 11, 10, 0, makeCell(Shape.solid, 0, Ground.field, 0));
+    const y = fx.fromInt(10) + fx.half;
+    try std.testing.expectEqual(fx.one, floorAt(g, fx.fromInt(10) + fx.half, y, fx.one, ped_step));
+    try std.testing.expect(waterAt(g, fx.fromInt(10) + fx.half, y, fx.one));
+    try std.testing.expect(!waterAt(g, fx.fromInt(11) + fx.half, y, fx.one));
+}
+

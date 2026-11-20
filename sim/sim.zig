@@ -463,7 +463,7 @@ pub fn Sim(comptime cfg: Config) type {
             while (z >= 0) : (z -= 1) {
                 const cell = map.cellAt(self.grid, cx, cy, z);
                 const sh = map.shapeOf(cell);
-                if (sh == map.Shape.air or sh == map.Shape.water) continue;
+                if (sh == map.Shape.air) continue;
                 if ((sh != map.Shape.solid and sh != map.Shape.slab) or map.codeOf(cell) != 0) return null;
                 if (map.shapeOf(map.cellAt(self.grid, cx, cy, z + 1)) != map.Shape.air) return null;
                 return .{ .z = z + 1, .cell = cell };
@@ -777,7 +777,7 @@ pub fn Sim(comptime cfg: Config) type {
                     const ax = t.x + fx.mul(fx.cos(ped.ai_heading), fx.ratio(6, 10));
                     const ay = t.y + fx.mul(fx.sin(ped.ai_heading), fx.ratio(6, 10));
                     const ahead = map.floorCell(sim.grid, ax, ay, t.z, T.ped_step);
-                    const bad = map.groundOf(ahead) != map.Ground.pavement or
+                    const bad = map.groundOf(ahead) != map.Ground.pavement or map.shapeOf(ahead) == map.Shape.water or
                         map.floorAt(sim.grid, ax, ay, t.z, T.ped_step) < t.z - T.snap_down;
                     if (ped.ai_timer == 0 or bad) {
                         ped.ai_timer = @intCast(30 + sim.randBelow(id, salt_ai_timer, 120));
@@ -883,7 +883,8 @@ pub fn Sim(comptime cfg: Config) type {
                     const in = if (driven) ctl.in else Frame.neutral(0);
                     const player = !v.driver.isNone() and ctl.player != c.Controller.no_player;
                     const handbrake = in.buttons & Button.handbrake_jump != 0;
-                    const keep = v.flags & (c.Vehicle.flag_ai | c.Vehicle.flag_burning | c.Vehicle.flag_wrecked);
+                    const in_water = v.flags & c.Vehicle.flag_in_water != 0;
+                    const keep = v.flags & (c.Vehicle.flag_ai | c.Vehicle.flag_burning | c.Vehicle.flag_wrecked | c.Vehicle.flag_in_water);
                     v.flags = keep | (if (handbrake) c.Vehicle.flag_handbrake else 0) | (if (in.buttons & Button.special != 0) c.Vehicle.flag_horn else 0);
                     v.steer = in.steer;
 
@@ -922,7 +923,7 @@ pub fn Sim(comptime cfg: Config) type {
                     var pedal: i32 = v.pedal;
                     pedal = if (thr or rev) @min(pedal + 1, cap) else @max(pedal - 1, 0);
                     v.pedal = @intCast(pedal);
-                    v.brake = if (brake) @min(v.brake + 1, T.brake_quarters_max) else 0;
+                    v.brake = if (brake and !in_water) @min(v.brake + 1, T.brake_quarters_max) else 0;
                     v.handbrake_n = if (handbrake) @min(v.handbrake_n +| 1, T.handbrake_ramp) else 0;
                     const turbo = m.turbo != 0 and pedal >= T.turbo_quarters;
                     const damage = T.car_damage_max - hp.hp;
@@ -935,7 +936,7 @@ pub fn Sim(comptime cfg: Config) type {
 
                     // 5. Engine force.
                     var engine: Fx = 0;
-                    if (driven and (thr or rev)) {
+                    if (driven and (thr or rev) and !in_water) {
                         const base = m.thrust >> 1;
                         var pterm = fx.mul(frac(pedal, 4), @divTrunc(m.thrust, 5));
                         if (turbo) pterm *= 2;
@@ -1720,8 +1721,75 @@ pub fn Sim(comptime cfg: Config) type {
                         }
                     }
                     sim.carSettle(t, vel, col, m);
+                    sim.carWater(id, v, t, vel, col, m);
                 }
             }.f);
+        }
+
+        /// Deep water (car-height.md 3.1, 3.5). Partly over it, each corner
+        /// on dry ground pushes the car in by (centre - corner) / 50. Fully
+        /// over it, the car has no drive or brakes (`flag_in_water`) and,
+        /// once at 0.05 a tick or slower, stops and sinks: it shrinks 2
+        /// pixels a tick and when its width is gone it is destroyed with
+        /// whoever is inside.
+        fn carWater(self: *Self, id: EntityId, v: *c.Vehicle, t: *c.Transform, vel: *c.Velocity, col: *const c.Collider, m: *const T.CarModel) void {
+            v.flags &= ~c.Vehicle.flag_in_water;
+            if (col.flags & c.Collider.flag_grounded == 0 or !map.waterAt(self.grid, t.x, t.y, t.z)) {
+                v.sink = 0;
+                return;
+            }
+            var push = [2]Fx{ 0, 0 };
+            var dry = false;
+            for (carCorners(t, m)) |k| {
+                if (map.waterAt(self.grid, t.x + k[0], t.y + k[1], t.z)) continue;
+                dry = true;
+                push[0] -= @divTrunc(k[0], T.car_tip_div);
+                push[1] -= @divTrunc(k[1], T.car_tip_div);
+            }
+            if (dry) {
+                v.sink = 0;
+                if (!self.boxBlocked(t.x + push[0], t.y + push[1], t.z, t.heading, m)) {
+                    t.x += push[0];
+                    t.y += push[1];
+                }
+                return;
+            }
+            v.flags |= c.Vehicle.flag_in_water;
+            if (fx.length(vel.vx, vel.vy) > T.sink_speed) return;
+            vel.* = std.mem.zeroes(c.Velocity);
+            if (self.predicting()) return;
+            v.sink +|= 1;
+            const px: i32 = @divTrunc(@min(m.half_wid, m.half_len), fx.one >> 6);
+            if (v.sink < @max(1, @divTrunc(px * 2, T.sink_px_per_tick))) return;
+            self.sinkCar(id, v, t);
+        }
+
+        /// A car has sunk: whoever is inside drowns, credited to whoever
+        /// hurt the driver lately, who also scores the car as destroyed.
+        fn sinkCar(self: *Self, id: EntityId, v: *c.Vehicle, t: *const c.Transform) void {
+            const w = &self.state.world;
+            var by: EntityId = .none;
+            const driver = v.driver;
+            if (w.get(driver, c.Riding)) |r| {
+                r.vehicle = .none;
+                w.get(driver, c.Collider).?.flags = c.Collider.flag_grounded;
+                w.get(driver, c.Transform).?.* = t.*;
+                if (w.get(driver, c.Controller)) |dc| {
+                    if (dc.player != c.Controller.no_player) self.state.players[dc.player].car = .none;
+                }
+                const dh = w.get(driver, c.Health).?;
+                if (w.get(driver, c.Pedestrian)) |p| {
+                    p.flags |= c.Pedestrian.flag_drowned;
+                    if (p.hit_age <= T.drown_credit_ticks) by = dh.last_hit_by;
+                }
+                dh.hp = 0;
+                dh.last_hit_by = by;
+            }
+            if (v.flags & c.Vehicle.flag_wrecked == 0) self.scoreWreck(v, by);
+            self.scratch.stats.car_wrecks += 1;
+            self.releaseCar(id);
+            w.despawn(id);
+            if (cfg.ambient_cars > 0) _ = self.spawnAmbientCar(true, self.randomPlayerBlock(id));
         }
 
         /// Bounce off a wall along one axis (restitution 0.25) and scrub some
@@ -2369,7 +2437,8 @@ pub fn Sim(comptime cfg: Config) type {
                     }
                     const damage = T.car_damage_max - h.hp;
                     if (damage >= T.car_fire_damage) v.flags |= c.Vehicle.flag_burning;
-                    if (damage >= T.car_fire2_damage) h.hp -= T.car_burn_rate;
+                    // In deep water the fire is held (car-height.md 5).
+                    if (damage >= T.car_fire2_damage and v.flags & c.Vehicle.flag_in_water == 0) h.hp -= T.car_burn_rate;
                     if (h.hp > 0) return;
                     // Explodes: everyone inside dies, credited to whoever
                     // destroyed it.
@@ -2500,13 +2569,16 @@ pub fn Sim(comptime cfg: Config) type {
             const killer = self.state.players[slot].ped;
             if (eql(killer, victim)) return;
             const run_over = w.get(by, c.Vehicle) != null;
-            const shocked = if (w.get(victim, c.Pedestrian)) |p| p.shock >= T.shock_threshold else false;
+            const vp = w.get(victim, c.Pedestrian);
+            const shocked = if (vp) |p| p.shock >= T.shock_threshold else false;
+            const drowned = if (vp) |p| p.flags & c.Pedestrian.flag_drowned != 0 else false;
             const kp = w.get(killer, c.Pedestrian) orelse return;
             const combo = nextCombo(&kp.combo, &kp.combo_timer);
             if (victim_player) {
-                self.addPoints(slot, if (shocked) T.points_player_electro else if (run_over) T.points_player_run_over else T.points_player_weapon);
+                self.addPoints(slot, if (shocked or drowned) T.points_player_electro else if (run_over) T.points_player_run_over else T.points_player_weapon);
                 return;
             }
+            if (drowned) return; // drowned civilians score nothing (scoring.md 3.2)
             const base = T.points_civilian * combo;
             self.addPoints(slot, if (shocked) @divTrunc(base * 5, 2) else if (run_over) @divTrunc(base, 2) else base);
         }
@@ -2649,7 +2721,25 @@ pub fn Sim(comptime cfg: Config) type {
                     if (p.fast_reload > 0) p.fast_reload -= 1;
                     if (p.combo_timer > 0) p.combo_timer -= 1;
                     if (p.car_combo_timer > 0) p.car_combo_timer -= 1;
+                    if (!eql(h.last_hit_by, p.prev_hit)) {
+                        p.prev_hit = h.last_hit_by;
+                        p.hit_age = 0;
+                    } else p.hit_age +|= 1;
                     if (sim.predicting()) return; // damage comes from the server
+                    // Deep water under a ped on foot drowns him; the fire
+                    // goes out (ped-movement.md 3.7).
+                    const w = &sim.state.world;
+                    const col = w.get(id, c.Collider).?;
+                    if (h.hp > 0 and p.jump == 0 and w.get(id, c.Riding).?.vehicle.isNone() and col.flags & c.Collider.flag_grounded != 0) {
+                        const t = w.get(id, c.Transform).?;
+                        if (map.waterAt(sim.grid, t.x, t.y, t.z)) {
+                            p.burn = 0;
+                            p.flags |= c.Pedestrian.flag_drowned;
+                            if (p.hit_age > T.drown_credit_ticks) h.last_hit_by = .none;
+                            h.hp = 0;
+                            return;
+                        }
+                    }
                     if (p.burn > 0) {
                         p.burn -= 1;
                         const player = ctl.player != c.Controller.no_player;
