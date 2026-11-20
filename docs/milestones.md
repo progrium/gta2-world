@@ -78,7 +78,7 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 
 | note | rules | done | ours | stubbed | blocked | todo | no file / stale rows |
 |---|---:|---:|---:|---:|---:|---:|---|
-| [camera](coverage/camera.md) | 6 | 0 | 0 | 0 | 0 | 6 |  |
+| [camera](coverage/camera.md) | 6 | 3 | 1 | 2 | 0 | 0 |  |
 | [car-collision](coverage/car-collision.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [car-handling](coverage/car-handling.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
 | [car-height](coverage/car-height.md) | 8 | 0 | 0 | 0 | 0 | 8 |  |
@@ -107,6 +107,6 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [wanted-level](coverage/wanted-level.md) | 6 | 2 | 2 | 1 | 0 | 1 |  |
 | [weapons](coverage/weapons.md) | 8 | 0 | 0 | 0 | 0 | 8 |  |
-| **all notes** | **197** | **3** | **2** | **3** | **0** | **189** | |
+| **all notes** | **197** | **6** | **3** | **5** | **0** | **183** | |
 
 <!-- coverage:end -->

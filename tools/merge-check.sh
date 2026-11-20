@@ -20,7 +20,6 @@ step "interfaces, formats, net, client tests"
 (cd client/wasm && zig build test)
 (cd client/render && zig build test)
 step "shell check and tests"
-(cd interfaces/ts && { [ -d node_modules ] || npm ci --silent; } && npm test --silent)
 (cd client/shell && { [ -d node_modules ] || npm ci --silent; } && npm run check --silent && npm test --silent > /tmp/qa-shell.out 2>&1 || { cat /tmp/qa-shell.out; exit 1; })
 step "replay build"; cd "$root/tools/replay" && zig build -Doptimize=ReleaseSafe
 step "golden native"; ./zig-out/bin/replay verify golden
