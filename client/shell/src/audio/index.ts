@@ -38,8 +38,11 @@ export async function loadBanks(store: AssetStore, map: Pick<MapChoice, "gmp">, 
     return new SoundBank(base, sdt, raw);
   };
   const want = mapBankName(map);
-  const others = store.manifest.files.filter((f) => f.kind === "sdt" && f.name !== "fstyle.sdt" && f.name !== `${want}.sdt`).map((f) => f.name.replace(/\.sdt$/, ""));
-  for (const base of [want, ...others]) {
+  // Multiplayer maps are named after their district (wil-multi.gmp → wil.sdt).
+  const district = want.split(/[-_]/)[0]!;
+  const first = district === want ? [want] : [want, district];
+  const others = store.manifest.files.filter((f) => f.kind === "sdt" && f.name !== "fstyle.sdt" && !first.includes(f.name.replace(/\.sdt$/, ""))).map((f) => f.name.replace(/\.sdt$/, ""));
+  for (const base of [...first, ...others]) {
     const b = await pair(base).catch(() => null);
     if (b) {
       banks.map = b;
