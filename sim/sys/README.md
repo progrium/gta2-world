@@ -49,6 +49,8 @@ Shared names (imports, `Fx`, the `abi.rand` salts) come from `prelude.zig`. Rese
 | `sp/gangs.zig` | gang state and API (stub) | D2 |
 | `sp/hud.zig` | HUD state and API (stub) | A1 |
 | `script/vm.zig`, `script/hooks.zig` | script state, VM and hooks (stubs) | A1 |
+| `script/world.zig` | the VM seam for world commands (`exec`, `coverage`), parameter decoding, A2's `world` state block | A2 |
+| `script/cmd_decl.zig`, `cmd_cars.zig`, `cmd_chars.zig`, `cmd_objects.zig`, `cmd_player.zig` | declaration, car, character, object and player commands | A2 |
 | `comp/*.zig` | components: `objective` D1, `object` B, `car_task` F, `group` D2, `script_tag` A1; the rest shared | |
 | `tuning/*.zig` | tuning by area, re-exported from `tuning.zig` (whose `var`s stay there) | the area's owner |
 | `test/*.zig` | tests by area, with `test/harness.zig`; new workstreams add `test/<area>_*.zig` and list them in `sim_test.zig` | |
