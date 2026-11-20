@@ -7,6 +7,7 @@
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { GameModule } from "../game/wasm.ts";
+import { Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
 import { Effects, rumbleSettings, rumbleSupport } from "../input/rumble.ts";
 import type { InputSystem, SchemeSetting } from "../input/system.ts";
@@ -19,6 +20,8 @@ export interface GameScreenOpts {
   input: InputSystem;
   store: AssetStore;
   sessionId: string;
+  /** Game server base URL (ws:// or http://); offline when absent. */
+  server?: string | null;
   map: MapChoice;
   onBack(): void;
 }
@@ -53,6 +56,13 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   let lastInCar = false;
   let lastSpeed = 0;
   let disposed = false;
+  // Online state
+  let conn: Connection | null = null;
+  let online = false;
+  let ownSlot = 0;
+  let pendingButtons = 0;
+  let netLine = "";
+  const names = new Map<number, string>();
 
   input.inVehicle = (slot) => (game ? game.player(slot).inCar : false);
 
@@ -78,12 +88,12 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   };
   const toggleTuning = (): void => {
     if (overlay) return closeOverlay();
-    if (!game) return;
+    if (!game || o.server) return;
     overlay = tuningPanel(game, closeOverlay);
     section.append(overlay);
   };
   const respawn = (): void => {
-    if (!game) return;
+    if (!game || o.server) return;
     seed = (seed * 1103515245 + 12345) >>> 0;
     game.start(seed);
     camera.reset();
@@ -98,16 +108,16 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     h(
       "div",
       { class: "hudtop" },
-      h("span", {}, h("strong", {}, o.map.description), " · offline · ", fpsLine),
+      h("span", {}, h("strong", {}, o.map.description), o.server ? h("span", {}, " · online ", h("code", {}, o.sessionId), " · ") : " · offline · ", fpsLine),
       h(
         "span",
         { class: "row" },
         schemeSel,
         h("label", {}, rumbleBox, " rumble"),
-        h("button", { onclick: toggleTuning }, "Tuning (T)"),
+        o.server ? null : h("button", { onclick: toggleTuning }, "Tuning (T)"),
         h("button", { onclick: toggleNight }, "Night (N)"),
-        h("button", { onclick: () => game?.spawnCar(0) }, "Car here (V)"),
-        h("button", { onclick: respawn }, "Respawn (R)"),
+        o.server ? null : h("button", { onclick: () => game?.spawnCar(0) }, "Car here (V)"),
+        o.server ? null : h("button", { onclick: respawn }, "Respawn (R)"),
         h("button", {
           onclick: () => {
             paused = true;
@@ -149,7 +159,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (e.code === "KeyT") toggleTuning();
     else if (e.code === "KeyN") toggleNight();
     else if (e.code === "KeyR") respawn();
-    else if (e.code === "KeyV") game?.spawnCar(0);
+    else if (e.code === "KeyV" && !o.server) game?.spawnCar(0);
     else if (e.code === "Escape" && overlay) closeOverlay();
   };
   addEventListener("keydown", onKey);
@@ -163,31 +173,58 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       if (!paused) input.poll();
     },
     tick: (t) => {
-      if (paused || !game) return;
+      if (paused || !game || online || o.server) return;
       const fr = input.latch(t);
       game.step(fr, t);
-      const p = game.player(0);
+      afterTick(fr[0]!, 0);
+    },
+    render: (alpha, now) => {
+      if (online && game && !paused) netFrame(now);
+      draw(online ? 1 : alpha, now);
+    },
+  });
+
+  function netFrame(now: number): void {
+    const g = game!;
+    const f = { ...input.latch(g.tick)[0]! };
+    f.buttons |= pendingButtons;
+    const n = g.netUpdate(now, f);
+    if (n === 0) {
+      pendingButtons = f.buttons;
+      return;
+    }
+    pendingButtons = 0;
+    const msg = g.netInput(now);
+    if (msg) conn?.sendInput(msg);
+    afterTick(f, ownSlot);
+    const st = g.netStats();
+    const others = [...names.entries()].filter(([s]) => s !== ownSlot).map(([, nm]) => nm);
+    netLine = ` · ${conn?.transport ?? ""} · rtt ${st.rttMs} ms · replay ≤${st.maxReplay} · ${others.length ? `with ${others.join(", ")}` : "alone"}`;
+  }
+
+  function afterTick(f: Frame, slot: number): void {
+    const g = game!;
+    {
+      const p = g.player(slot);
       if (p.inCar !== lastInCar) input.rumble(0, Effects.enterExit);
       const dv = lastSpeed - p.speed;
       if (p.inCar && lastInCar && dv > 0.12) input.rumble(0, Effects.collisionHeavy);
       else if (p.inCar && lastInCar && dv > 0.05) input.rumble(0, Effects.collisionLight);
       lastInCar = p.inCar;
       lastSpeed = p.speed;
-      const f = fr[0]!;
-      const names = BUTTON_NAMES.filter(([bit]) => f.buttons & bit).map(([, n]) => n);
-      frameLine.textContent = `I2 ${hex(f)}  steer ${f.steer} throttle ${f.throttle} aim ${f.aim} [${names.join(" ")}]`;
+      const bnames = BUTTON_NAMES.filter(([bit]) => f.buttons & bit).map(([, n]) => n);
+      frameLine.textContent = `I2 ${hex(f)}  steer ${f.steer} throttle ${f.throttle} aim ${f.aim} [${bnames.join(" ")}]`;
       const where = p.respawnTimer > 0 ? "dead, respawning" : p.inCar ? `in car · ${(p.speed * 30).toFixed(1)} blocks/s` : `on foot (${input.schemeOf(input.players[0]!)})`;
-      playLine.textContent = `tick ${game.tick} · ${where} · hp ${p.hp} · kills ${p.kills} deaths ${p.deaths}`;
-    },
-    render: (alpha, now) => draw(alpha, now),
-  });
+      playLine.textContent = `tick ${g.tick} · ${where} · hp ${p.hp} · kills ${p.kills} deaths ${p.deaths}${online ? netLine : ""}`;
+    }
+  }
 
   function draw(alpha: number, now: number): void {
     const dt = Math.min(0.1, (now - lastNow) / 1000);
     lastNow = now;
     if (!renderer || !game) return;
     renderer.resize(canvas.clientWidth, canvas.clientHeight, devicePixelRatio || 1);
-    const t = game.camera(paused ? 1 : alpha, 0);
+    const t = game.camera(paused ? 1 : alpha, ownSlot);
     if (t.found) camera.update({ x: t.x, y: t.y, z: t.z, speed: Math.hypot(t.vx, t.vy) * 30 }, dt);
     const list = game.renderList(paused ? 1 : alpha);
     renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
@@ -207,6 +244,12 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       renderer = new Renderer(canvas);
       renderer.setStyle(g.loadStyle(new Uint8Array(sty)));
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
+      if (o.server) {
+        game = g;
+        await connect(g);
+        return;
+      }
+      g.netStop();
       const tuned = applySavedTuning(g);
       game = g;
       game.start(seed);
@@ -221,6 +264,52 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
   }
 
+  function connect(g: GameModule): Promise<void> {
+    status.textContent = `Connecting to ${o.server}…`;
+    status.classList.remove("hidden");
+    return new Promise((resolve) => {
+      conn = new Connection(
+        { server: o.server!, transport: transportParam(), session: o.sessionId, layoutHash: g.layoutHash, mapHash: o.map.gmpRecord.hash, name: playerName() },
+        {
+          welcome: (w) => {
+            ownSlot = w.slots[0]!;
+            g.netStart(ownSlot, w.inputBufferTicks);
+            online = true;
+            camera.reset();
+            status.textContent = `Joined as player ${ownSlot + 1}. Waiting for the world…`;
+            (window as unknown as { __game: unknown }).__game = { game: g, renderer, camera, input, conn, slot: () => ownSlot };
+            resolve();
+          },
+          snapshot: (body, baseline) => {
+            g.netSnapshot(body, performance.now());
+            if (baseline) {
+              status.textContent = "";
+              status.classList.add("hidden");
+            }
+          },
+          playerInfo: (p) => {
+            if (p.flags & 1) names.set(p.slot, p.name || `player ${p.slot + 1}`);
+            else names.delete(p.slot);
+          },
+          event: () => {},
+          reject: (_code, message) => {
+            status.textContent = `The server refused: ${message}`;
+            status.classList.add("bad");
+          },
+          closed: (reason) => {
+            online = false;
+            if (!disposed && !status.classList.contains("bad")) {
+              status.textContent = `Disconnected: ${reason}. Reload to rejoin.`;
+              status.classList.remove("hidden");
+              status.classList.add("bad");
+            }
+            resolve();
+          },
+        },
+      );
+    });
+  }
+
   const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, status), hud);
   root.append(section);
   input.allowLocalJoin = false;
@@ -229,10 +318,27 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
 
   return () => {
     disposed = true;
+    conn?.close("leaving");
+    game?.netStop();
     loop.stop();
     offInput();
     removeEventListener("keydown", onKey);
     input.inVehicle = () => false;
     clear(root);
   };
+}
+
+function playerName(): string {
+  try {
+    const n = localStorage.getItem("gta2.name");
+    if (n) return n;
+  } catch {
+    /* ignore */
+  }
+  return `player-${Math.floor(Math.random() * 900 + 100)}`;
+}
+
+function transportParam(): "auto" | "webtransport" | "websocket" {
+  const t = new URLSearchParams(location.search).get("transport");
+  return t === "webtransport" || t === "websocket" ? t : "auto";
 }

@@ -161,6 +161,39 @@ export class GameModule {
     return { x: t[0]!, y: t[1]!, z: t[2]!, angle: t[3]!, vx: t[4]!, vy: t[5]!, found: t[6] !== 0 };
   }
 
+  // -------------------------------------------------------------- online
+
+  get layoutHash(): bigint {
+    const h = new Uint32Array(this.buf, this.w.layoutHashPtr!(), 2);
+    return (BigInt(h[1]!) << 32n) | BigInt(h[0]!);
+  }
+
+  /** Switches to online mode as `slot`; resets tuning to the defaults. */
+  netStart(slot: number, bufferTicks: number): void {
+    if (this.w.netStart!(slot, bufferTicks) !== 0) throw new Error(this.error());
+  }
+  netStop(): void {
+    this.w.netStop!();
+  }
+  /** A snapshot datagram or baseline body (from its type byte). */
+  netSnapshot(body: Uint8Array, nowMs: number): void {
+    this.withBytes(body, (p, n) => this.w.netSnapshot!(p, n, nowMs));
+  }
+  /** Runs due predicted ticks with `frame` as the own input; returns ticks run. */
+  netUpdate(nowMs: number, frame: Frame): number {
+    encodeFrame(frame, new DataView(this.buf, this.w.framesPtr!(), FRAME_SIZE));
+    return this.w.netUpdate!(nowMs);
+  }
+  /** The input datagram for the newest tick (copy), or null before the baseline. */
+  netInput(nowMs: number): Uint8Array | null {
+    const n = this.w.netInput!(nowMs);
+    return n ? this.u8(this.w.netInputPtr!(), n).slice() : null;
+  }
+  netStats(): { started: boolean; rttMs: number; snapshots: number; replays: number; maxReplay: number; resyncs: number; hitches: number; inputAck: number } {
+    const a = new Uint32Array(this.buf, this.w.netStats!(), 8);
+    return { started: a[0] !== 0, rttMs: a[1]!, snapshots: a[2]!, replays: a[3]!, maxReplay: a[4]!, resyncs: a[5]!, hitches: a[6]!, inputAck: a[7]! };
+  }
+
   // -------------------------------------------------------------- tuning
 
   private tuneDefaults: number[] | null = null;

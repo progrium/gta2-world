@@ -7,9 +7,14 @@
 //! to the TypeScript renderer. All exported pointers stay valid until the
 //! next load call.
 //!
-//! The sim runs in `.authoritative` mode here: with no server, the browser is
-//! the authority. When the client joins a server (M2) the same module will
-//! step in `.predict` mode under the netcode (net/).
+//! Two modes:
+//! - offline (`gameStart`): the sim runs in `.authoritative` mode and the
+//!   browser is the authority.
+//! - online (`netStart`): net/'s prediction client runs the sim in
+//!   `.predict` mode against server snapshots. JavaScript owns the
+//!   transport: it passes snapshot and baseline bodies to `netSnapshot`,
+//!   calls `netUpdate` every animation frame and sends what `netInput`
+//!   encodes every tick.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -18,6 +23,7 @@ const render = @import("render");
 const sim = @import("sim");
 const abi = @import("interfaces").abi;
 const Frame = @import("interfaces").input.Frame;
+const net = @import("net");
 
 const gpa = if (builtin.cpu.arch == .wasm32) std.heap.wasm_allocator else std.heap.page_allocator;
 const mesh = render.mesh;
@@ -256,6 +262,7 @@ export fn gameStep() void {
 }
 
 export fn gameTick() u32 {
+    if (client) |cl| return cl.sim.tick();
     return if (running) game.tick() else 0;
 }
 
@@ -271,27 +278,28 @@ export fn gameHash() [*]const u32 {
 var player_buf: [8]i32 = undefined;
 export fn playerInfo(slot: u32) [*]const i32 {
     player_buf = @splat(0);
-    if (!running or slot >= max_players) return &player_buf;
-    const row = game.playerRow(slot).*;
+    if (slot >= max_players) return &player_buf;
+    const g: *Sim = if (client) |cl| cl.sim else if (running) &game else return &player_buf;
+    const row = g.playerRow(slot).*;
     player_buf[0] = @intFromBool(row.flags & abi.PlayerRow.flag_active != 0);
     player_buf[1] = @intFromBool(!row.car.isNone());
     player_buf[3] = row.kills;
     player_buf[4] = row.deaths;
     player_buf[5] = @bitCast(row.respawn_timer);
-    const t = list.target(&layout, game.stateBytes(), slot);
+    const t = list.target(&layout, g.stateBytes(), slot);
     if (t.found != 0) {
         player_buf[6] = @intFromFloat(@sqrt(t.vx * t.vx + t.vy * t.vy) * @as(f32, abi.fx_one));
         player_buf[7] = @intFromFloat(t.z * @as(f32, abi.fx_one));
     }
-    if (!row.ped.isNone()) player_buf[2] = healthOf(row.ped);
+    if (!row.ped.isNone()) player_buf[2] = healthOf(g, row.ped);
     return &player_buf;
 }
 
-fn healthOf(id: abi.EntityId) i32 {
+fn healthOf(g: *Sim, id: abi.EntityId) i32 {
     for (Sim.views()) |v| {
         if (v.kind != id.kind() or v.component != @intFromEnum(abi.ComponentId.health)) continue;
         if (id.index() >= v.count) return 0;
-        const bytes = game.stateBytes()[v.offset + id.index() * v.stride ..][0..@sizeOf(abi.Health)];
+        const bytes = g.stateBytes()[v.offset + id.index() * v.stride ..][0..@sizeOf(abi.Health)];
         return std.mem.bytesToValue(abi.Health, bytes).hp;
     }
     return 0;
@@ -317,6 +325,10 @@ fn bases() list.Bases {
 /// Builds the render list between the last two steps at `alpha`. Returns
 /// the instance count.
 export fn buildList(alpha: f32) usize {
+    if (client) |cl| {
+        if (!cl.started) return 0;
+        return list.build(&layout, null, cl.renderState(net_now), 1, bases(), &instances);
+    }
     if (!running) return 0;
     return list.build(&layout, &prev_state, game.stateBytes(), alpha, bases(), &instances);
 }
@@ -327,6 +339,10 @@ export fn instancePtr() [*]const u8 {
 /// Camera target for player `slot`, interpolated like the list:
 /// [x, y, z, angle, vx, vy, found] as f32.
 export fn cameraTarget(alpha: f32, slot: u32) [*]const u8 {
+    if (client) |cl| {
+        target_buf = if (cl.started) list.target(&layout, cl.render, slot) else std.mem.zeroes(list.Target);
+        return @ptrCast(&target_buf);
+    }
     if (!running) {
         target_buf = std.mem.zeroes(list.Target);
         return @ptrCast(&target_buf);
@@ -340,6 +356,92 @@ export fn cameraTarget(alpha: f32, slot: u32) [*]const u8 {
         target_buf.z = a.z + (b.z - a.z) * alpha;
     }
     return @ptrCast(&target_buf);
+}
+
+// ------------------------------------------------------------------ online
+
+const NetClient = net.client.Client(Sim);
+var client: ?*NetClient = null;
+var net_now: f64 = 0;
+var input_buf: [1100]u8 = undefined;
+var input_len: usize = 0;
+
+/// Switches to online mode as player `slot` (from `welcome`). Needs a loaded
+/// map. Tuning goes back to the defaults: the server uses them.
+export fn netStart(slot: u32, buffer_ticks: u32) i32 {
+    netStop();
+    const g = grid orelse return setError("net", error.NoMap);
+    running = false;
+    tuneReset();
+    const cl = gpa.create(NetClient) catch |e| return setError("net", e);
+    cl.* = NetClient.init(gpa, g, @intCast(slot), .{ .buffer_ticks = @floatFromInt(buffer_ticks) }) catch |e| {
+        gpa.destroy(cl);
+        return setError("net", e);
+    };
+    client = cl;
+    return 0;
+}
+
+export fn netStop() void {
+    if (client) |cl| {
+        cl.deinit();
+        gpa.destroy(cl);
+    }
+    client = null;
+}
+
+/// `Sim.layout_hash` as (low, high) u32 halves, for I3 `hello`.
+var layout_buf: [2]u32 = .{ @truncate(Sim.layout_hash), @truncate(Sim.layout_hash >> 32) };
+export fn layoutHashPtr() [*]const u32 {
+    return &layout_buf;
+}
+
+/// A snapshot (datagram) or baseline (stream) body, starting at its type byte.
+export fn netSnapshot(p: [*]const u8, n: usize, now_ms: f64) i32 {
+    const cl = client orelse return setError("net", error.NotStarted);
+    net_now = now_ms;
+    cl.onSnapshot(p[0..n], now_ms) catch |e| return setError("snapshot", e);
+    return 0;
+}
+
+/// Per animation frame: runs the predicted ticks that are due with the
+/// frame in `framesPtr()[0]`. Returns the number of ticks run; send one
+/// `netInput` datagram per tick run.
+export fn netUpdate(now_ms: f64) u32 {
+    const cl = client orelse return 0;
+    net_now = now_ms;
+    return cl.update(now_ms, frames[0].sanitize());
+}
+
+/// Encodes the input datagram for the newest tick. Returns its length; the
+/// bytes are at `netInputPtr()`.
+export fn netInput(now_ms: f64) usize {
+    const cl = client orelse return 0;
+    if (!cl.started) return 0;
+    const out = cl.writeInput(&input_buf, now_ms) catch return 0;
+    input_len = out.len;
+    return out.len;
+}
+export fn netInputPtr() [*]const u8 {
+    return &input_buf;
+}
+
+/// [started, rtt ms, snapshots, replays, max replay, resyncs, hitches, input_ack]
+var net_stats: [8]u32 = undefined;
+export fn netStats() [*]const u32 {
+    net_stats = @splat(0);
+    const cl = client orelse return &net_stats;
+    net_stats = .{
+        @intFromBool(cl.started),
+        @intFromFloat(@max(cl.rtt_ms, 0)),
+        @truncate(cl.stats.snapshots),
+        @truncate(cl.stats.replays),
+        cl.stats.max_replay,
+        @truncate(cl.stats.resyncs),
+        @truncate(cl.stats.hitches),
+        cl.input_ack,
+    };
+    return &net_stats;
 }
 
 // ------------------------------------------------------------------ tuning

@@ -22,12 +22,22 @@ pub fn build(b: *std.Build) void {
 
 fn gameModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
     const args = .{ .target = target, .optimize = optimize };
+    const interfaces = b.dependency("interfaces", args).module("interfaces");
+    // net/ has no package of its own for hosts; build its module here so it
+    // shares this build's interfaces module (one abi.Grid type).
+    const net = b.createModule(.{
+        .root_source_file = b.path("../../net/src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{.{ .name = "interfaces", .module = interfaces }},
+    });
     return b.createModule(.{
         .root_source_file = b.path("src/game.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
-            .{ .name = "interfaces", .module = b.dependency("interfaces", args).module("interfaces") },
+            .{ .name = "interfaces", .module = interfaces },
+            .{ .name = "net", .module = net },
             .{ .name = "formats", .module = b.dependency("formats", args).module("formats") },
             .{ .name = "sim", .module = b.dependency("sim", args).module("sim") },
             .{ .name = "render", .module = b.dependency("render", args).module("render") },

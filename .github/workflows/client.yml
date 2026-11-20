@@ -10,6 +10,7 @@ on:
       - 'client/**'
       - 'sim/**'
       - 'formats/**'
+      - 'net/**'
       - 'interfaces/**'
       - '.github/workflows/client.yml'
   workflow_dispatch:

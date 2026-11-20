@@ -1,6 +1,6 @@
 # client/wasm
 
-The browser's Zig module, `game.wasm`. It links `sim/` (dm16), `formats/` and the renderer's Zig side (`client/render/src`) and exports a flat C ABI that `client/shell/src/game/wasm.ts` wraps.
+The browser's Zig module, `game.wasm`. It links `sim/` (dm16), `formats/`, `net/` (prediction client) and the renderer's Zig side (`client/render/src`) and exports a flat C ABI that `client/shell/src/game/wasm.ts` wraps.
 
 ```sh
 zig build test                        # native: join, walk, render list, tuning round trip
@@ -19,6 +19,7 @@ zig build -Doptimize=ReleaseSmall     # zig-out/web/game.wasm (about 60 KB)
 | `playerInfo(slot)` | active, in car, hp, kills, deaths, respawn timer, speed, z. |
 | `buildList(alpha)`, `instancePtr`, `cameraTarget(alpha, slot)` | Render list and camera target interpolated between the last two ticks. |
 | `gameSpawnCar(slot)` | Drops a car in front of the player (offline tuning aid). |
+| `layoutHashPtr`, `netStart(slot, buffer_ticks)`, `netStop`, `netSnapshot(body, now)`, `netUpdate(now)`, `netInput(now)`, `netInputPtr`, `netStats` | Online mode: net/'s client predicts in `.predict` mode against server snapshots; JavaScript owns the transport. `buildList`, `cameraTarget` and `playerInfo` then read the predicted, smoothed state. |
 | `tuneNames*`, `tuneGet`, `tuneSet`, `tuneReset` | The placeholder handling numbers in `sim/tuning.zig`, live. |
 
-M1 runs the sim in `.authoritative` mode: with no server, the browser is the authority. Tuning changes numbers that are not part of the state, so it is for offline play only; a networked client must leave the defaults, or it will mispredict.
+Offline, the sim runs in `.authoritative` mode and the browser is the authority. Online (`netStart`), it predicts. Tuning changes numbers that are not part of the state, so it is for offline play only; a networked client must leave the defaults, or it will mispredict.

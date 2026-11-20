@@ -3,8 +3,8 @@
 // Snapshot record payloads for sim-owned components are decoded in
 // client/wasm (Zig); this file decodes headers and the frozen components.
 
-import { FieldSchema } from "./abi.js";
-import { Frame, FRAME_SIZE, decodeFrame, encodeFrame, seqOf } from "./input.js";
+import type { FieldSchema } from "./abi.js";
+import { type Frame, FRAME_SIZE, decodeFrame, encodeFrame, seqOf } from "./input.js";
 
 export const PROTOCOL_VERSION = 1;
 export const MAGIC = 0x31573247; // "G2W1" little-endian
@@ -75,7 +75,9 @@ export class Writer {
 export class Reader {
   private dv: DataView;
   pos = 0;
-  constructor(public readonly buf: Uint8Array) {
+  readonly buf: Uint8Array;
+  constructor(buf: Uint8Array) {
+    this.buf = buf;
     this.dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   }
   done(): boolean { return this.pos === this.buf.length; }

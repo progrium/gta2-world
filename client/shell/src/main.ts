@@ -13,6 +13,8 @@ const store = new AssetStore(new URL("./worker.js", import.meta.url));
 const input = new InputSystem();
 input.attach(window);
 const sessionId = sessionIdFromUrl();
+// ?server=ws://host:port joins that game server; without it the game runs offline.
+const server = new URLSearchParams(location.search).get("server");
 
 let teardown: (() => void) | null = null;
 
@@ -36,7 +38,7 @@ function showGame(map: MapChoice): void {
     /* ignore */
   }
   teardown?.();
-  teardown = gameScreen(root, { input, store, sessionId, map, onBack: showImport });
+  teardown = gameScreen(root, { input, store, sessionId, server, map, onBack: showImport });
 }
 
 async function boot(): Promise<void> {
