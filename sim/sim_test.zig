@@ -423,6 +423,33 @@ test "bottomless columns act as walls; a jump stays on the ground" {
     try std.testing.expect(t.x > x0);
 }
 
+test "a wall face stops peds and cars along its line only" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    // A fence on the line x = 52 for y in [40, 41) at level 1, with open
+    // road on both sides (shape-and-map-collision.md 3.2).
+    h.grid.walls[1][40][51] = map.wall_right;
+    h.join(0, 49, 40);
+    const t = h.ped(0);
+    t.* = .{ .x = blk(49), .y = blk(40), .z = fx.one, .heading = 0 };
+    h.frames[0].throttle = 127;
+    h.run(60);
+    try std.testing.expect(t.x <= fx.fromInt(52) - T.ped_radius);
+    try std.testing.expect(t.x > fx.fromInt(51) + fx.half);
+    // One block further down the fence has ended: the ped walks on.
+    t.* = .{ .x = blk(49), .y = blk(41), .z = fx.one, .heading = 0 };
+    h.run(60);
+    try std.testing.expect(t.x > fx.fromInt(53));
+    h.frames[0] = Frame.neutral(0);
+    // A car driven at it stops too.
+    const car = h.sim.spawnCarAt(blk(48), blk(40), 0, 0).?;
+    h.sim.state.world.get(car, c.Velocity).?.vx = fx.ratio(3, 10);
+    h.run(30);
+    const ct = h.sim.transformOf(car).?;
+    try std.testing.expect(ct.x < fx.fromInt(52));
+    try std.testing.expect(h.sim.scratch.stats.wall_hits > 0);
+}
+
 test "a player joining without a hint spawns near someone already playing" {
     var h = try Harness.init(.authoritative);
     defer h.deinit();

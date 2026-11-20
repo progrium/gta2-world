@@ -1104,6 +1104,7 @@ pub fn Sim(comptime cfg: Config) type {
                     const hx = t.x + fx.mul(fx.cos(t.heading), T.muzzle_ahead >> 1);
                     const hy = t.y + fx.mul(fx.sin(t.heading), T.muzzle_ahead >> 1);
                     if (map.blocks(sim.grid, hx, hy, t.z, T.shot_height)) return;
+                    if (map.moveHitsWall(sim.grid, t.x, t.y, hx, hy, t.z + T.shot_height, map.bullet)) return;
                     wpn.cooldown = def.cooldown;
                     if (have != T.infinite_ammo) wpn.rounds()[k] = have -| def.tenths_per_pull;
                     sim.scratch.stats.shots += 1;
@@ -1232,7 +1233,9 @@ pub fn Sim(comptime cfg: Config) type {
             for (pts) |p| {
                 if (map.blocks(self.grid, x + p[0], y + p[1], z, step_h)) return true;
             }
-            return false;
+            // Wall faces, against the body's square (a ped is a small
+            // square: shape-and-map-collision.md 2).
+            return map.rectHitsWall(self.grid, map.Rect.square(x, y, r), z, step_h);
         }
 
         /// Sample points of a car's box: corners, side midpoints and the
@@ -1251,7 +1254,7 @@ pub fn Sim(comptime cfg: Config) type {
                 // Voids: checked at the middle of the front and the back.
                 if (i >= 6 and map.isVoid(self.grid, px, py, z + T.car_step)) return true;
             }
-            return false;
+            return map.rectHitsWall(self.grid, .{ .x = x, .y = y, .cos = cx, .sin = sy, .a = m.half_len, .b = m.half_wid }, z, T.car_step);
         }
 
         fn substeps(vel: *const c.Velocity) i32 {
@@ -1294,7 +1297,7 @@ pub fn Sim(comptime cfg: Config) type {
                     const sy = @divTrunc(vel.vy, n);
                     var i: i32 = 0;
                     while (i < n) : (i += 1) {
-                        if (!sim.pedBlocked(t.x + sx, t.y + sy, t.z)) {
+                        if (!sim.pedBlocked(t.x, t.y, t.x + sx, t.y + sy, t.z)) {
                             t.x += sx;
                             t.y += sy;
                             continue;
@@ -1302,11 +1305,11 @@ pub fn Sim(comptime cfg: Config) type {
                         const hx = sx >> T.ped_slide_shift;
                         const hy = sy >> T.ped_slide_shift;
                         const x_first = fx.abs(sx) >= fx.abs(sy);
-                        if (x_first and hx != 0 and !sim.pedBlocked(t.x + hx, t.y, t.z)) {
+                        if (x_first and hx != 0 and !sim.pedBlocked(t.x, t.y, t.x + hx, t.y, t.z)) {
                             t.x += hx;
-                        } else if (hy != 0 and !sim.pedBlocked(t.x, t.y + hy, t.z)) {
+                        } else if (hy != 0 and !sim.pedBlocked(t.x, t.y, t.x, t.y + hy, t.z)) {
                             t.y += hy;
-                        } else if (!x_first and hx != 0 and !sim.pedBlocked(t.x + hx, t.y, t.z)) {
+                        } else if (!x_first and hx != 0 and !sim.pedBlocked(t.x, t.y, t.x + hx, t.y, t.z)) {
                             t.x += hx;
                         }
                     }
@@ -1323,8 +1326,13 @@ pub fn Sim(comptime cfg: Config) type {
             }.f);
         }
 
-        fn pedBlocked(self: *const Self, x: Fx, y: Fx, z: Fx) bool {
-            return self.circleBlocked(x, y, z, T.ped_radius, T.ped_step);
+        /// Can a ped at (x0, y0) step to (x1, y1)? A step can be longer
+        /// than the ped is wide, so a wall face is also looked for halfway.
+        fn pedBlocked(self: *const Self, x0: Fx, y0: Fx, x1: Fx, y1: Fx, z: Fx) bool {
+            if (self.circleBlocked(x1, y1, z, T.ped_radius, T.ped_step)) return true;
+            const mx = x0 + ((x1 - x0) >> 1);
+            const my = y0 + ((y1 - y0) >> 1);
+            return map.rectHitsWall(self.grid, map.Rect.square(mx, my, T.ped_radius), z, T.ped_step);
         }
 
         /// A knocked ped (explosions-and-damage.md 3.9): carried at its
@@ -1341,10 +1349,10 @@ pub fn Sim(comptime cfg: Config) type {
             var i: i32 = 0;
             while (i < n) : (i += 1) {
                 if (sx != 0) {
-                    if (self.pedBlocked(t.x + sx, t.y, t.z)) vel.vx = 0 else t.x += sx;
+                    if (self.pedBlocked(t.x, t.y, t.x + sx, t.y, t.z)) vel.vx = 0 else t.x += sx;
                 }
                 if (sy != 0) {
-                    if (self.pedBlocked(t.x, t.y + sy, t.z)) vel.vy = 0 else t.y += sy;
+                    if (self.pedBlocked(t.x, t.y, t.x, t.y + sy, t.z)) vel.vy = 0 else t.y += sy;
                 }
             }
             const in_air = col.flags & c.Collider.flag_grounded == 0 or vel.vz > 0;
@@ -1466,12 +1474,12 @@ pub fn Sim(comptime cfg: Config) type {
                     while (i <= 4) : (i += 1) {
                         const x = t.x + @divTrunc(vel.vx * i, 4);
                         const y = t.y + @divTrunc(vel.vy * i, 4);
-                        if (map.blocks(sim.grid, x, y, base, T.shot_height)) {
+                        const px = t.x + @divTrunc(vel.vx * (i - 1), 4);
+                        const py = t.y + @divTrunc(vel.vy * (i - 1), 4);
+                        if (map.blocks(sim.grid, x, y, base, T.shot_height) or map.moveHitsWall(sim.grid, px, py, x, y, t.z, map.bullet)) {
                             if (explosive) {
                                 // Blow up just short of the wall.
-                                const bx = t.x + @divTrunc(vel.vx * (i - 1), 4);
-                                const by = t.y + @divTrunc(vel.vy * (i - 1), 4);
-                                sim.explodeAt(bx, by, base, p.owner, 0);
+                                sim.explodeAt(px, py, base, p.owner, 0);
                             }
                             t.x = x;
                             t.y = y;

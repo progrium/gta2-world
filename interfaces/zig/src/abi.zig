@@ -208,10 +208,26 @@ pub const Cell = u16;
 pub const Shape = enum(u3) { air = 0, solid = 1, slope = 2, partial = 3, water = 4, slab = 5, _ };
 pub const Ground = enum(u2) { none = 0, road = 1, pavement = 2, field = 3 };
 
-/// z-major: blocks[z][y][x]. x grows east, y grows south, z up. 1 MiB.
+/// z-major: blocks[z][y][x]. x grows east, y grows south, z up. 1.5 MiB.
+///
+/// `walls` (added in M3, pending sign-off) holds the map's wall faces, laid
+/// out like `blocks`: per shape-and-map-collision.md a wall is a one-block
+/// line segment on a block face, not a solid cube. Bits:
+///   0-3  wall on the block's left (x), right (x+1), top (y), bottom (y+1)
+///        face: stops cars and peds
+///   4-7  bullet wall on the same faces: stops projectiles
+/// A wall bit on either block at a boundary blocks both ways. `formats`
+/// leaves out ramps' own side faces and every face of a partial block.
 pub const Grid = extern struct {
     blocks: [map_z][map_y][map_x]Cell,
+    walls: [map_z][map_y][map_x]WallBits,
 };
+pub const WallBits = u8;
+pub const wall_left: WallBits = 1;
+pub const wall_right: WallBits = 2;
+pub const wall_top: WallBits = 4;
+pub const wall_bottom: WallBits = 8;
+pub const bullet_wall_shift = 4;
 
 // ---------------------------------------------------------------------------
 // Configuration

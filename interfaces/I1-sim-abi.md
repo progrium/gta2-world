@@ -136,6 +136,15 @@ The server records commands with frames, so a replay reproduces joins. Clients i
 
 S5's lane snapping needs the arrows, and traction needs the ground type. S2's one-byte cell is not enough for the 61 real slope codes.
 
+**Proposed in M3, awaiting sign-off:** `Grid` also has `walls[z][y][x]` of `WallBits = u8` (0.5 MiB more), the map's wall faces. shape-and-map-collision.md makes a wall a one-block line segment on a block face, not a solid cube; with only `Cell`, a fence or a single wall face had to become a whole solid block, which players met as invisible walls.
+
+| Bits | Field |
+| --- | --- |
+| 0–3 | wall on the left (x), right (x+1), top (y), bottom (y+1) face: stops cars and peds |
+| 4–7 | bullet wall on the same faces: stops projectiles |
+
+`formats/` leaves out a ramp's own side faces and every face of a partial block (codes 53–61), as the notes do. With walls carried separately, a block with wall faces is no longer `solid`: it becomes `slab` if it has ground or a lid, otherwise `air`.
+
 ## Configurations
 
 `Config { name, max_players, car/ped/projectile/pickup/map_object_capacity, ambient_cars, ambient_peds }`. The named configuration and its capacities go into `layout_hash`, so a client must be built with the server's configuration. `dm16` is the first-release configuration. S2 measured 22.6 KB of state for a similar 16-player mix, so `dm16` stays far under the 256 KB target. Larger configurations, such as S2's `config_200`, are added the same way.

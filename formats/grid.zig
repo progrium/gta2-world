@@ -5,13 +5,19 @@
 //!   - slope codes 1-52 become `slope` with the code kept (ramps 1-44,
 //!     diagonal walls 45-48, diagonal slopes 49-52),
 //!   - codes 53-61 become `partial` with the code kept,
-//!   - any other block (including code 63) is `solid` if it has a
-//!     wall-flagged side face, else `slab` (a thin floor bodies pass
+//!   - any other block (including code 63) is `slab` (a floor bodies pass
 //!     under, added in M3 for overpasses) if its ground type is not air,
-//!     otherwise air. A lid alone does not make a block solid: lid-only blocks with
-//!     ground air are overhead graphics, and ground-typed blocks with no
-//!     lid are real floors. (Revised after workstream A's 10,000-tick soak
-//!     on wil, ste, bil and the mp maps: code 63 blocks hold up ramps.)
+//!     otherwise air. A lid alone does not make a floor: lid-only blocks
+//!     with ground air are overhead graphics, and ground-typed blocks with
+//!     no lid are real floors. The exception is a lidded block with wall
+//!     faces (a hollow building's roof edge), which is a slab too.
+//!   - wall faces go into `Grid.walls`, one byte per block
+//!     (shape-and-map-collision.md 3.2-3.3): a wall is a line on a block
+//!     face, not a solid cube. A ramp's own side faces (the two parallel
+//!     to its uphill direction) and every face of a partial block are left
+//!     out, since they never block in the original. Until M3 a block with
+//!     any wall face became a whole `solid` cube, which players met as
+//!     invisible walls beside fences and single faces.
 //!   - ground type is copied from the block,
 //!   - the green road arrows are copied into bits 11-14.
 //!
@@ -72,7 +78,7 @@ pub fn arrowsOf(b: gmp.Block) abi.Cell {
 }
 
 fn hasWallSide(b: gmp.Block) bool {
-    return b.left.wall() or b.right.wall() or b.top.wall() or b.bottom.wall();
+    return wallsOf(b) & 0x0F != 0;
 }
 
 /// The I1 cell for one block.
@@ -83,46 +89,59 @@ pub fn cellOf(b: gmp.Block) abi.Cell {
     const shape: abi.Shape = switch (code) {
         1...52 => .slope,
         53...61 => .partial,
-        // A ground block with no wall faces is a floor you can pass under
-        // (an overpass deck): a slab. Its sides are not walls, so only its
-        // top surface matters.
-        else => if (hasWallSide(b)) .solid else if (b.ground() != .air) .slab else .air,
+        // A ground block is a floor you can pass under (an overpass deck):
+        // a slab. Its walls are in `Grid.walls`, so only its top matters.
+        else => if (b.ground() != .air or (hasWallSide(b) and !b.lid.isEmpty())) .slab else .air,
     };
     if (shape == .air) return encode(.air, 0, .none, arrowsOf(b));
     return encode(shape, if (shape == .solid) 0 else code, ground, arrowsOf(b));
 }
 
-/// Fills `out` from the map. z-major, as both `gmp.Map.cells` and
-/// `abi.Grid` are.
+/// Fills `out` (cells and wall faces) from the map. z-major, as both
+/// `gmp.Map.cells` and `abi.Grid` are.
 pub fn build(map: *const gmp.Map, out: *abi.Grid) void {
     const flat: *[gmp.cell_count]abi.Cell = @ptrCast(&out.blocks);
     for (map.cells, flat) |bi, *c| c.* = cellOf(map.blocks[bi]);
+    const walls: *[gmp.cell_count]abi.WallBits = @ptrCast(&out.walls);
+    for (map.cells, walls) |bi, *w| w.* = wallsOf(map.blocks[bi]);
 }
 
-/// Per-face wall bits, one byte per cell, laid out like `abi.Grid`.
-/// Bits 0-3: wall on the left (x), right (x+1), top (y), bottom (y+1) face.
-/// Bits 4-7: bullet wall on the same faces.
-pub const Walls = [abi.map_z][abi.map_y][abi.map_x]u8;
-pub const wall_left: u8 = 1;
-pub const wall_right: u8 = 2;
-pub const wall_top: u8 = 4;
-pub const wall_bottom: u8 = 8;
-pub const bullet_shift = 4;
+/// `abi.Grid.walls` bits.
+pub const wall_left = abi.wall_left;
+pub const wall_right = abi.wall_right;
+pub const wall_top = abi.wall_top;
+pub const wall_bottom = abi.wall_bottom;
+pub const bullet_shift = abi.bullet_wall_shift;
 
-pub fn wallsOf(b: gmp.Block) u8 {
+/// The wall faces of one block. A face's wall bit counts whether or not it
+/// has a tile (the original reads only the bit). Ramps (codes 1-44) drop
+/// the two side faces parallel to their uphill direction; partial blocks
+/// (53-61) have none.
+pub fn wallsOf(b: gmp.Block) abi.WallBits {
+    const code = b.slopeCode();
+    if (code >= 53 and code <= 61) return 0;
     const faces = [_]gmp.Face{ b.left, b.right, b.top, b.bottom };
-    var w: u8 = 0;
+    var w: abi.WallBits = 0;
     for (faces, 0..) |f, i| {
-        if (f.isEmpty()) continue;
         if (f.wall()) w |= @as(u8, 1) << @intCast(i);
         if (f.bulletWall()) w |= @as(u8, 1) << @intCast(i + bullet_shift);
+    }
+    if (rampDir(code)) |dir| {
+        const sides: u8 = if (dir < 2) wall_left | wall_right else wall_top | wall_bottom;
+        w &= ~(sides | sides << bullet_shift);
     }
     return w;
 }
 
-pub fn buildWalls(map: *const gmp.Map, out: *Walls) void {
-    const flat: *[gmp.cell_count]u8 = @ptrCast(out);
-    for (map.cells, flat) |bi, *w| w.* = wallsOf(map.blocks[bi]);
+/// Uphill direction of a ramp code (0 up/-y, 1 down/+y, 2 left/-x,
+/// 3 right/+x), as `sim/map.zig` decodes it; null if not a ramp.
+fn rampDir(code: u6) ?u2 {
+    return switch (code) {
+        1...8 => @truncate((code - 1) >> 1),
+        9...40 => @truncate((code - 9) >> 3),
+        41...44 => @truncate(code - 41),
+        else => null,
+    };
 }
 
 const testing = std.testing;
@@ -140,8 +159,18 @@ test "cell mapping" {
     try testing.expectEqual(abi.Ground.road, cellGround(c));
     try testing.expectEqual(arrow_pos_x, c & 0x7800);
 
-    // Wall column with no lid and ground air: solid.
-    try testing.expectEqual(abi.Shape.solid, cellShape(cellOf(.{ .left = face(3, true) })));
+    // Wall face with no lid and ground air: air (the face is in `walls`).
+    try testing.expectEqual(abi.Shape.air, cellShape(cellOf(.{ .left = face(3, true) })));
+    try testing.expectEqual(wall_left, wallsOf(.{ .left = face(3, true) }));
+    // A lidded block with wall faces is a floor.
+    try testing.expectEqual(abi.Shape.slab, cellShape(cellOf(.{ .lid = face(1, false), .left = face(3, true) })));
+    // Ramp 41 climbs toward -y: its left and right faces are not walls.
+    try testing.expectEqual(wall_top, wallsOf(.{ .left = face(3, true), .right = face(3, true), .top = face(3, true), .slope_type = 41 << 2 }));
+    // Ramp 43 climbs toward -x: its top and bottom faces are not walls.
+    try testing.expectEqual(wall_left, wallsOf(.{ .left = face(3, true), .top = face(3, true), .bottom = face(3, true), .slope_type = 43 << 2 }));
+    // Partial blocks have no walls; a wall bit with no tile still counts.
+    try testing.expectEqual(@as(u8, 0), wallsOf(.{ .left = face(3, true), .slope_type = 55 << 2 }));
+    try testing.expectEqual(wall_right, wallsOf(.{ .right = face(0, true) }));
     // Decorative side face with no wall bit and no lid: air.
     try testing.expectEqual(abi.Shape.air, cellShape(cellOf(.{ .left = face(3, false) })));
 
@@ -153,8 +182,8 @@ test "cell mapping" {
 
     // Partial and slope_above.
     try testing.expectEqual(abi.Shape.partial, cellShape(cellOf(.{ .lid = face(1, false), .slope_type = 57 << 2 })));
-    // Code 63 is an ordinary block: solid with walls or ground.
-    try testing.expectEqual(abi.Shape.solid, cellShape(cellOf(.{ .left = face(3, true), .slope_type = (63 << 2) | 3 })));
+    // Code 63 is an ordinary block: a floor with ground.
+    try testing.expectEqual(abi.Shape.slab, cellShape(cellOf(.{ .left = face(3, true), .slope_type = (63 << 2) | 3 })));
     // Lid with ground air: overhead graphics, air. Ground with no lid: floor.
     try testing.expectEqual(abi.Shape.air, cellShape(cellOf(.{ .lid = face(1, false) })));
     try testing.expectEqual(abi.Shape.slab, cellShape(cellOf(.{ .slope_type = 2 })));
@@ -177,12 +206,8 @@ test "grid from a synthetic map" {
     const c = grid.blocks[1][20][10];
     try testing.expectEqual(abi.Shape.slab, cellShape(c));
     try testing.expectEqual(arrow_neg_y, c & 0x7800);
-    try testing.expectEqual(abi.Shape.solid, cellShape(grid.blocks[2][20][11]));
+    try testing.expectEqual(abi.Shape.air, cellShape(grid.blocks[2][20][11]));
     try testing.expectEqual(@as(abi.Cell, 0), grid.blocks[0][0][0]);
-
-    const walls = try testing.allocator.create(Walls);
-    defer testing.allocator.destroy(walls);
-    buildWalls(&map, walls);
-    try testing.expectEqual(wall_left | wall_right, walls[2][20][11]);
-    try testing.expectEqual(@as(u8, 0), walls[1][20][10]);
+    try testing.expectEqual(wall_left | wall_right, grid.walls[2][20][11]);
+    try testing.expectEqual(@as(u8, 0), grid.walls[1][20][10]);
 }

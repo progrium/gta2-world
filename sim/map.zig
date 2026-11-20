@@ -275,7 +275,144 @@ pub fn floorCell(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) Cell {
     return 0;
 }
 
-/// Hash of the grid for replay files (FNV-1a over cells).
+// ---------------------------------------------------------------------------
+// Wall faces (shape-and-map-collision.md 3.2-3.3)
+//
+// A wall is a one-block line on a block face, read from `Grid.walls`. A
+// vertical line x = X (between y = Y and Y + 1) is a wall at level l if the
+// block west of it has its right face flagged or the block east of it has
+// its left face flagged; likewise for horizontal lines with bottom and top.
+
+pub const wall_left = abi.wall_left;
+pub const wall_right = abi.wall_right;
+pub const wall_top = abi.wall_top;
+pub const wall_bottom = abi.wall_bottom;
+/// Shift for the bullet-wall bits: 0 for bodies, this for projectiles.
+pub const bullet = abi.bullet_wall_shift;
+
+inline fn wallBits(g: *const Grid, cx: i32, cy: i32, cz: i32) u8 {
+    if (cx < 0 or cy < 0 or cz < 0 or cx >= size_x or cy >= size_y or cz >= size_z) return 0;
+    return g.walls[@intCast(cz)][@intCast(cy)][@intCast(cx)];
+}
+
+/// Wall on the line x = `x_line` for y in [y_cell, y_cell + 1) at level `cz`.
+pub fn wallX(g: *const Grid, x_line: i32, y_cell: i32, cz: i32, shift: u3) bool {
+    return (wallBits(g, x_line - 1, y_cell, cz) >> shift) & wall_right != 0 or
+        (wallBits(g, x_line, y_cell, cz) >> shift) & wall_left != 0;
+}
+
+/// Wall on the line y = `y_line` for x in [x_cell, x_cell + 1) at level `cz`.
+pub fn wallY(g: *const Grid, x_cell: i32, y_line: i32, cz: i32, shift: u3) bool {
+    return (wallBits(g, x_cell, y_line - 1, cz) >> shift) & wall_bottom != 0 or
+        (wallBits(g, x_cell, y_line, cz) >> shift) & wall_top != 0;
+}
+
+/// Do intervals [a0, a1] (either order) and (-h, h) overlap?
+inline fn spans(a0: Fx, a1: Fx, h: Fx) bool {
+    return @min(a0, a1) < h and @max(a0, a1) > -h;
+}
+
+/// A ground rectangle: centre, unit axis (cos, sin) of its length, and half
+/// length `a` along it and half width `b` across it.
+pub const Rect = struct {
+    x: Fx,
+    y: Fx,
+    cos: Fx,
+    sin: Fx,
+    a: Fx,
+    b: Fx,
+
+    pub fn square(x: Fx, y: Fx, half: Fx) Rect {
+        return .{ .x = x, .y = y, .cos = fx.one, .sin = 0, .a = half, .b = half };
+    }
+
+    /// Does the segment from (x0, y0) to (x0 + dx, y0 + dy) cross the
+    /// rectangle? Separating axes: the segment's own two (covered by the
+    /// caller's bounding-box loop) and the rectangle's two.
+    fn crosses(r: Rect, x0: Fx, y0: Fx, dx: Fx, dy: Fx) bool {
+        const rx = x0 - r.x;
+        const ry = y0 - r.y;
+        const p0 = fx.mul(rx, r.cos) + fx.mul(ry, r.sin);
+        const p1 = p0 + fx.mul(dx, r.cos) + fx.mul(dy, r.sin);
+        if (!spans(p0, p1, r.a)) return false;
+        const q0 = fx.mul(ry, r.cos) - fx.mul(rx, r.sin);
+        const q1 = q0 + fx.mul(dy, r.cos) - fx.mul(dx, r.sin);
+        return spans(q0, q1, r.b);
+    }
+};
+
+/// Does a body with ground rectangle `r`, standing at height z, cross a wall
+/// face? Faces are checked at the levels from z + `step` up to the top of
+/// the body (z + half a block): a level whose top is within a step of the
+/// body's feet is one it is climbing onto, as at the top of a ramp, where
+/// the block the ramp meets has its face flagged. Touching a face exactly
+/// does not count, so a body can stand flush against a wall and slide
+/// along it.
+pub fn rectHitsWall(g: *const Grid, r: Rect, z: Fx, step: Fx) bool {
+    const ca = fx.abs(r.cos);
+    const sa = fx.abs(r.sin);
+    const ex = fx.mul(r.a, ca) + fx.mul(r.b, sa);
+    const ey = fx.mul(r.a, sa) + fx.mul(r.b, ca);
+    const x_lo = fx.toInt(r.x - ex);
+    const x_hi = fx.toInt(r.x + ex - 1);
+    const y_lo = fx.toInt(r.y - ey);
+    const y_hi = fx.toInt(r.y + ey - 1);
+    var l = @max(0, fx.toInt(z + step));
+    const l_hi = @min(size_z - 1, @max(l, fx.toInt(z + body_height - 1)));
+    while (l <= l_hi) : (l += 1) {
+        // Vertical lines strictly inside the box's x extent.
+        var xl = x_lo + 1;
+        while (xl <= x_hi) : (xl += 1) {
+            var yc = y_lo;
+            while (yc <= y_hi) : (yc += 1) {
+                if (wallX(g, xl, yc, l, 0) and r.crosses(fx.fromInt(xl), fx.fromInt(yc), 0, fx.one)) return true;
+            }
+        }
+        var yl = y_lo + 1;
+        while (yl <= y_hi) : (yl += 1) {
+            var xc = x_lo;
+            while (xc <= x_hi) : (xc += 1) {
+                if (wallY(g, xc, yl, l, 0) and r.crosses(fx.fromInt(xc), fx.fromInt(yl), fx.one, 0)) return true;
+            }
+        }
+    }
+    return false;
+}
+
+/// Does a straight move from (x0, y0) to (x1, y1) at height z cross a
+/// wall face (`shift` 0) or a bullet wall (`shift` = `bullet`)? Each block
+/// boundary crossed is looked up at the point where the move crosses it.
+pub fn moveHitsWall(g: *const Grid, x0: Fx, y0: Fx, x1: Fx, y1: Fx, z: Fx, shift: u3) bool {
+    const l = fx.toInt(z);
+    if (l < 0 or l >= size_z) return false;
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const cx0 = fx.toInt(x0);
+    const cx1 = fx.toInt(x1);
+    if (cx0 != cx1) {
+        const step: i32 = if (cx1 > cx0) 1 else -1;
+        var cx = cx0;
+        while (cx != cx1) : (cx += step) {
+            const line = if (step > 0) cx + 1 else cx;
+            const y = y0 + @as(Fx, @intCast(@divTrunc(@as(i64, fx.fromInt(line) - x0) * dy, dx)));
+            if (wallX(g, line, fx.toInt(y), l, shift)) return true;
+        }
+    }
+    const cy0 = fx.toInt(y0);
+    const cy1 = fx.toInt(y1);
+    if (cy0 != cy1) {
+        const step: i32 = if (cy1 > cy0) 1 else -1;
+        var cy = cy0;
+        while (cy != cy1) : (cy += step) {
+            const line = if (step > 0) cy + 1 else cy;
+            const x = x0 + @as(Fx, @intCast(@divTrunc(@as(i64, fx.fromInt(line) - y0) * dx, dy)));
+            if (wallY(g, fx.toInt(x), line, l, shift)) return true;
+        }
+    }
+    return false;
+}
+
+/// Hash of the grid for replay files (FNV-1a over cells and wall faces).
 pub fn gridHash(g: *const Grid) u64 {
     var h: u64 = 0xcbf29ce484222325;
     for (std.mem.asBytes(g)) |b| {
@@ -336,4 +473,42 @@ test "slabs are floors you pass under" {
     try std.testing.expectEqual(fx.fromInt(2), floorAt(g, under, p, fx.fromInt(2), ped_step));
     // A body whose height reaches the deck's underside is stopped by it.
     try std.testing.expect(blocks(g, under, p, fx.fromInt(1) + fx.half, ped_step));
+}
+
+test "wall faces are lines, not blocks" {
+    const g = try std.testing.allocator.create(Grid);
+    defer std.testing.allocator.destroy(g);
+    @memset(std.mem.asBytes(g), 0);
+    // A fence on the right face of block (10, 10) at level 1: the line
+    // x = 11 for y in [10, 11). Bullets pass it.
+    g.walls[1][10][10] = wall_right;
+    const z = fx.one;
+    const y = fx.fromInt(10) + fx.half;
+    const r = fx.ratio(1, 10);
+    // Inside block (10, 10), clear of the line: free.
+    try std.testing.expect(!rectHitsWall(g, Rect.square(fx.fromInt(10) + fx.half, y, r), z, ped_step));
+    // Flush against it: free. Over it: blocked.
+    try std.testing.expect(!rectHitsWall(g, Rect.square(fx.fromInt(11) - r, y, r), z, ped_step));
+    try std.testing.expect(rectHitsWall(g, Rect.square(fx.fromInt(11) - r + 1, y, r), z, ped_step));
+    // From the other side too (the face of either block counts).
+    try std.testing.expect(rectHitsWall(g, Rect.square(fx.fromInt(11) + r - 1, y, r), z, ped_step));
+    // Past its end (y >= 11 + r): free. On the level above: free.
+    try std.testing.expect(!rectHitsWall(g, Rect.square(fx.fromInt(11), fx.fromInt(11) + r, r), z, ped_step));
+    try std.testing.expect(!rectHitsWall(g, Rect.square(fx.fromInt(11), y, r), fx.fromInt(2), ped_step));
+    // Nearly at the top of a ramp that ends against the block's face: the
+    // body is stepping onto level 2, so the level-1 face no longer counts.
+    try std.testing.expect(!rectHitsWall(g, Rect.square(fx.fromInt(11), y, r), fx.fromInt(2) - fx.ratio(1, 16), ped_step));
+    // A car turned 45 degrees whose corner reaches over the line.
+    const c45 = fx.ratio(70711, 100000);
+    const car: Rect = .{ .x = fx.fromInt(10) + fx.ratio(4, 10), .y = y, .cos = c45, .sin = c45, .a = fx.ratio(8, 10), .b = fx.ratio(3, 10) };
+    try std.testing.expect(rectHitsWall(g, car, z, ped_step));
+    var away = car;
+    away.x = fx.fromInt(10) - fx.ratio(1, 10);
+    try std.testing.expect(!rectHitsWall(g, away, z, ped_step));
+    // Moves: bodies stop, bullets do not, until it is a bullet wall.
+    try std.testing.expect(moveHitsWall(g, fx.fromInt(10) + fx.half, y, fx.fromInt(11) + fx.half, y, z, 0));
+    try std.testing.expect(!moveHitsWall(g, fx.fromInt(10) + fx.half, y, fx.fromInt(11) + fx.half, y, z, bullet));
+    g.walls[1][10][11] = wall_left << bullet;
+    try std.testing.expect(moveHitsWall(g, fx.fromInt(11) + fx.half, y, fx.fromInt(10) + fx.half, y, z, bullet));
+    try std.testing.expect(!moveHitsWall(g, fx.fromInt(10) + fx.half, y, fx.fromInt(10) + fx.half, fx.fromInt(12), z, bullet));
 }
