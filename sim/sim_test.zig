@@ -831,3 +831,37 @@ test "armour soaks whole hits; invulnerability ignores them; double damage doubl
     h.run(1);
     try std.testing.expectEqual(@as(u32, 1), w.count(S.Pickup));
 }
+
+test "a car driven off the top of a ramp flies, and a car over a ledge tips off" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    // A two-block ramp at x 49-50 rising toward +x from height 1 to 2,
+    // ending in a drop back to 1 (car-height.md 3.3).
+    for ([_]u32{ 39, 40, 41 }) |yy| {
+        map.set(h.grid, 49, yy, 1, map.makeCell(map.Shape.slope, map.Code.ramp26(3, false), map.Ground.road, 0));
+        map.set(h.grid, 50, yy, 1, map.makeCell(map.Shape.slope, map.Code.ramp26(3, true), map.Ground.road, 0));
+    }
+    const car = h.sim.spawnCarAt(blk(46), blk(40), 0, 0).?;
+    const t = h.sim.transformOf(car).?;
+    const vel = h.sim.state.world.get(car, c.Velocity).?;
+    var top: fx.Fx = 0;
+    var airborne_past_ramp = false;
+    for (0..40) |_| {
+        if (t.x < fx.fromInt(51)) vel.vx = fx.ratio(25, 100);
+        h.run(1);
+        top = @max(top, t.z);
+        if (t.x > fx.fromInt(51) + fx.half and t.z > fx.fromInt(1) + fx.ratio(1, 10)) airborne_past_ramp = true;
+    }
+    try std.testing.expect(top > fx.fromInt(2));
+    try std.testing.expect(airborne_past_ramp);
+    try std.testing.expectEqual(fx.one, t.z);
+    // A parked car hanging half over the edge of a raised block is tipped
+    // off it (car-height.md 3.1).
+    for ([_]u32{ 48, 49 }) |xx| for ([_]u32{ 70, 71, 72 }) |yy| map.set(h.grid, xx, yy, 1, map.makeCell(map.Shape.solid, 0, map.Ground.pavement, 0));
+    const c2 = h.sim.spawnCarAt(fx.fromInt(50) + fx.ratio(1, 10), blk(71), 0, 0).?;
+    const t2 = h.sim.transformOf(c2).?;
+    t2.z = fx.fromInt(2);
+    h.run(60);
+    try std.testing.expectEqual(fx.one, t2.z);
+    try std.testing.expect(t2.x > fx.fromInt(50) + fx.half);
+}

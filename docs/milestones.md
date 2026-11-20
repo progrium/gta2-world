@@ -58,6 +58,7 @@ Done, checked locally:
 - Car handling rebuilt from `car-handling.md` (S5 clean room): pedal, gears, turbo, damage, axle tyre forces, damping, speed caps and the lane-arrow snap, with per-model numbers from the player's `.gci` and the style's car info (`formats/gci.zig`, CARI in `formats/sty.zig`, `formats/cars.zig`). Offline only for now: online games use one default model until the server loads car info too.
 - Fixed from play-testing: invisible walls and sticking at ramp tops. Walls are now the map's wall faces (lines on block boundaries, from shape-and-map-collision.md) instead of whole blocks, held in a new `Grid.walls` table (I1 proposal awaiting sign-off). Picking up a weapon you did not have now puts it in your hand.
 - More of the notes: the other weapons (dual pistols, silenced machine gun, flamethrower, electro gun, grenades, molotovs) and the armour, invulnerability, double damage and fast reload power-ups. Offline, P drops each kind of pickup in turn for trying them.
+- Car height from `car-height.md`: ramp jumps at the climb rate, gravity 1/64, cars tipping off ledges.
 - Fixed from play-testing: cars could not drive under overpasses. A ground block with no wall faces (an overpass deck) is now a `slab` (I1 shape 5): a floor you can pass under. Checked natively by driving a car under 40 overpasses on wil, ste and bil.
 
 Open for M3:

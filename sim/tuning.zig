@@ -73,6 +73,17 @@ pub const exit_max_speed = fx.ratio(3, 10);
 
 pub const gravity = fx.ratio(15, 1000);
 pub const max_fall = fx.ratio(6, 10);
+/// Cars (car-height.md 3.1-3.4): gravity 1/64 a tick, falling at most 1/8
+/// a tick; they follow the ground down by up to half a block a step, and
+/// past that they leave it at the rate they were climbing or descending
+/// (a ramp jump). A car whose centre is over a drop but with a corner
+/// still on the ground is tipped over the edge: each unsupported corner
+/// pushes by (corner - centre) / 50 a tick. Height is capped below 8.
+pub const car_gravity: Fx = fx.one / 64;
+pub const car_max_fall: Fx = fx.one / 8;
+pub const car_drop = fx.half;
+pub const car_tip_div: i32 = 50;
+pub const car_ceiling: Fx = fx.fromInt(8) - fx.one / 64;
 /// A grounded body follows the floor down by up to this much per tick
 /// (driving down a ramp); further than that it falls.
 pub const snap_down = fx.ratio(3, 10);

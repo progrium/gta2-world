@@ -1468,6 +1468,67 @@ pub fn Sim(comptime cfg: Config) type {
         }
 
 
+        /// A car's height (car-height.md 3.1-3.4): it follows the ground
+        /// down by up to half a block; further, it is tipped over the edge
+        /// while a corner is still on the ground, then leaves the ground at
+        /// the rate it was climbing or descending, falling with gravity 1/64.
+        fn carSettle(self: *const Self, t: *c.Transform, vel: *c.Velocity, col: *c.Collider, m: *const T.CarModel) void {
+            const floor = map.floorAt(self.grid, t.x, t.y, t.z, T.car_step);
+            if (col.flags & c.Collider.flag_grounded != 0 and vel.vz <= 0) {
+                if (floor >= t.z - T.car_drop) {
+                    t.z = floor;
+                    vel.vz = 0;
+                    return;
+                }
+                // Off the edge while climbing (a ramp top): leave the
+                // ground at the rate of the last step, a ramp jump.
+                const b1 = map.floorAt(self.grid, t.x - vel.vx, t.y - vel.vy, t.z, T.car_step);
+                const b2 = map.floorAt(self.grid, t.x - 2 * vel.vx, t.y - 2 * vel.vy, t.z, T.car_step);
+                const rate = b1 - b2;
+                if (rate > 0 and rate < T.car_drop) {
+                    vel.vz = rate;
+                } else {
+                    // Centre over a drop: corners still on the ground tip
+                    // it over the edge, and it stays up until none are.
+                    const cs = fx.cos(t.heading);
+                    const sn = fx.sin(t.heading);
+                    const corners = [_][2]Fx{ .{ m.half_len, m.half_wid }, .{ m.half_len, -m.half_wid }, .{ -m.half_len, m.half_wid }, .{ -m.half_len, -m.half_wid } };
+                    var supported = false;
+                    var push: [2]Fx = .{ 0, 0 };
+                    for (corners) |cn| {
+                        const o = [2]Fx{ fx.mul(cn[0], cs) - fx.mul(cn[1], sn), fx.mul(cn[0], sn) + fx.mul(cn[1], cs) };
+                        const f = map.floorAt(self.grid, t.x + o[0], t.y + o[1], t.z, T.car_step);
+                        if (f >= t.z - T.car_drop) {
+                            supported = true;
+                        } else {
+                            push[0] += @divTrunc(o[0], T.car_tip_div);
+                            push[1] += @divTrunc(o[1], T.car_tip_div);
+                        }
+                    }
+                    if (supported) {
+                        // Moved straight away (ours), so the parked-car
+                        // damping does not cancel the push.
+                        if (!self.boxBlocked(t.x + push[0], t.y + push[1], t.z, t.heading, m)) {
+                            t.x += push[0];
+                            t.y += push[1];
+                        }
+                        return;
+                    }
+                    vel.vz = if (rate < 0 and rate > -T.car_drop) rate else 0;
+                }
+                col.flags &= ~c.Collider.flag_grounded;
+            }
+            vel.vz = @max(vel.vz - T.car_gravity, -T.car_max_fall);
+            // Rising into a ceiling stops the rise.
+            if (vel.vz > 0 and map.blocks(self.grid, t.x, t.y, t.z + vel.vz, T.car_step)) vel.vz = 0;
+            t.z = @min(t.z + vel.vz, T.car_ceiling);
+            if (t.z <= floor) {
+                t.z = floor;
+                vel.vz = 0;
+                col.flags |= c.Collider.flag_grounded;
+            } else col.flags &= ~c.Collider.flag_grounded;
+        }
+
         /// Peds move a step at a time; a blocked step slides along one map
         /// axis at half speed (ped-movement.md 3.3). Mid-jump a ped never
         /// drops below the height he jumped from (3.6). Knocked bodies are
@@ -1624,7 +1685,7 @@ pub fn Sim(comptime cfg: Config) type {
                             } else t.y += sy;
                         }
                     }
-                    sim.settle(t, vel, col, T.car_step, T.gravity, T.max_fall);
+                    sim.carSettle(t, vel, col, m);
                 }
             }.f);
         }
