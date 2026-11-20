@@ -9,8 +9,13 @@
 //! M1 gameplay: peds walk with tank or direct control and jump, cars drive
 //! with a placeholder handling model (`tuning.zig`), peds get in and out of
 //! cars through `Riding`, everything collides with the map grid (`map.zig`)
-//! and with each other. Pistols, damage, deaths and respawns carry over
-//! from S2 in simple form.
+//! and with each other.
+//!
+//! M3 gameplay: four weapons with ammo, weapon pickups and health near the
+//! players, rockets and explosions, cars that catch fire and burn out,
+//! traffic that drives the lanes, ambient cars and peds kept near the
+//! players, kill credit and a frag limit. Game events (kills, explosions,
+//! pickups, round ends) are reported through `events()` for the hosts.
 
 const std = @import("std");
 const ifaces = @import("interfaces");
@@ -61,8 +66,14 @@ const salt_near_y: u32 = 0x580;
 const salt_ai_timer: u32 = 0x300;
 const salt_ai_turn: u32 = 0x301;
 const salt_car_model: u32 = 0x400;
+const salt_jitter: u32 = 0x600;
+const salt_pickup_kind: u32 = 0x700;
+const salt_pickup_player: u32 = 0x701;
+const salt_ai_plan: u32 = 0x800;
+const salt_ambient_player: u32 = 0x900;
 
 const max_intents = 64;
+const max_events = 32;
 
 pub fn Sim(comptime cfg: Config) type {
     return struct {
@@ -78,7 +89,7 @@ pub fn Sim(comptime cfg: Config) type {
         pub const Shot = ecs.Kind(.projectile, cfg.projectile_capacity, &.{
             c.Transform, c.Velocity, c.Projectile,
         });
-        pub const Pickup = ecs.Kind(.pickup, cfg.pickup_capacity, &.{c.Transform});
+        pub const Pickup = ecs.Kind(.pickup, cfg.pickup_capacity, &.{ c.Transform, c.Weapon, c.Appearance });
         pub const MapObject = ecs.Kind(.map_object, cfg.map_object_capacity, &.{c.Transform});
         pub const World = ecs.World(&.{ Car, Ped, Shot, Pickup, MapObject });
 
@@ -88,7 +99,7 @@ pub fn Sim(comptime cfg: Config) type {
             .{ abi.Kind.car, .{ c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Vehicle, c.Appearance } },
             .{ abi.Kind.ped, .{ c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Pedestrian, c.Riding, c.Weapon, c.Appearance } },
             .{ abi.Kind.projectile, .{ c.Transform, c.Velocity, c.Projectile } },
-            .{ abi.Kind.pickup, .{c.Transform} },
+            .{ abi.Kind.pickup, .{ c.Transform, c.Weapon, c.Appearance } },
             .{ abi.Kind.map_object, .{c.Transform} },
         };
 
@@ -136,6 +147,8 @@ pub fn Sim(comptime cfg: Config) type {
             stamp: u32,
             intent_buf: [max_intents]abi.Intent,
             intent_len: u32,
+            event_buf: [max_events]Event,
+            event_len: u32,
             /// Diagnostics only (not saved, not hashed).
             stats: Stats,
         };
@@ -151,6 +164,39 @@ pub fn Sim(comptime cfg: Config) type {
             boardings: u64 = 0,
             exits: u64 = 0,
             intents_dropped: u64 = 0,
+            explosions: u64 = 0,
+            pickups_taken: u64 = 0,
+            ambient_moved: u64 = 0,
+            rounds: u64 = 0,
+        };
+
+        /// A game event from the last `step` (authoritative mode only), for
+        /// the host: the server forwards them as I3 `event` messages, an
+        /// offline client plays them. Kinds are the I3 event kinds.
+        pub const Event = struct {
+            kind: Kind,
+            a: u8 = 0,
+            b: u8 = 0,
+            c: u8 = 0,
+            x: Fx = 0,
+            y: Fx = 0,
+            z: Fx = 0,
+
+            pub const Kind = enum(u8) {
+                /// a = killer slot or 0xFF, b = victim slot, c = weapon
+                /// (`weapon_car` for run over or rammed, `weapon_fire` for a
+                /// burning car or an explosion with no shooter).
+                kill = 1,
+                /// a = cause (0 rocket, 1 car).
+                explosion = 4,
+                /// a = winner slot.
+                round_end = 5,
+                /// a = slot, b = what (weapon index or `tuning.pickup_health`).
+                pickup = 6,
+            };
+            pub const no_slot: u8 = 0xFF;
+            pub const weapon_car: u8 = 0x80;
+            pub const weapon_fire: u8 = 0x81;
         };
 
         state: State,
@@ -178,7 +224,7 @@ pub fn Sim(comptime cfg: Config) type {
             for (&s.players) |*row| row.* = emptyRow();
             if (p.mode == .authoritative) {
                 var i: u32 = 0;
-                while (i < cfg.ambient_cars) : (i += 1) _ = self.spawnParkedCar(i);
+                while (i < cfg.ambient_cars) : (i += 1) _ = self.spawnAmbientCar(i % 8 < T.traffic_8ths, null);
                 i = 0;
                 while (i < cfg.ambient_peds) : (i += 1) _ = self.spawnPed(c.Controller.no_player, 0);
                 s.world.applyPending();
@@ -187,11 +233,13 @@ pub fn Sim(comptime cfg: Config) type {
 
         pub fn step(self: *Self, frames: []const Frame, cmds: []const abi.Command) void {
             self.scratch.intent_len = 0;
+            self.scratch.event_len = 0;
             if (!self.predicting()) {
                 for (cmds) |cmd| self.applyCommand(cmd);
             }
             self.sysInput(frames);
             self.sysPedAi();
+            self.sysTrafficAi();
             self.sysPedControl();
             self.sysCarControl();
             self.sysWeapons();
@@ -201,9 +249,11 @@ pub fn Sim(comptime cfg: Config) type {
             self.buildBroadphase();
             self.sysContacts();
             self.sysProjectileHits();
+            self.sysPickups();
             self.sysRiders();
             self.sysHealth();
             self.sysRespawn();
+            self.sysAmbient();
             self.state.world.applyPending();
             self.state.tick +%= 1;
         }
@@ -241,6 +291,11 @@ pub fn Sim(comptime cfg: Config) type {
 
         pub fn intents(self: *const Self) []const abi.Intent {
             return self.scratch.intent_buf[0..self.scratch.intent_len];
+        }
+
+        /// Game events from the last `step` (not part of I1).
+        pub fn events(self: *const Self) []const Event {
+            return self.scratch.event_buf[0..self.scratch.event_len];
         }
 
         pub fn playerRow(self: *Self, slot: u32) *abi.PlayerRow {
@@ -360,6 +415,14 @@ pub fn Sim(comptime cfg: Config) type {
             return false;
         }
 
+        fn pushEvent(self: *Self, e: Event) void {
+            if (self.predicting()) return;
+            const sc = &self.scratch;
+            if (sc.event_len >= max_events) return;
+            sc.event_buf[sc.event_len] = e;
+            sc.event_len += 1;
+        }
+
         fn pushIntent(self: *Self, op: abi.Intent.Op, kind: abi.Kind, source: EntityId, t: c.Transform) void {
             const sc = &self.scratch;
             if (sc.intent_len >= max_intents) {
@@ -389,6 +452,7 @@ pub fn Sim(comptime cfg: Config) type {
         // Spawning (authoritative only; spawn sites report intents instead)
 
         const Spot = struct { x: Fx, y: Fx, z: Fx, heading: u16 };
+        const Block = struct { x: i32, y: i32 };
 
         /// Standing height on the highest floor of column (cx, cy), if that
         /// floor is a full block with headroom above it.
@@ -448,7 +512,7 @@ pub fn Sim(comptime cfg: Config) type {
 
         /// Block position of the lowest-numbered other active player who has
         /// a body in the world (their car if driving, else their ped).
-        fn otherPlayerBlock(self: *Self, slot: u32) ?struct { x: i32, y: i32 } {
+        fn otherPlayerBlock(self: *Self, slot: u32) ?Block {
             const w = &self.state.world;
             for (self.state.players, 0..) |row, i| {
                 if (i == slot or row.flags & abi.PlayerRow.flag_active == 0) continue;
@@ -468,16 +532,24 @@ pub fn Sim(comptime cfg: Config) type {
             return @truncate(fallback *% 16384);
         }
 
-        fn spawnParkedCar(self: *Self, n: u32) ?EntityId {
+        /// An ambient car on a road: traffic if `driving`, else parked. With
+        /// `near`, within reach of that block (off screen), else anywhere.
+        fn spawnAmbientCar(self: *Self, driving: bool, near: ?Block) ?EntityId {
             const w = &self.state.world;
             const id = w.spawn(Car) orelse return null;
-            const spot = self.findSpot(id, map.Ground.road, T.carModel(0).radius) orelse {
+            const r = T.carModel(0).radius;
+            const found = if (near) |o| self.findSpotNear(id, map.Ground.road, r, o.x, o.y, T.ambient_near_radius, T.ambient_near_min) else self.findSpot(id, map.Ground.road, r);
+            const spot = found orelse {
                 w.despawn(id);
                 return null;
             };
             const model: u8 = @truncate(self.randBelow(id, salt_car_model, T.car_models.len));
-            _ = n;
             self.initCar(id, spot, model);
+            if (driving) {
+                const v = w.get(id, c.Vehicle).?;
+                v.flags = c.Vehicle.flag_ai;
+                v.ai_dir = @truncate(spot.heading >> 14);
+            }
             return id;
         }
 
@@ -488,7 +560,7 @@ pub fn Sim(comptime cfg: Config) type {
             w.get(id, c.Collider).?.flags = c.Collider.flag_grounded;
             w.get(id, c.Health).?.* = .{ .hp = m.hp, .last_hit_by = .none };
             w.get(id, c.Controller).?.* = .{ .player = c.Controller.no_player, .prev_buttons = 0, .in = Frame.neutral(0) };
-            w.get(id, c.Vehicle).?.* = .{ .driver = .none, .model = model, .pedal = 0, .steer = 0, .flags = 0 };
+            w.get(id, c.Vehicle).?.* = .{ .driver = .none, .model = model, .pedal = 0, .steer = 0, .flags = 0, .timer = 0, .ai_dir = 0, .ai_plan = 0 };
             w.get(id, c.Appearance).?.* = .{ .sprite = model, .remap = c.Appearance.no_remap };
         }
 
@@ -519,7 +591,7 @@ pub fn Sim(comptime cfg: Config) type {
             w.get(id, c.Controller).?.* = .{ .player = player, .prev_buttons = 0, .in = Frame.neutral(0) };
             w.get(id, c.Pedestrian).?.* = .{ .ai_timer = 0, .ai_heading = sp.heading, .jump_cooldown = 0, .anim = 0 };
             const is_player = player != c.Controller.no_player;
-            w.get(id, c.Weapon).?.* = .{ .cooldown = 0, .kind = 0, .ammo = if (is_player) T.player_ammo else 0 };
+            w.get(id, c.Weapon).?.* = .{ .cooldown = 0, .kind = T.weapon_pistol, .a0 = if (is_player) T.infinite_ammo else 0, .a1 = 0, .a2 = 0, .a3 = 0 };
             w.get(id, c.Appearance).?.* = .{ .sprite = 0, .remap = c.Appearance.no_remap };
             return id;
         }
@@ -576,6 +648,9 @@ pub fn Sim(comptime cfg: Config) type {
                         if (!ride.vehicle.isNone()) sim.tryExit(id) else sim.tryEnter(id);
                     }
                     const w = &sim.state.world;
+                    if (pressed & (Button.weapon_next | Button.weapon_prev) != 0) {
+                        if (w.get(id, c.Weapon)) |wpn| cycleWeapon(wpn, pressed & Button.weapon_next != 0);
+                    }
                     if (!ride.vehicle.isNone()) {
                         if (w.get(ride.vehicle, c.Controller)) |cc| {
                             if (sim.writable(ride.vehicle)) {
@@ -596,7 +671,7 @@ pub fn Sim(comptime cfg: Config) type {
             const Ctx = struct { best: *Best, t: *const c.Transform };
             w.each(.{ c.Vehicle, c.Transform, c.Velocity }, Ctx{ .best = &best, .t = t }, struct {
                 fn f(ctx: Ctx, id: EntityId, v: *c.Vehicle, ct: *c.Transform, vel: *c.Velocity) void {
-                    if (!v.driver.isNone()) return;
+                    if (!v.driver.isNone() or v.flags & c.Vehicle.flag_wrecked != 0) return;
                     if (fx.abs(ct.z - ctx.t.z) > fx.half) return;
                     if (speedOf(vel) > T.enter_max_speed) return;
                     const d = fx.length(ct.x - ctx.t.x, ct.y - ctx.t.y);
@@ -614,7 +689,10 @@ pub fn Sim(comptime cfg: Config) type {
             w.get(ped, c.Collider).?.flags = c.Collider.flag_disabled;
             w.get(ped, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
             w.get(ped, c.Pedestrian).?.anim = c.Pedestrian.anim_stand;
-            w.get(car, c.Vehicle).?.driver = ped;
+            const veh = w.get(car, c.Vehicle).?;
+            veh.driver = ped;
+            veh.flags &= ~c.Vehicle.flag_ai;
+            veh.timer = 0;
             const cc = w.get(car, c.Controller).?;
             cc.player = ctl.player;
             // The held buttons carry over, so holding enter does not
@@ -736,11 +814,13 @@ pub fn Sim(comptime cfg: Config) type {
             self.state.world.eachFiltered(.{ c.Vehicle, c.Controller, c.Transform, c.Velocity, c.Collider }, self.predicting(), {}, struct {
                 fn f(_: void, _: EntityId, v: *c.Vehicle, ctl: *c.Controller, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
                     const m = T.carModel(v.model);
-                    const in = if (v.driver.isNone()) Frame.neutral(0) else ctl.in;
+                    const driven = !v.driver.isNone() or v.flags & c.Vehicle.flag_ai != 0;
+                    const in = if (driven and v.flags & c.Vehicle.flag_wrecked == 0) ctl.in else Frame.neutral(0);
                     v.pedal = approach(v.pedal, in.throttle, m.pedal_rate);
                     v.steer = approach(v.steer, in.steer, m.steer_rate);
                     const handbrake = in.buttons & Button.handbrake_jump != 0;
-                    v.flags = (if (handbrake) c.Vehicle.flag_handbrake else 0) | (if (in.buttons & Button.special != 0) c.Vehicle.flag_horn else 0);
+                    const keep = v.flags & (c.Vehicle.flag_ai | c.Vehicle.flag_burning | c.Vehicle.flag_wrecked);
+                    v.flags = keep | (if (handbrake) c.Vehicle.flag_handbrake else 0) | (if (in.buttons & Button.special != 0) c.Vehicle.flag_horn else 0);
                     if (col.flags & c.Collider.flag_grounded == 0) {
                         // Airborne: no traction, keep going.
                         vel.spin = 0;
@@ -810,28 +890,92 @@ pub fn Sim(comptime cfg: Config) type {
             return 0;
         }
 
+        /// Next (or previous) weapon that has rounds.
+        fn cycleWeapon(wpn: *c.Weapon, forward: bool) void {
+            var k: u8 = wpn.kind;
+            var n: u8 = 0;
+            while (n < T.weapon_count) : (n += 1) {
+                k = if (forward) (k + 1) % T.weapon_count else (k + T.weapon_count - 1) % T.weapon_count;
+                if (wpn.rounds()[k] != 0) {
+                    wpn.kind = k;
+                    return;
+                }
+            }
+        }
+
         fn sysWeapons(self: *Self) void {
             self.state.world.eachFiltered(.{ c.Weapon, c.Controller, c.Transform, c.Velocity, c.Riding }, self.predicting(), self, struct {
                 fn f(sim: *Self, id: EntityId, wpn: *c.Weapon, ctl: *c.Controller, t: *c.Transform, vel: *c.Velocity, ride: *c.Riding) void {
                     if (wpn.cooldown > 0) wpn.cooldown -= 1;
                     if (!ride.vehicle.isNone()) return;
-                    if (ctl.in.buttons & Button.fire == 0 or wpn.cooldown != 0 or wpn.ammo == 0) return;
-                    wpn.cooldown = T.pistol_cooldown;
-                    wpn.ammo -= 1;
+                    if (wpn.kind >= T.weapon_count) wpn.kind = T.weapon_pistol;
+                    if (wpn.rounds()[wpn.kind] == 0) cycleWeapon(wpn, false);
+                    const def = T.weapons[wpn.kind];
+                    if (ctl.in.buttons & Button.fire == 0 or wpn.cooldown != 0 or wpn.rounds()[wpn.kind] == 0) return;
+                    wpn.cooldown = def.cooldown;
+                    if (wpn.rounds()[wpn.kind] != T.infinite_ammo) wpn.rounds()[wpn.kind] -= 1;
                     sim.scratch.stats.shots += 1;
-                    const dx = fx.cos(t.heading);
-                    const dy = fx.sin(t.heading);
-                    const off = T.ped_radius + fx.ratio(2, 10);
-                    const st: c.Transform = .{ .x = t.x + fx.mul(dx, off), .y = t.y + fx.mul(dy, off), .z = t.z + fx.ratio(1, 2), .heading = t.heading };
-                    if (sim.predicting()) {
-                        sim.pushIntent(.spawn, .projectile, id, st);
-                        return;
+                    var aim = t.heading;
+                    if (def.jitter != 0) {
+                        const j = sim.randBelow(id, salt_jitter, 2 * @as(u32, def.jitter) + 1);
+                        aim +%= @as(u16, @truncate(j)) -% def.jitter;
                     }
-                    const w = &sim.state.world;
-                    const sid = w.spawn(Shot) orelse return;
-                    w.get(sid, c.Transform).?.* = st;
-                    w.get(sid, c.Velocity).?.* = .{ .vx = vel.vx + fx.mul(dx, T.projectile_speed), .vy = vel.vy + fx.mul(dy, T.projectile_speed), .vz = 0, .spin = 0 };
-                    w.get(sid, c.Projectile).?.* = .{ .owner = id, .ttl = T.projectile_ttl, .damage = T.pistol_damage };
+                    var p: u8 = 0;
+                    while (p < def.pellets) : (p += 1) {
+                        // Pellets fan evenly across the spread.
+                        var h = aim;
+                        if (def.pellets > 1) {
+                            const gap: u32 = def.spread / (def.pellets - 1);
+                            h = aim -% (def.spread / 2) +% @as(u16, @truncate(gap * p));
+                        }
+                        sim.fire(id, t, vel, h, wpn.kind, def);
+                    }
+                }
+            }.f);
+        }
+
+        fn fire(self: *Self, shooter: EntityId, t: *const c.Transform, vel: *const c.Velocity, heading: u16, weapon: u8, def: T.WeaponDef) void {
+            const dx = fx.cos(heading);
+            const dy = fx.sin(heading);
+            const off = T.ped_radius + fx.ratio(2, 10);
+            const st: c.Transform = .{ .x = t.x + fx.mul(dx, off), .y = t.y + fx.mul(dy, off), .z = t.z + fx.ratio(1, 2), .heading = heading };
+            if (self.predicting()) {
+                self.pushIntent(.spawn, .projectile, shooter, st);
+                return;
+            }
+            const w = &self.state.world;
+            const sid = w.spawn(Shot) orelse return;
+            w.get(sid, c.Transform).?.* = st;
+            w.get(sid, c.Velocity).?.* = .{ .vx = vel.vx + fx.mul(dx, def.speed), .vy = vel.vy + fx.mul(dy, def.speed), .vz = 0, .spin = 0 };
+            w.get(sid, c.Projectile).?.* = .{ .owner = shooter, .ttl = def.ttl, .damage = def.damage, .weapon = weapon };
+        }
+
+        /// Damage and push everything within the blast radius; reported as an
+        /// event. `by` gets the credit.
+        fn explode(self: *Self, x: Fx, y: Fx, z: Fx, by: EntityId, cause: u8) void {
+            self.scratch.stats.explosions += 1;
+            self.pushEvent(.{ .kind = .explosion, .a = cause, .x = x, .y = y, .z = z });
+            const Ctx = struct { sim: *Self, x: Fx, y: Fx, z: Fx, by: EntityId, r: Fx };
+            const ctx = Ctx{ .sim = self, .x = x, .y = y, .z = z, .by = by, .r = if (cause == 1) T.car_explosion_radius else T.explosion_radius };
+            self.state.world.each(.{ c.Transform, c.Velocity, c.Health, c.Collider }, ctx, struct {
+                fn f(cx: Ctx, id: EntityId, t: *c.Transform, vel: *c.Velocity, h: *c.Health, col: *c.Collider) void {
+                    _ = h;
+                    if (fx.abs(t.z - cx.z) > fx.one) return;
+                    const ddx = t.x - cx.x;
+                    const ddy = t.y - cx.y;
+                    if (fx.abs(ddx) >= cx.r or fx.abs(ddy) >= cx.r) return;
+                    const d = fx.length(ddx, ddy);
+                    if (d >= cx.r) return;
+                    const near = fx.clamp(fx.div(cx.r - d, cx.r - T.explosion_core), 0, fx.one);
+                    cx.sim.hurt(id, fx.toInt(fx.mul(near, fx.fromInt(T.explosion_damage))), cx.by);
+                    if (col.flags & c.Collider.flag_disabled != 0 or !cx.sim.writable(id)) return;
+                    const push = fx.mul(near, T.explosion_push);
+                    const nx = if (d == 0) fx.one else fx.div(ddx, d);
+                    const ny = if (d == 0) 0 else fx.div(ddy, d);
+                    // Cars are heavy and move a third as much.
+                    const scale: i32 = if (cx.sim.state.world.get(id, c.Vehicle) != null) 3 else 1;
+                    vel.vx += @divTrunc(fx.mul(nx, push), scale);
+                    vel.vy += @divTrunc(fx.mul(ny, push), scale);
                 }
             }.f);
         }
@@ -965,11 +1109,33 @@ pub fn Sim(comptime cfg: Config) type {
             if (self.predicting()) return; // not predicted; replicated only
             self.state.world.each(.{ c.Transform, c.Velocity, c.Projectile }, self, struct {
                 fn f(sim: *Self, id: EntityId, t: *c.Transform, vel: *c.Velocity, p: *c.Projectile) void {
-                    if (p.ttl == 0) return sim.kill(id);
+                    const explosive = p.weapon < T.weapon_count and T.weapons[p.weapon].explosive;
+                    if (p.ttl == 0) {
+                        if (explosive) sim.explode(t.x, t.y, t.z - fx.half, p.owner, 0);
+                        return sim.kill(id);
+                    }
                     p.ttl -= 1;
+                    // Four samples along the move, so a fast round cannot
+                    // skip the corner of a block.
+                    var i: i32 = 1;
+                    while (i <= 4) : (i += 1) {
+                        const x = t.x + @divTrunc(vel.vx * i, 4);
+                        const y = t.y + @divTrunc(vel.vy * i, 4);
+                        if (map.blocks(sim.grid, x, y, t.z - fx.half, 0)) {
+                            if (explosive) {
+                                // Blow up just short of the wall.
+                                const bx = t.x + @divTrunc(vel.vx * (i - 1), 4);
+                                const by = t.y + @divTrunc(vel.vy * (i - 1), 4);
+                                sim.explode(bx, by, t.z - fx.half, p.owner, 0);
+                            }
+                            t.x = x;
+                            t.y = y;
+                            p.ttl = 0;
+                            return sim.kill(id);
+                        }
+                    }
                     t.x += vel.vx;
                     t.y += vel.vy;
-                    if (map.blocks(sim.grid, t.x, t.y, t.z - fx.half, 0)) sim.kill(id);
                 }
             }.f);
         }
@@ -1170,9 +1336,13 @@ pub fn Sim(comptime cfg: Config) type {
                             }
                         }
                     }
-                    if (best != nil) {
+                    if (best != nil and p.ttl != 0) {
                         sc.stats.shot_hits += 1;
-                        sim.hurt(sc.entries[best].id, p.damage, p.owner);
+                        if (p.weapon < T.weapon_count and T.weapons[p.weapon].explosive) {
+                            const e = sc.entries[best];
+                            sim.explode(e.x, e.y, e.z, p.owner, 0);
+                        } else sim.hurt(sc.entries[best].id, p.damage, p.owner);
+                        p.ttl = 0;
                         sim.kill(id);
                     }
                 }
@@ -1190,31 +1360,48 @@ pub fn Sim(comptime cfg: Config) type {
         }
 
         fn sysHealth(self: *Self) void {
-            // Cars: wreck, ejecting the driver.
-            self.state.world.eachFiltered(.{ c.Vehicle, c.Health, c.Transform }, self.predicting(), self, struct {
-                fn f(sim: *Self, id: EntityId, v: *c.Vehicle, h: *c.Health, _: *c.Transform) void {
-                    if (h.hp > 0) return;
-                    if (sim.predicting()) {
-                        sim.kill(id);
+            // Cars: catch fire, burn, explode, and stay as a wreck a while.
+            self.state.world.eachFiltered(.{ c.Vehicle, c.Health, c.Transform, c.Appearance }, self.predicting(), self, struct {
+                fn f(sim: *Self, id: EntityId, v: *c.Vehicle, h: *c.Health, t: *c.Transform, look: *c.Appearance) void {
+                    if (sim.predicting()) return; // fire and wrecks come from the server
+                    const w = &sim.state.world;
+                    if (v.flags & c.Vehicle.flag_wrecked != 0) {
+                        if (v.timer > 0) {
+                            v.timer -= 1;
+                            return;
+                        }
+                        w.despawn(id);
+                        if (cfg.ambient_cars > 0) _ = sim.spawnAmbientCar(true, sim.randomPlayerBlock(id));
                         return;
                     }
-                    const w = &sim.state.world;
+                    if (h.hp <= T.car_burn_hp and v.flags & c.Vehicle.flag_burning == 0) v.flags |= c.Vehicle.flag_burning;
+                    if (v.flags & c.Vehicle.flag_burning != 0) h.hp -= T.car_burn_rate;
+                    if (h.hp > 0) return;
+                    // Explodes. The driver gets out if there is room; the
+                    // blast does the rest.
                     const driver = v.driver;
                     if (!driver.isNone() and w.get(driver, c.Riding) != null) {
                         sim.tryExit(driver);
-                        // Nowhere to get out: the driver goes down with it.
                         if (w.get(driver, c.Riding)) |r| {
                             if (!r.vehicle.isNone()) {
                                 r.vehicle = .none;
                                 w.get(driver, c.Collider).?.flags = c.Collider.flag_grounded;
+                                if (w.get(driver, c.Controller)) |dc| {
+                                    if (dc.player != c.Controller.no_player) sim.state.players[dc.player].car = .none;
+                                }
                             }
                         }
                         sim.hurt(driver, T.wreck_driver_damage, h.last_hit_by);
                     }
                     sim.scratch.stats.car_wrecks += 1;
                     sim.releaseCar(id);
-                    w.despawn(id);
-                    if (cfg.ambient_cars > 0) _ = sim.spawnParkedCar(0);
+                    v.flags = c.Vehicle.flag_wrecked;
+                    v.timer = T.wreck_ticks;
+                    v.pedal = 0;
+                    v.steer = 0;
+                    h.hp = 0;
+                    look.remap = T.wreck_remap;
+                    sim.explode(t.x, t.y, t.z, h.last_hit_by, 1);
                 }
             }.f);
             self.state.world.eachFiltered(.{ c.Pedestrian, c.Health, c.Controller, c.Riding }, self.predicting(), self, struct {
@@ -1228,8 +1415,8 @@ pub fn Sim(comptime cfg: Config) type {
                     if (!r.vehicle.isNone()) sim.releaseCar(r.vehicle);
                     sim.scratch.stats.ped_deaths += 1;
                     w.despawn(id);
-                    sim.creditKill(h.last_hit_by);
                     if (ctl.player != c.Controller.no_player) {
+                        sim.creditKill(ctl.player, h.last_hit_by, id);
                         const pl = &sim.state.players[ctl.player];
                         pl.deaths += 1;
                         pl.ped = .none;
@@ -1242,17 +1429,327 @@ pub fn Sim(comptime cfg: Config) type {
             }.f);
         }
 
-        fn creditKill(self: *Self, by: EntityId) void {
+        /// Kill credit for player `victim`'s death, hit last by `by`. A kill
+        /// by a car counts for its driver; dying by your own hand costs a
+        /// point. Reaching the frag limit ends the round.
+        fn creditKill(self: *Self, victim: u32, by: EntityId, victim_ped: EntityId) void {
             const w = &self.state.world;
-            var shooter = by;
-            // A kill by a car counts for its driver.
-            if (w.get(by, c.Vehicle)) |v| shooter = v.driver;
-            if (w.get(shooter, c.Controller)) |ctl| {
-                if (ctl.player != c.Controller.no_player and w.get(shooter, c.Pedestrian) != null) {
-                    self.state.players[ctl.player].kills += 1;
-                    self.state.players[ctl.player].score += 1;
+            var killer = by;
+            var weapon: u8 = Event.weapon_fire;
+            if (w.get(by, c.Vehicle)) |v| {
+                killer = v.driver;
+                weapon = Event.weapon_car;
+            } else if (w.get(by, c.Weapon)) |wp| weapon = wp.kind;
+            var killer_slot: u8 = Event.no_slot;
+            if (w.get(killer, c.Controller)) |ctl| {
+                if (ctl.player != c.Controller.no_player and w.get(killer, c.Pedestrian) != null) killer_slot = @intCast(ctl.player);
+            }
+            if (eql(killer, victim_ped)) killer_slot = @intCast(victim);
+            self.pushEvent(.{ .kind = .kill, .a = killer_slot, .b = @intCast(victim), .c = weapon });
+            if (killer_slot == Event.no_slot) return;
+            const kp = &self.state.players[killer_slot];
+            if (killer_slot == victim) {
+                kp.score -= 1;
+                return;
+            }
+            kp.kills += 1;
+            kp.score += 1;
+            if (kp.score >= T.frag_limit) {
+                self.scratch.stats.rounds += 1;
+                self.pushEvent(.{ .kind = .round_end, .a = killer_slot });
+                for (&self.state.players) |*pl| {
+                    pl.kills = 0;
+                    pl.deaths = 0;
+                    pl.score = 0;
                 }
             }
+        }
+
+        /// Block of a random active player's body, keyed on `key`.
+        fn randomPlayerBlock(self: *Self, key: EntityId) ?Block {
+            const w = &self.state.world;
+            var n: u32 = 0;
+            for (self.state.players) |row| {
+                if (row.flags & abi.PlayerRow.flag_active != 0 and w.get(row.ped, c.Transform) != null) n += 1;
+            }
+            if (n == 0) return null;
+            var pick = self.randBelow(key, salt_ambient_player, n);
+            for (self.state.players) |row| {
+                if (row.flags & abi.PlayerRow.flag_active == 0) continue;
+                const t = w.get(row.car, c.Transform) orelse w.get(row.ped, c.Transform) orelse continue;
+                if (pick == 0) return .{ .x = fx.toInt(t.x), .y = fx.toInt(t.y) };
+                pick -= 1;
+            }
+            return null;
+        }
+
+        /// Pickups: taken by a player walking or driving over one, expire
+        /// after a while, and are topped up near random players.
+        fn sysPickups(self: *Self) void {
+            if (self.predicting()) return;
+            const w = &self.state.world;
+            w.each(.{ c.Transform, c.Weapon, c.Appearance }, self, struct {
+                fn f(sim: *Self, id: EntityId, t: *c.Transform, give: *c.Weapon, _: *c.Appearance) void {
+                    const ww = &sim.state.world;
+                    if (ww.get(id, c.Pedestrian) != null) return; // peds carry weapons too
+                    if (give.cooldown == 0) return ww.despawn(id);
+                    give.cooldown -= 1;
+                    for (&sim.state.players, 0..) |*row, slot| {
+                        if (row.flags & abi.PlayerRow.flag_active == 0) continue;
+                        const ped = row.ped;
+                        const pt = ww.get(row.car, c.Transform) orelse ww.get(ped, c.Transform) orelse continue;
+                        if (fx.abs(pt.z - t.z) > fx.half) continue;
+                        if (fx.abs(pt.x - t.x) > T.pickup_reach or fx.abs(pt.y - t.y) > T.pickup_reach) continue;
+                        if (fx.length(pt.x - t.x, pt.y - t.y) > T.pickup_reach) continue;
+                        if (!sim.givePickup(ped, give)) continue;
+                        sim.scratch.stats.pickups_taken += 1;
+                        sim.pushEvent(.{ .kind = .pickup, .a = @intCast(slot), .b = give.kind, .x = t.x, .y = t.y, .z = t.z });
+                        give.cooldown = 0;
+                        ww.despawn(id);
+                        return;
+                    }
+                }
+            }.f);
+            // Top up: one new pickup per tick at most. Configurations with
+            // fewer than 8 pickup slots (unit tests) place none themselves.
+            if (cfg.pickup_capacity < 8) return;
+            var active: u32 = 0;
+            for (self.state.players) |row| {
+                if (row.flags & abi.PlayerRow.flag_active != 0) active += 1;
+            }
+            if (active == 0) return;
+            const want = @min(cfg.pickup_capacity, T.pickups_base + T.pickups_per_player * active);
+            if (w.count(Pickup) >= want) return;
+            const id = w.spawn(Pickup) orelse return;
+            const o = self.randomPlayerBlock(id) orelse return w.despawn(id);
+            const spot = self.findSpotNear(id, map.Ground.pavement, T.ped_radius, o.x, o.y, T.pickup_near_radius, T.pickup_near_min) orelse return w.despawn(id);
+            var roll = self.randBelow(id, salt_pickup_kind, 100);
+            var kind: u8 = 1;
+            while (kind < T.pickup_kinds - 1 and roll >= T.pickup_odds[kind]) : (kind += 1) roll -= T.pickup_odds[kind];
+            self.initPickup(id, spot.x, spot.y, spot.z, kind);
+        }
+
+        fn initPickup(self: *Self, id: EntityId, x: Fx, y: Fx, z: Fx, kind: u8) void {
+            const w = &self.state.world;
+            w.get(id, c.Transform).?.* = .{ .x = x, .y = y, .z = z, .heading = 0 };
+            const amount: u16 = if (kind < T.weapon_count) T.weapons[kind].pickup_ammo else @intCast(T.health_pickup_hp);
+            w.get(id, c.Weapon).?.* = .{ .cooldown = T.pickup_life, .kind = kind, .a0 = amount, .a1 = 0, .a2 = 0, .a3 = 0 };
+            w.get(id, c.Appearance).?.* = .{ .sprite = kind, .remap = c.Appearance.no_remap };
+        }
+
+        /// Apply a pickup to `ped`. False if it does not need it.
+        fn givePickup(self: *Self, ped: EntityId, give: *const c.Weapon) bool {
+            const w = &self.state.world;
+            if (give.kind == T.pickup_health) {
+                const h = w.get(ped, c.Health) orelse return false;
+                if (h.hp >= T.ped_hp) return false;
+                h.hp = @min(T.ped_hp, h.hp + give.a0);
+                return true;
+            }
+            if (give.kind >= T.weapon_count) return false;
+            const wpn = w.get(ped, c.Weapon) orelse return false;
+            const def = T.weapons[give.kind];
+            const have = wpn.rounds()[give.kind];
+            if (have >= def.max_ammo) return false;
+            wpn.rounds()[give.kind] = @min(def.max_ammo, have + give.a0);
+            // A new weapon goes straight into the hand over the pistol.
+            if (have == 0 and wpn.kind == T.weapon_pistol) wpn.kind = give.kind;
+            return true;
+        }
+
+        /// Ambient cars and peds far from every player are moved near one.
+        fn sysAmbient(self: *Self) void {
+            if (self.predicting()) return;
+            const w = &self.state.world;
+            var pos: [cfg.max_players][2]i32 = undefined;
+            var n: u32 = 0;
+            for (self.state.players) |row| {
+                if (row.flags & abi.PlayerRow.flag_active == 0) continue;
+                const t = w.get(row.car, c.Transform) orelse w.get(row.ped, c.Transform) orelse continue;
+                pos[n] = .{ fx.toInt(t.x), fx.toInt(t.y) };
+                n += 1;
+            }
+            if (n == 0) return;
+            const Ctx = struct { sim: *Self, pos: []const [2]i32, moved: u32 = 0 };
+            var ctx = Ctx{ .sim = self, .pos = pos[0..n] };
+            // One in eight entities is looked at each tick, by index.
+            w.each(.{ c.Vehicle, c.Transform }, &ctx, struct {
+                fn f(cx: *Ctx, id: EntityId, v: *c.Vehicle, t: *c.Transform) void {
+                    if (cx.moved >= T.ambient_moves_per_tick) return;
+                    if ((id.index() ^ cx.sim.state.tick) & 7 != 0) return;
+                    if (!v.driver.isNone() or v.flags & c.Vehicle.flag_wrecked != 0) return;
+                    if (!farFromAll(cx.pos, t)) return;
+                    const sim = cx.sim;
+                    const o = sim.randomPlayerBlock(id) orelse return;
+                    const driving = v.flags & c.Vehicle.flag_ai != 0;
+                    if (sim.spawnAmbientCar(driving, .{ .x = o.x, .y = o.y }) == null) return;
+                    sim.state.world.despawn(id);
+                    sim.scratch.stats.ambient_moved += 1;
+                    cx.moved += 1;
+                }
+            }.f);
+            w.each(.{ c.Pedestrian, c.Controller, c.Transform, c.Riding }, &ctx, struct {
+                fn f(cx: *Ctx, id: EntityId, _: *c.Pedestrian, ctl: *c.Controller, t: *c.Transform, r: *c.Riding) void {
+                    if (cx.moved >= T.ambient_moves_per_tick) return;
+                    if ((id.index() ^ cx.sim.state.tick) & 7 != 0) return;
+                    if (ctl.player != c.Controller.no_player or !r.vehicle.isNone()) return;
+                    if (!farFromAll(cx.pos, t)) return;
+                    const sim = cx.sim;
+                    const o = sim.randomPlayerBlock(id) orelse return;
+                    const spot = sim.findSpotNear(id, map.Ground.pavement, T.ped_radius, o.x, o.y, T.ambient_near_radius, T.ambient_near_min) orelse return;
+                    t.* = .{ .x = spot.x, .y = spot.y, .z = spot.z, .heading = spot.heading };
+                    const w2 = &sim.state.world;
+                    w2.get(id, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
+                    w2.get(id, c.Pedestrian).?.ai_heading = spot.heading;
+                    sim.scratch.stats.ambient_moved += 1;
+                    cx.moved += 1;
+                }
+            }.f);
+        }
+
+        fn farFromAll(pos: []const [2]i32, t: *const c.Transform) bool {
+            const x = fx.toInt(t.x);
+            const y = fx.toInt(t.y);
+            for (pos) |p| {
+                if (@max(@abs(p[0] - x), @abs(p[1] - y)) < T.ambient_far) return false;
+            }
+            return true;
+        }
+
+        // ------------------------------------------------------------------
+        // Traffic
+
+        const dir_heading = [4]u16{ 0, 16384, 32768, 49152 };
+        const dir_arrow = [4]u4{ map.Arrow.pos_x, map.Arrow.pos_y, map.Arrow.neg_x, map.Arrow.neg_y };
+
+        fn arrowCount(a: u4) u32 {
+            return @popCount(a);
+        }
+
+        /// Traffic drives along the lane arrows, picks a way at junctions,
+        /// keeps to the middle of its lane, brakes for anything ahead and
+        /// backs out when stuck against a wall.
+        fn sysTrafficAi(self: *Self) void {
+            if (self.predicting()) return; // traffic is never predicted
+            self.buildBroadphase();
+            self.state.world.each(.{ c.Vehicle, c.Controller, c.Transform, c.Velocity }, self, struct {
+                fn f(sim: *Self, id: EntityId, v: *c.Vehicle, ctl: *c.Controller, t: *c.Transform, vel: *c.Velocity) void {
+                    if (v.flags & c.Vehicle.flag_ai == 0 or !v.driver.isNone()) return;
+                    if (v.flags & (c.Vehicle.flag_wrecked | c.Vehicle.flag_burning) != 0) {
+                        // A burning car stops; its driver has fled.
+                        ctl.in = Frame.neutral(0);
+                        return;
+                    }
+                    const cell = map.floorCell(sim.grid, t.x, t.y, t.z, T.car_step);
+                    const arrows = map.arrowsOf(cell);
+                    const on_road = map.groundOf(cell) == map.Ground.road;
+                    const lane = on_road and arrowCount(arrows) == 1;
+                    if (lane) {
+                        var d: u8 = 0;
+                        while (dir_arrow[d] != arrows) : (d += 1) {}
+                        v.ai_dir = d;
+                        v.ai_plan &= ~c.Vehicle.plan_in_junction;
+                    } else if (on_road) {
+                        if (v.ai_plan & c.Vehicle.plan_in_junction == 0) {
+                            // Entering a junction: straight on, left or right.
+                            v.ai_plan = c.Vehicle.plan_in_junction | @as(u8, @truncate(sim.randBelow(id, salt_ai_plan, 3)));
+                        }
+                        const plan = v.ai_plan & 3;
+                        if (plan != 0) {
+                            const nd: u8 = if (plan == 1) (v.ai_dir + 1) & 3 else (v.ai_dir + 3) & 3;
+                            if (arrows & dir_arrow[nd] != 0) {
+                                v.ai_dir = nd;
+                                v.ai_plan = c.Vehicle.plan_in_junction;
+                            } else {
+                                // Turn when the lane beside us runs the new way.
+                                const px = t.x + fx.mul(fx.cos(dir_heading[nd]), fx.one);
+                                const py = t.y + fx.mul(fx.sin(dir_heading[nd]), fx.one);
+                                const side = map.floorCell(sim.grid, px, py, t.z, T.car_step);
+                                if (map.groundOf(side) == map.Ground.road and map.arrowsOf(side) == dir_arrow[nd]) {
+                                    v.ai_dir = nd;
+                                    v.ai_plan = c.Vehicle.plan_in_junction;
+                                }
+                            }
+                        }
+                    }
+                    const want = dir_heading[v.ai_dir & 3];
+                    // Lane centring: aim at the middle of the cell across the
+                    // direction of travel.
+                    var target = want;
+                    if (lane) {
+                        const across = if (v.ai_dir & 1 == 0) t.y else t.x;
+                        const off = (across & (fx.one - 1)) - fx.half; // -0.5..0.5
+                        // Positive offset is +y (or +x); steer back against it.
+                        const sign: i32 = switch (v.ai_dir & 3) {
+                            0 => -1,
+                            1 => 1,
+                            2 => 1,
+                            else => -1,
+                        };
+                        const corr = std.math.clamp(@divTrunc(off * 6000 * sign, fx.one), -3000, 3000);
+                        target = want +% @as(u16, @truncate(@as(u32, @bitCast(corr))));
+                    }
+                    const diff: i16 = @bitCast(target -% t.heading);
+                    var steer = std.math.clamp(@divTrunc(@as(i32, diff) * 127, 3500), -127, 127);
+                    const fwd_x = fx.cos(t.heading);
+                    const fwd_y = fx.sin(t.heading);
+                    const vf = fx.mul(vel.vx, fwd_x) + fx.mul(vel.vy, fwd_y);
+                    var cruise = T.traffic_speed;
+                    if (@abs(@as(i32, diff)) > 6000) cruise = T.traffic_speed >> 1;
+                    var throttle: i32 = if (vf < cruise) 100 else 0;
+                    const blocked = sim.bodyAhead(id, t);
+                    if (blocked) {
+                        throttle = if (vf > fx.ratio(2, 100)) -127 else 0;
+                        if (v.timer < c.Vehicle.reverse_base) v.timer = 0;
+                    }
+                    // Stuck against a wall: back out with the wheels turned
+                    // the other way.
+                    if (v.timer >= c.Vehicle.reverse_base) {
+                        v.timer -= 1;
+                        if (v.timer == c.Vehicle.reverse_base) v.timer = 0;
+                        throttle = -110;
+                        steer = -steer;
+                    } else if (!blocked and fx.abs(vf) < fx.ratio(1, 100)) {
+                        v.timer += 1;
+                        if (v.timer >= T.traffic_stuck_ticks) v.timer = c.Vehicle.reverse_base + T.traffic_reverse_ticks;
+                    } else if (!blocked) v.timer = 0;
+                    ctl.in = .{ .steer = @intCast(steer), .throttle = @intCast(throttle), .buttons = 0, .aim = 0, .seq = 0 };
+                }
+            }.f);
+        }
+
+        /// Is there a body in the box ahead of a car?
+        fn bodyAhead(self: *Self, self_id: EntityId, t: *const c.Transform) bool {
+            const sc = &self.scratch;
+            const fwd_x = fx.cos(t.heading);
+            const fwd_y = fx.sin(t.heading);
+            const cxf = t.x + fx.mul(fwd_x, T.traffic_look >> 1);
+            const cyf = t.y + fx.mul(fwd_y, T.traffic_look >> 1);
+            const ccx: i32 = std.math.clamp(cxf >> cell_shift, 0, cells_x - 1);
+            const ccy: i32 = std.math.clamp(cyf >> cell_shift, 0, cells_y - 1);
+            var dy: i32 = -1;
+            while (dy <= 1) : (dy += 1) {
+                var dx: i32 = -1;
+                while (dx <= 1) : (dx += 1) {
+                    const nx = ccx + dx;
+                    const ny = ccy + dy;
+                    if (nx < 0 or ny < 0 or nx >= cells_x or ny >= cells_y) continue;
+                    const cell: u32 = @intCast(ny * cells_x + nx);
+                    if (sc.cell_stamp[cell] != sc.stamp) continue;
+                    var j = sc.cell_head[cell];
+                    while (j != nil) : (j = sc.entries[j].next) {
+                        const e = sc.entries[j];
+                        if (eql(e.id, self_id)) continue;
+                        if (fx.abs(e.z - t.z) > fx.half) continue;
+                        const rx = e.x - t.x;
+                        const ry = e.y - t.y;
+                        const along = fx.mul(rx, fwd_x) + fx.mul(ry, fwd_y);
+                        const side = fx.mul(rx, -fwd_y) + fx.mul(ry, fwd_x);
+                        if (along > fx.ratio(3, 10) and along < T.traffic_look and fx.abs(side) < T.traffic_look_side + (e.r >> 1)) return true;
+                    }
+                }
+            }
+            return false;
         }
 
         fn sysRespawn(self: *Self) void {
@@ -1278,6 +1775,17 @@ pub fn Sim(comptime cfg: Config) type {
             const id = w.spawn(Car) orelse return null;
             const z = map.floorAt(self.grid, x, y, fx.fromInt(map.size_z - 1), T.car_step);
             self.initCar(id, .{ .x = x, .y = y, .z = z, .heading = heading }, model);
+            w.applyPending();
+            return id;
+        }
+
+        /// Place a pickup (authoritative mode only), for tests and tools.
+        pub fn spawnPickupAt(self: *Self, x: Fx, y: Fx, kind: u8) ?EntityId {
+            if (self.predicting()) return null;
+            const w = &self.state.world;
+            const id = w.spawn(Pickup) orelse return null;
+            const z = map.floorAt(self.grid, x, y, fx.fromInt(map.size_z - 1), T.ped_step);
+            self.initPickup(id, x, y, z, kind);
             w.applyPending();
             return id;
         }

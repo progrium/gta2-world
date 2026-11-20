@@ -118,12 +118,113 @@ pub fn carModel(m: u8) *const CarModel {
 }
 
 // --- Weapons -----------------------------------------------------------------
+//
+// Our own set, tuned by feel: nothing here came from the original game.
 
-pub const pistol_cooldown: u16 = 8;
-pub const pistol_damage: u16 = 25;
-pub const projectile_speed = fx.ratio(9, 10);
-pub const projectile_ttl: u16 = 30;
-pub const player_ammo: u32 = 99;
+pub const WeaponDef = struct {
+    /// Ticks between shots while fire is held.
+    cooldown: u16,
+    /// Damage per projectile on a direct hit (0 for explosive rounds).
+    damage: u16,
+    speed: Fx,
+    /// Lifetime of a projectile in ticks (range = speed x ttl).
+    ttl: u16,
+    /// Projectiles per shot, fanned across `spread` (angle units).
+    pellets: u8,
+    spread: u16,
+    /// Random aim error per shot, up to this many angle units either way.
+    jitter: u16,
+    /// Explodes where it lands instead of hitting one body.
+    explosive: bool,
+    /// Rounds a pickup gives, and the most a ped can carry.
+    pickup_ammo: u16,
+    max_ammo: u16,
+};
+
+pub const weapon_pistol: u8 = 0;
+pub const weapon_smg: u8 = 1;
+pub const weapon_shotgun: u8 = 2;
+pub const weapon_rocket: u8 = 3;
+pub const weapon_count = 4;
+/// `Weapon.kind` on a health pickup.
+pub const pickup_health: u8 = 4;
+pub const pickup_kinds = 5;
+pub const infinite_ammo: u16 = 0xFFFF;
+
+pub const weapons = [weapon_count]WeaponDef{
+    // Pistol: always in hand, never runs out.
+    .{ .cooldown = 8, .damage = 25, .speed = fx.ratio(9, 10), .ttl = 30, .pellets = 1, .spread = 0, .jitter = 0, .explosive = false, .pickup_ammo = 0, .max_ammo = infinite_ammo },
+    // Machine gun: fast, light, a little wild.
+    .{ .cooldown = 3, .damage = 12, .speed = fx.ratio(1, 1), .ttl = 24, .pellets = 1, .spread = 0, .jitter = 700, .explosive = false, .pickup_ammo = 80, .max_ammo = 240 },
+    // Shotgun: six pellets in a fan, short range.
+    .{ .cooldown = 24, .damage = 16, .speed = fx.ratio(8, 10), .ttl = 10, .pellets = 6, .spread = 4200, .jitter = 300, .explosive = false, .pickup_ammo = 12, .max_ammo = 40 },
+    // Rocket launcher: slow rocket, explodes on contact or at the end.
+    .{ .cooldown = 36, .damage = 0, .speed = fx.ratio(4, 10), .ttl = 70, .pellets = 1, .spread = 0, .jitter = 0, .explosive = true, .pickup_ammo = 4, .max_ammo = 12 },
+};
+
+/// Explosions: full damage out to `explosion_core`, falling to zero at the
+/// radius (larger for a car), and a push away from the centre.
+pub const explosion_radius = fx.ratio(2, 1);
+pub const car_explosion_radius = fx.ratio(25, 10);
+pub const explosion_core = fx.ratio(9, 10);
+pub const explosion_damage: i32 = 300;
+pub const explosion_push = fx.ratio(25, 100);
+
+// --- Pickups -----------------------------------------------------------------
+
+/// Pickups on the map: this many, plus `pickups_per_player` per active
+/// player, placed on pavement near a random player.
+pub const pickups_base: u32 = 2;
+pub const pickups_per_player: u32 = 2;
+pub const pickup_near_radius: i32 = 14;
+pub const pickup_near_min: i32 = 3;
+/// A pickup nobody takes disappears after this many ticks (60 s).
+pub const pickup_life: u16 = 1800;
+pub const pickup_reach = fx.ratio(6, 10);
+pub const health_pickup_hp: i32 = 50;
+/// Odds of each pickup kind, out of 100: machine gun, shotgun, rockets, health.
+pub const pickup_odds = [pickup_kinds]u32{ 0, 35, 25, 15, 25 };
+
+// --- Cars on fire -----------------------------------------------------------
+
+/// Below this much health a car catches fire, then loses `burn_rate` a tick
+/// until it explodes (about 3 s from catching).
+pub const car_burn_hp: i32 = 100;
+pub const car_burn_rate: i32 = 1;
+/// A burnt-out wreck stays for this many ticks (10 s).
+pub const wreck_ticks: u16 = 300;
+/// `Appearance.remap` of a burnt-out wreck (a dark palette in the style).
+pub const wreck_remap: u16 = 0;
+
+// --- Traffic -----------------------------------------------------------------
+
+/// Of the ambient cars, this many in 8 drive (the rest are parked).
+pub const traffic_8ths: u32 = 5;
+pub const traffic_speed = fx.ratio(17, 100); // about 5 blocks per second
+/// The look-ahead box for braking: from the car's centre, this far along the
+/// lane and this far either side of it.
+pub const traffic_look = fx.ratio(19, 10);
+pub const traffic_look_side = fx.ratio(55, 100);
+/// Ticks without moving (and nothing in the way) before backing out, and
+/// ticks spent backing out.
+pub const traffic_stuck_ticks: u16 = 45;
+pub const traffic_reverse_ticks: u16 = 25;
+
+// --- Ambient population near players ---------------------------------------
+
+/// Ambient cars and peds this far (blocks, Chebyshev) from every player are
+/// moved: despawned and replaced between `ambient_near_min` and
+/// `ambient_near_radius` blocks of a random player.
+pub const ambient_far: i32 = 36;
+pub const ambient_near_radius: i32 = 26;
+pub const ambient_near_min: i32 = 14;
+/// At most this many are moved per tick.
+pub const ambient_moves_per_tick: u32 = 2;
+
+// --- Scoring -----------------------------------------------------------------
+
+/// First to this many kills wins the round; scores then reset.
+pub const frag_limit: i32 = 10;
 
 // --- Health and respawn ---------------------------------------------------
 

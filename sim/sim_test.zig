@@ -446,3 +446,162 @@ test "players joining in the same tick spawn near the first of them" {
         try std.testing.expect(d <= T.spawn_near_radius and d >= T.spawn_near_min);
     }
 }
+
+fn hasEvent(evs: anytype, kind: anytype) bool {
+    for (evs) |e| if (e.kind == kind) return true;
+    return false;
+}
+
+test "pickups give weapons; the machine gun runs dry back to the pistol" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 36, 40);
+    const ped = h.sim.pedOf(0).?;
+    const wpn = h.sim.state.world.get(ped, c.Weapon).?;
+    try std.testing.expectEqual(T.weapon_pistol, wpn.kind);
+    // weapon_next with only the pistol keeps the pistol.
+    h.tap(0, Button.weapon_next);
+    try std.testing.expectEqual(T.weapon_pistol, wpn.kind);
+    const t = h.ped(0).*;
+    _ = h.sim.spawnPickupAt(t.x, t.y, T.weapon_smg).?;
+    h.run(1);
+    try std.testing.expect(hasEvent(h.sim.events(), .pickup));
+    try std.testing.expectEqual(T.weapon_smg, wpn.kind);
+    try std.testing.expectEqual(T.weapons[T.weapon_smg].pickup_ammo, wpn.rounds()[T.weapon_smg]);
+    try std.testing.expectEqual(@as(u32, 0), h.sim.state.world.count(S.Pickup));
+    // Cycling goes to the pistol and back.
+    h.tap(0, Button.weapon_next);
+    try std.testing.expectEqual(T.weapon_pistol, wpn.kind);
+    h.tap(0, Button.weapon_prev);
+    try std.testing.expectEqual(T.weapon_smg, wpn.kind);
+    // Empty the machine gun (into the building next door).
+    h.frames[0].buttons = Button.fire;
+    h.run(@as(u32, T.weapons[T.weapon_smg].cooldown) * T.weapons[T.weapon_smg].pickup_ammo + 10);
+    h.frames[0].buttons = 0;
+    try std.testing.expectEqual(@as(u16, 0), wpn.rounds()[T.weapon_smg]);
+    try std.testing.expectEqual(T.weapon_pistol, wpn.kind);
+    // A health pack is left when not needed.
+    _ = h.sim.spawnPickupAt(t.x, t.y, T.pickup_health).?;
+    h.run(1);
+    try std.testing.expectEqual(@as(u32, 1), h.sim.state.world.count(S.Pickup));
+}
+
+test "a rocket kills another player and credits the shooter; your own costs a point" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 33, 60);
+    h.join(1, 33, 66);
+    const w = &h.sim.state.world;
+    const ped0 = h.sim.pedOf(0).?;
+    h.ped(0).heading = 16384; // down the road toward slot 1
+    const wpn = w.get(ped0, c.Weapon).?;
+    wpn.rounds()[T.weapon_rocket] = 4;
+    wpn.kind = T.weapon_rocket;
+    h.frames[0].buttons = Button.fire;
+    h.run(1);
+    h.frames[0].buttons = 0;
+    var saw_kill = false;
+    for (0..40) |_| {
+        h.run(1);
+        for (h.sim.events()) |e| {
+            if (e.kind == .kill) {
+                try std.testing.expectEqual(@as(u8, 0), e.a);
+                try std.testing.expectEqual(@as(u8, 1), e.b);
+                try std.testing.expectEqual(T.weapon_rocket, e.c);
+                saw_kill = true;
+            }
+        }
+    }
+    try std.testing.expect(saw_kill);
+    try std.testing.expect(h.sim.scratch.stats.explosions >= 1);
+    try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].kills);
+    try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].score);
+    try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[1].deaths);
+    // Now point-blank at a building wall: the blast kills the shooter.
+    const t0 = h.ped(0);
+    t0.x = blk(36);
+    t0.y = blk(41);
+    t0.heading = 0; // +x: building wall at x = 38
+    h.frames[0].buttons = Button.fire;
+    h.run(1);
+    h.frames[0].buttons = 0;
+    for (0..10) |_| {
+        h.run(1);
+    }
+    try std.testing.expect(h.sim.pedOf(0) == null);
+    try std.testing.expectEqual(@as(i32, 0), h.sim.state.players[0].score);
+    try std.testing.expectEqual(@as(i32, 1), h.sim.state.players[0].kills);
+}
+
+test "a shot-up car catches fire, explodes and burns out" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 33, 62);
+    const car = h.sim.spawnCarAt(blk(33), fx.fromInt(60) + fx.ratio(3, 10), 0, 0).?;
+    const w = &h.sim.state.world;
+    w.get(car, c.Health).?.hp = T.car_burn_hp - 10;
+    h.run(1);
+    try std.testing.expect(w.get(car, c.Vehicle).?.flags & c.Vehicle.flag_burning != 0);
+    h.run(@intCast(T.car_burn_hp));
+    const v = w.get(car, c.Vehicle).?;
+    try std.testing.expect(v.flags & c.Vehicle.flag_wrecked != 0);
+    try std.testing.expectEqual(@as(u64, 1), h.sim.scratch.stats.explosions);
+    // The player beside it was hurt but lives; the wreck cannot be entered.
+    const ped = h.sim.pedOf(0).?;
+    try std.testing.expect(w.get(ped, c.Health).?.hp < T.ped_hp);
+    h.ped(0).y = blk(61);
+    h.tap(0, Button.enter_exit);
+    try std.testing.expect(w.get(ped, c.Riding).?.vehicle.isNone());
+    h.run(T.wreck_ticks + 2);
+    try std.testing.expect(!w.isAlive(car));
+}
+
+test "traffic follows its lane and brakes for a ped in the road" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    // The +x lane of the road along y = 32..35 is y = 34..35.
+    const car = h.sim.spawnCarAt(blk(37), blk(34), 0, 0).?;
+    const w = &h.sim.state.world;
+    const v = w.get(car, c.Vehicle).?;
+    v.flags = c.Vehicle.flag_ai;
+    v.ai_dir = 0;
+    h.run(75);
+    const t = h.sim.transformOf(car).?;
+    try std.testing.expect(t.x > blk(44));
+    try std.testing.expect(fx.abs(t.y - blk(34)) < fx.half);
+    // A ped steps out ahead: the car stops short of them.
+    h.join(0, @intCast(fx.toInt(t.x) + 4), 34);
+    const ped = h.sim.pedOf(0).?;
+    h.run(60);
+    try std.testing.expectEqual(T.ped_hp, w.get(ped, c.Health).?.hp);
+    try std.testing.expect(fx.length(w.get(car, c.Velocity).?.vx, w.get(car, c.Velocity).?.vy) < fx.ratio(1, 100));
+    // Standing next to the stopped car, the player can take it.
+    h.ped(0).* = .{ .x = h.sim.transformOf(car).?.x, .y = blk(33), .z = h.ped(0).z, .heading = 0 };
+    h.tap(0, Button.enter_exit);
+    try std.testing.expect(eql(w.get(ped, c.Riding).?.vehicle, car));
+    try std.testing.expect(v.flags & c.Vehicle.flag_ai == 0);
+}
+
+const eql = simmod.ecs.eql;
+
+test "first to the frag limit ends the round and every score resets" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 36, 40);
+    h.join(1, 36, 44);
+    const pl = &h.sim.state.players;
+    pl[0].kills = T.frag_limit - 1;
+    pl[0].score = T.frag_limit - 1;
+    pl[1].deaths = 3;
+    const w = &h.sim.state.world;
+    const victim = w.get(h.sim.pedOf(1).?, c.Health).?;
+    victim.hp = 0;
+    victim.last_hit_by = h.sim.pedOf(0).?;
+    h.run(1);
+    try std.testing.expect(hasEvent(h.sim.events(), .round_end));
+    try std.testing.expect(hasEvent(h.sim.events(), .kill));
+    try std.testing.expectEqual(@as(i32, 0), pl[0].score);
+    try std.testing.expectEqual(@as(i32, 0), pl[0].kills);
+    // The victim's death is counted after the reset.
+    try std.testing.expectEqual(@as(i32, 1), pl[1].deaths);
+}

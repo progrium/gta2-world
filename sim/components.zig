@@ -40,9 +40,26 @@ pub const Vehicle = extern struct {
     /// Front wheel position, -127..127. Follows `steer` through a ramp.
     steer: i8,
     flags: u8,
+    /// Wrecked: ticks until the wreck is cleared. Traffic: ticks stuck, or
+    /// `reverse_base` + ticks left of backing out.
+    timer: u16,
+    /// Traffic: lane direction, 0 +x, 1 +y, 2 -x, 3 -y.
+    ai_dir: u8,
+    /// Traffic: bits 0-1 the plan at the next junction (0 straight, 1 left,
+    /// 2 right), bit 7 set while in a junction.
+    ai_plan: u8,
 
     pub const flag_horn: u8 = 1;
     pub const flag_handbrake: u8 = 2;
+    /// Driven by the traffic AI (no ped inside).
+    pub const flag_ai: u8 = 4;
+    /// On fire: loses health every tick until it explodes.
+    pub const flag_burning: u8 = 8;
+    /// Burnt out: cannot be driven or entered.
+    pub const flag_wrecked: u8 = 16;
+
+    pub const reverse_base: u16 = 1000;
+    pub const plan_in_junction: u8 = 0x80;
 };
 
 pub const Pedestrian = extern struct {
@@ -63,11 +80,28 @@ pub const Pedestrian = extern struct {
     pub const anim_jump: u8 = 3;
 };
 
+/// On a ped: the weapon in hand and the rounds held for each weapon. On a
+/// pickup: what it gives (`kind`, `ammo[0]` rounds) and `cooldown` is the
+/// ticks left before it disappears.
 pub const Weapon = extern struct {
     pub const id = abi.ComponentId.weapon;
     cooldown: u16,
-    kind: u16,
-    ammo: u32,
+    /// Index into `tuning.weapons`, or `tuning.pickup_health` on a pickup.
+    kind: u8,
+    _pad: u8 = 0,
+    /// Rounds per weapon (`rounds()`); `tuning.infinite_ammo` never runs
+    /// out. Separate fields because the I3 codecs take scalars only.
+    a0: u16,
+    a1: u16,
+    a2: u16,
+    a3: u16,
+
+    pub fn rounds(self: *Weapon) *[4]u16 {
+        return @ptrCast(&self.a0);
+    }
+    pub fn roundsConst(self: *const Weapon) *const [4]u16 {
+        return @ptrCast(&self.a0);
+    }
 };
 
 /// What to draw: I1 component 12, accepted 2026-11-20. The layout is frozen
@@ -82,4 +116,8 @@ pub const Projectile = extern struct {
     owner: EntityId,
     ttl: u16,
     damage: u16,
+    /// Index into `tuning.weapons` of the weapon that fired it.
+    weapon: u8,
+    _pad: u8 = 0,
+    _pad2: u16 = 0,
 };
