@@ -18,3 +18,5 @@ cd formats && zig build test   # Zig 0.17.0
 ## Collision grid for the sim
 
 `grid.zig` builds the I1 `abi.Grid` (16-bit cells) from a parsed map with `grid.build(&map, &grid)`, and a per-face wall table with `grid.buildWalls(&map, &walls)` (one byte per cell: wall bits for the left, right, top and bottom faces, then bullet-wall bits). The mapping from GTA2 blocks to I1 cells is documented at the top of `grid.zig`. `formats` depends on `interfaces/zig` by path for the `abi` types.
+
+`synth.zig` can also write sprites (SPRG, SPRX, SPRB), car remap palettes and map lights (LGHT), for the renderer's synthetic demo.
