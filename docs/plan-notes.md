@@ -230,9 +230,9 @@ wave 3   first level end to end: Q's level runner passes the opening missions; J
 - **Merges** go through Q's merge train in this order where several are ready: C, G, B, F, D1, A1, D2, E, A2, H. Systems before the script layer, so A2's stubs turn into real calls as each lands.
 - **Done for a workstream** means: its coverage files have no "stubbed" rows except ones blocked on a missing note, its tests pass in all three optimize modes, the golden and `sp` goldens pass after Q's merge, and Q's level runner shows no new invariant breaks.
 
-**Decision for Jeff: golden replay policy.** Almost every workstream changes the state layout or gameplay, so the `dm16` golden hash changes with each merge. Options:
+**Decided by Jeff (2026-11-20): option 1, blanket re-record approval.** Golden replay policy: Almost every workstream changes the state layout or gameplay, so the `dm16` golden hash changes with each merge. Options:
 
-1. **Recommended:** a blanket approval for re-records that come from this plan, made only by Q's merge train, each with the behaviour-diff report committed beside it. Interface changes that break compatibility (I1 frozen types, I3 wire) still come to you one by one.
+1. **Chosen:** a blanket approval for re-records that come from this plan, made only by Q's merge train, each with the behaviour-diff report committed beside it. Interface changes that break compatibility (I1 frozen types, I3 wire) still come to you one by one.
 2. Freeze `dm16`: new state and behaviour only in `sp` (comptime-gated), so the `dm16` golden never changes. Safer for online later, but shared fixes (fall damage, water, getting in cars) would then need two code paths.
 
 Choices made in this plan that you can overturn:

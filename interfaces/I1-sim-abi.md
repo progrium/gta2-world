@@ -163,3 +163,7 @@ S5's lane snapping needs the arrows, and traction needs the ground type. S2's on
 3. **`PlayerRow` meanings:** `kills` holds frags and `score` holds points. Same layout.
 
 From here on, small additive interface changes are approved within the project and recorded in this section; changes that break compatibility or change the golden replay still go to Jeff.
+
+**2026-11-20, approved by Jeff (notes plan, `docs/plan-notes.md`).**
+
+1. **Golden replay re-records:** re-recording the `dm16` golden for changes made under the notes plan is approved in advance, on two conditions: only the QA merge train re-records it, and each re-record commits a report of what changed in play next to the new recording. Changes that break compatibility (frozen I1 types, the I3 wire format) still go to Jeff one by one.
