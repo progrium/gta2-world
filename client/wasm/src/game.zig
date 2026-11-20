@@ -458,7 +458,51 @@ const spr = struct {
     /// Thrown grenade and molotov in flight: the pickup's first frame.
     const grenade: u16 = 58;
     const molotov: u16 = 50;
+
+    /// Ped frames within the ped group, picked by eye from the style: 8-frame
+    /// walk and run cycles, the same holding a gun, a 12-frame idle, an
+    /// 8-frame jump, aiming while standing, lying knocked down, and the
+    /// electrocuted skeleton.
+    const ped_walk: u16 = 0;
+    const ped_run: u16 = 8;
+    const ped_walk_gun: u16 = 37;
+    const ped_run_gun: u16 = 45;
+    const ped_idle: u16 = 53;
+    const ped_idle_frames: u16 = 12;
+    const ped_jump: u16 = 65;
+    const ped_aim: u16 = 139;
+    const ped_aim_frames: u16 = 4;
+    const ped_fall: u16 = 81;
+    const ped_down: u16 = 89;
+    const ped_shocked: u16 = 152;
+    const ped_shocked_frames: u16 = 4;
+    const ped_cycle: u16 = 8;
 };
+
+/// The frame of the ped group to draw for ped `p` holding `wp`; `t` counts
+/// 70 ms steps, offset per ped so crowds do not step in time.
+fn pedFrame(p: sim.c.Pedestrian, wp: ?sim.c.Weapon, t: u16) u16 {
+    const P = sim.c.Pedestrian;
+    if (p.shock >= sim.tuning.shock_threshold / 2) return spr.ped_shocked + t % spr.ped_shocked_frames;
+    if (p.state != P.state_up or p.anim == P.anim_down) {
+        // Thrown: falling back; at rest: lying.
+        return if (p.down == 0) spr.ped_fall + @min(t % 16, spr.ped_cycle - 1) else spr.ped_down;
+    }
+    var armed = false;
+    var firing = false;
+    if (wp) |w0| {
+        var w = w0;
+        const r = w.rounds()[@min(w.kind, sim.tuning.weapon_count - 1)];
+        armed = r > 0;
+        firing = armed and w.cooldown > 0;
+    }
+    return switch (p.anim) {
+        P.anim_walk => (if (armed) spr.ped_walk_gun else spr.ped_walk) + t % spr.ped_cycle,
+        P.anim_run => (if (armed) spr.ped_run_gun else spr.ped_run) + t % spr.ped_cycle,
+        P.anim_jump => spr.ped_jump + @min(t % 16, spr.ped_cycle - 1),
+        else => if (firing) spr.ped_aim + t % spr.ped_aim_frames else if (armed) spr.ped_aim else spr.ped_idle + (t / 3) % spr.ped_idle_frames,
+    };
+}
 
 /// `Instance.kind` marking an instance `decorate` drops.
 const hidden_kind = 0xFF;
@@ -508,6 +552,7 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
     const pick_col = columnOf(.pickup, .appearance);
     const veh_col = columnOf(.car, .vehicle);
     const ped_col = columnOf(.ped, .pedestrian);
+    const wpn_col = columnOf(.ped, .weapon);
     for (instances[0..n_in]) |*in| {
         switch (in.kind) {
             @intFromEnum(abi.Kind.projectile) => {
@@ -541,6 +586,8 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
             },
             @intFromEnum(abi.Kind.ped) => {
                 const p = readAt(sim.c.Pedestrian, state, ped_col orelse continue, in.index) orelse continue;
+                const wp = if (wpn_col) |wc| readAt(sim.c.Weapon, state, wc, in.index) else null;
+                in.sprite +%= pedFrame(p, wp, frame16 +% in.index *% 3);
                 if (p.burn > 0 and n < instances.len) {
                     instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
                     n += 1;
