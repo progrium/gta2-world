@@ -96,3 +96,27 @@ button.link { border: 0; background: none; padding: 0 2px; color: var(--accent);
 .hostbar .peers li { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
 .joinfile progress { flex: 1; min-width: 120px; }
 .status-line.bad { color: var(--bad); }
+
+/* Single-player HUD (src/ui/spHud.ts). Layout and colours are ours until the HUD note lands. */
+.sp-hud { position: absolute; inset: 0; pointer-events: none; color: #f5f5f5; font: 700 16px/1.25 system-ui, sans-serif; text-shadow: 0 2px 0 #000, 0 0 4px #000; }
+.sp-hud .hidden { display: none; }
+.sp-top { position: absolute; right: 14px; top: 10px; display: flex; gap: 12px; align-items: baseline; }
+.sp-points { font: 800 26px/1 ui-monospace, monospace; color: #ffd54f; }
+.sp-mult { font-size: 20px; color: #7cf; }
+.sp-lives { font-size: 15px; }
+.sp-stars { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); display: flex; gap: 4px; font-size: 24px; }
+.sp-stars span { color: rgba(255,255,255,.18); }
+.sp-stars span.on { color: #5aa0ff; animation: sp-blink .6s steps(2) infinite; }
+@keyframes sp-blink { 50% { color: #ff4a4a; } }
+.sp-banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); max-width: calc(100% - 32px); text-align: center; font-size: 26px; text-transform: uppercase; color: #fff; }
+.sp-banner em, .sp-brief em { font-style: normal; color: #ffd54f; }
+.sp-brief { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 10px; align-items: flex-start; max-width: min(520px, calc(100% - 24px)); padding: 8px 12px; border-radius: 8px; background: rgba(0,0,0,.62); font-size: 15px; font-weight: 600; }
+.sp-portrait { flex: 0 0 40px; height: 40px; border-radius: 6px; display: grid; place-items: center; font-size: 20px; color: #111; text-shadow: none; }
+.sp-pager { position: absolute; left: 12px; top: 10px; padding: 4px 12px; border-radius: 6px; background: #2c3a26; color: #c9f28a; font: 700 22px/1.2 ui-monospace, monospace; text-shadow: none; border: 2px solid #11180e; }
+.sp-pager.flash { color: #ff6a4a; }
+.sp-arrow { position: absolute; left: 50%; top: 50%; font-size: 30px; color: #ffd54f; transform-origin: 50% 50%; }
+.sp-centre { position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); font: 900 clamp(32px, 9vw, 72px)/1 system-ui, sans-serif; letter-spacing: .04em; color: #e8e8e8; white-space: nowrap; }
+.sp-centre.wasted { color: #e2312a; }
+.sp-centre.busted { color: #4a8cff; }
+.sp-centre.done { color: #ffd54f; }
+.map.bonus strong::after { content: " ★"; color: var(--accent); }

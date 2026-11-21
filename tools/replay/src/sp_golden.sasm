@@ -1,0 +1,55 @@
+# The single-player golden's script (tools/replay/golden-sp). Hand-written
+# scrasm (formats/scr.zig), no game data. Runs on the synthetic test map:
+# open fields below block 32, the city grid from 32 to 224.
+#
+# Positions are script fixed point (14 fraction bits): block b's centre is
+# b * 16384 + 8192; 4177920 (255.0) is "on the ground".
+#
+# What it exercises: declarations (player, phone, parked car, an area
+# trigger, a display slot), a second thread, a ringing phone, the player
+# walking into the trigger area next to it, a mission sub-script (timer, a mission car, an armed character, wanted
+# stars, score), the main thread waiting on a counter, then clearing the
+# wanted level and killing the mission's character.
+
+.string 30 mission golden_m1.mis
+
+.main
+1 counter 0             # heartbeat, counted by the second thread
+2 counter 0             # missions passed
+3 counter 0             # main thread's stage
+5 player_ped 0 0 L:335872 L:335872 L:4177920 90 0          # player at (20, 20)
+6 16 0 0 L:434176 L:335872 L:4177920 178 0                 # phone (model 178) at (26, 20)
+7 10 0 0 L:368640 L:401408 L:4177920 90 0 0 0xFFFF         # parked car at (22, 24)
+8 214 0 0 0 40 L:434176 L:335872 L:16384 L:32768 L:32768 5   # on foot in a 2x2 area at (26, 20): start 40
+9 display_decl
+20 level_start
+21 start_thread 31 30
+22 168 6 0 0            # ring the phone for anyone, no timeout
+23 set 3 1
+24 eq 2 1               # mission passed?
+25 if 0 27
+26 set 3 2 -> 28
+27 wait 30 -> 24
+28 wait 900
+29 163 5 -> 33          # clear the wanted level
+30 thread_decl
+31 inc 1
+32 wait 60 -> 31
+33 371 60               # kill the mission's character
+34 set 3 3 -> end
+40 label
+41 mission 30 -> end
+
+.mission golden_m1 100 101
+100 counter 0
+101 mission_begin
+102 timer 9 20          # 600 ticks on the clock
+103 44 50 0 L:499712 L:434176 L:4177920 90 0 0 0xFFFF      # mission car at (30, 26) into 50
+104 42 60 0 L:499712 L:499712 L:4177920 0 0 18             # character at (30, 30) into 60
+105 138 60 6            # armed with a shotgun
+106 wait 600
+107 164 5 3             # three wanted stars
+108 inc 2
+109 392 5 0 L:1000      # score
+110 timer_clear 9
+111 mission_end

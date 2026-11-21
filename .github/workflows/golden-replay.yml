@@ -5,11 +5,17 @@ name: Golden replay
 # hashes identically every tick on native and on WASM, in every build mode.
 
 on:
+  # Only the shared branches and pull requests. Workstream branches run
+  # tools/merge-check.sh (or their own tests) locally before handing over;
+  # the QA merge train re-runs everything on the integration branch.
   push:
+    branches: [main, claude/project-thread-6bbchu]
     paths:
       - 'sim/**'
       - 'interfaces/**'
       - 'tools/replay/**'
+      - 'formats/**'
+      - 'tools/level/src/autopilot.zig'
       - 'tools/check-no-floats.sh'
       - '.github/workflows/golden-replay.yml'
   pull_request:
@@ -17,6 +23,8 @@ on:
       - 'sim/**'
       - 'interfaces/**'
       - 'tools/replay/**'
+      - 'formats/**'
+      - 'tools/level/src/autopilot.zig'
       - 'tools/check-no-floats.sh'
       - '.github/workflows/golden-replay.yml'
   workflow_dispatch:
@@ -71,6 +79,26 @@ jobs:
         working-directory: tools/replay
         run: ./zig-out/bin/replay verify golden
 
+      - name: Single-player golden (script, hashes, rewinds, play summary)
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay sp-verify golden-sp
+
+      - name: Invariant checker self-test
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay selftest
+
+      - name: Golden play statistics and invariants match golden/stats.txt
+        working-directory: tools/replay
+        run: |
+          ./zig-out/bin/replay stats golden 2>&1 | tee stats.out
+          grep -q '^invariants: .* 0 breaks$' stats.out
+          sed -n '/^ticks /,/^final_peds /p' stats.out > stats.now
+          diff -u golden/stats.txt stats.now
+
+      - name: Soak (16 players, half random input, invariants every tick)
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay soak 100000
+
       - name: Native 200-player bot run
         id: native200
         working-directory: tools/replay
@@ -84,3 +112,7 @@ jobs:
       - name: WASM replay vs recorded hashes, and 200-player hash vs native
         working-directory: tools/replay
         run: node verify-wasm.mjs zig-out/bin/replay.wasm golden ${{ steps.native200.outputs.hash }}
+
+      - name: WASM single-player golden vs recorded hashes
+        working-directory: tools/replay
+        run: node verify-wasm.mjs zig-out/bin/replay.wasm golden-sp

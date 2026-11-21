@@ -13,7 +13,7 @@ import "./net/signal-ws.ts";
 import { sessionIdFromUrl } from "./session.ts";
 import { gameScreen } from "./ui/gameScreen.ts";
 import { hostPanel, hostScreen } from "./ui/hostScreen.ts";
-import { importScreen } from "./ui/importScreen.ts";
+import { importScreen, levelKey } from "./ui/importScreen.ts";
 import { joinScreen } from "./ui/joinScreen.ts";
 
 const LAST_MAP = "gta2.lastMap";
@@ -44,7 +44,7 @@ function showImport(): void {
 
 function showGame(map: MapChoice): void {
   try {
-    localStorage.setItem(LAST_MAP, map.mmp ?? map.gmp);
+    localStorage.setItem(LAST_MAP, levelKey(map));
   } catch {
     /* ignore */
   }
@@ -108,9 +108,9 @@ async function boot(autoStart = true): Promise<void> {
   }
   const join = parseJoinHash(location.hash);
   if (join) return showJoin(join.room, join.mapHash12);
-  const maps = store.maps();
+  const maps = [...store.levels(), ...store.maps()];
   const want = lastMap();
-  const m = maps.find((x) => (x.mmp ?? x.gmp) === want);
+  const m = maps.find((x) => levelKey(x) === want);
   if (m && autoStart) showGame(m);
   else showImport();
 }

@@ -11,9 +11,27 @@
 //!   replay hash200                final hash of a 10,000-tick 200-bot run
 //!   replay handling               measure the default car and the ped
 //!                                 (top speed, 0-to-speed, braking, turning)
+//!   replay stats <dir> [--write]  replay inputs.bin with the invariant checker
+//!                                 and print play statistics (kills, wrecks,
+//!                                 distance driven, ...); --write saves them to
+//!                                 <dir>/stats.txt
+//!   replay rerecord <dir> [ticks] record, then write <dir>/stats.txt and
+//!                                 <dir>/REPORT.md: what changed in play terms
+//!                                 against the stats.txt that was there
+//!   replay selftest               plant one break of each kind the checker
+//!                                 can see and check that it reports them
+//!   replay sp-record <dir>        record the single-player golden (golden-sp):
+//!                                 the sp config running src/sp_golden.sasm
+//!   replay sp-verify <dir>        replay it: hashes every tick, rewinds,
+//!                                 invariants, and the play summary
+//!   replay soak [ticks] [seed]    16 players, half bots and half random input,
+//!                                 invariants every tick and a save/load check
+//!                                 every 1000 ticks; exits nonzero on a break
 
 const std = @import("std");
 const common = @import("common.zig");
+const qa = @import("qa.zig");
+const sp_native = @import("sp_native.zig");
 const sim = common.sim;
 const abi = sim.abi;
 const Frame = sim.input.Frame;
@@ -33,7 +51,7 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const args = try init.minimal.args.toSlice(init.arena.allocator());
     if (args.len < 2) {
-        print("usage: replay record <dir> [ticks] | verify <dir> | bench16|bench200 [ticks] | hash200\n", .{});
+        print("usage: replay record <dir> [ticks] | verify <dir> | bench16|bench200 [ticks] | hash200 | handling | stats <dir> [--write] | rerecord <dir> [ticks] | soak [ticks] [seed]\n", .{});
         return;
     }
     sim.testmap.build(&grid);
@@ -52,6 +70,22 @@ pub fn main(init: std.process.Init) !void {
         try bench(common.Sim200, &sim200, io, init.gpa, 200, ticks);
     } else if (std.mem.eql(u8, cmd, "hash200")) {
         print("200-player 10000-tick final hash {x:0>16}\n", .{botRun(common.Sim200, &sim200, 200, 10000)});
+    } else if (std.mem.eql(u8, cmd, "stats")) {
+        const write = args.len > 3 and std.mem.eql(u8, args[3], "--write");
+        try statsCmd(io, init.gpa, args[2], write);
+    } else if (std.mem.eql(u8, cmd, "rerecord")) {
+        const ticks = if (args.len > 3) try std.fmt.parseInt(u32, args[3], 10) else 10000;
+        try rerecord(io, init.gpa, args[2], ticks);
+    } else if (std.mem.eql(u8, cmd, "soak")) {
+        const ticks = if (args.len > 2) try std.fmt.parseInt(u32, args[2], 10) else 100_000;
+        const seed = if (args.len > 3) try std.fmt.parseInt(u32, args[3], 0) else 0x50A4;
+        if (!try soak(ticks, seed)) std.process.exit(1);
+    } else if (std.mem.eql(u8, cmd, "sp-record")) {
+        try sp_native.record(io, init.gpa, &grid, args[2]);
+    } else if (std.mem.eql(u8, cmd, "sp-verify")) {
+        if (!try sp_native.verify(io, init.gpa, &grid, args[2])) std.process.exit(1);
+    } else if (std.mem.eql(u8, cmd, "selftest")) {
+        if (!selftest()) std.process.exit(1);
     } else if (std.mem.eql(u8, cmd, "handling")) {
         handling();
     } else print("unknown command {s}\n", .{cmd});
@@ -313,4 +347,242 @@ fn bench(comptime S: type, s: *S, io: std.Io, gpa: std.mem.Allocator, comptime p
 
 fn ms(ns: i64) f64 {
     return @as(f64, @floatFromInt(ns)) / 1e6;
+}
+
+fn readDirFile(io: std.Io, gpa: std.mem.Allocator, dir: []const u8, name: []const u8) ![]u8 {
+    var path_buf: [512]u8 = undefined;
+    return std.Io.Dir.cwd().readFileAlloc(io, try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir, name }), gpa, .unlimited);
+}
+
+fn writeDirFile(io: std.Io, dir: []const u8, name: []const u8, data: []const u8) !void {
+    var path_buf: [512]u8 = undefined;
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir, name }), .data = data });
+}
+
+const Check16 = qa.Checker(common.Sim16);
+var check16: Check16 = .{};
+
+/// Replay a recording with the invariant checker and the play statistics.
+fn replayStats(io: std.Io, gpa: std.mem.Allocator, dir: []const u8, ps: *qa.PlayStats) !u64 {
+    const S = common.Sim16;
+    const s = &sim16;
+    const in_bytes = try readDirFile(io, gpa, dir, "inputs.bin");
+    defer gpa.free(in_bytes);
+    const hdr = try common.Header.read(in_bytes);
+    if (hdr.grid_hash != sim.map.gridHash(&grid)) return error.Mismatch;
+    s.init(&grid, .{ .seed = hdr.seed, .mode = .authoritative });
+    check16 = .{};
+    var tr: qa.PlayStats.Tracker(S) = .{};
+    var frames: [S.config.max_players]Frame = @splat(Frame.neutral(0));
+    var cbuf: [64]abi.Command = undefined;
+    var pos: usize = common.header_size;
+    var t: u32 = 0;
+    while (t < hdr.ticks) : (t += 1) {
+        const r = try common.readTick(in_bytes, pos, hdr.players, &cbuf, &frames);
+        pos = r.next;
+        s.step(&frames, r.cmds);
+        check16.check(s);
+        tr.after(ps, s);
+    }
+    tr.finish(ps, s);
+    return s.hash();
+}
+
+fn statsCmd(io: std.Io, gpa: std.mem.Allocator, dir: []const u8, write: bool) !void {
+    var ps: qa.PlayStats = .{};
+    const h = try replayStats(io, gpa, dir, &ps);
+    var buf: [4096]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try ps.write(&w);
+    print("final {x:0>16}\n{s}", .{ h, w.buffered() });
+    var rb: [8192]u8 = undefined;
+    var rw: std.Io.Writer = .fixed(&rb);
+    try check16.report(&rw);
+    print("{s}", .{rw.buffered()});
+    if (write) try writeDirFile(io, dir, "stats.txt", w.buffered());
+}
+
+/// Record a new golden, then write stats.txt and REPORT.md (old vs new in
+/// play terms). The report is what gets reviewed with the re-record.
+fn rerecord(io: std.Io, gpa: std.mem.Allocator, dir: []const u8, ticks: u32) !void {
+    const old_text = readDirFile(io, gpa, dir, "stats.txt") catch try gpa.dupe(u8, "");
+    defer gpa.free(old_text);
+    const old = qa.PlayStats.parse(old_text);
+    const old_hashes = readDirFile(io, gpa, dir, "hashes.bin") catch try gpa.dupe(u8, "");
+    defer gpa.free(old_hashes);
+    var old_final: ?u64 = null;
+    if (old_hashes.len >= 8) old_final = std.mem.readInt(u64, old_hashes[old_hashes.len - 8 ..][0..8], .little);
+
+    try record(io, gpa, dir, ticks);
+    var ps: qa.PlayStats = .{};
+    const h = try replayStats(io, gpa, dir, &ps);
+
+    var sb: [4096]u8 = undefined;
+    var sw: std.Io.Writer = .fixed(&sb);
+    try ps.write(&sw);
+    try writeDirFile(io, dir, "stats.txt", sw.buffered());
+
+    var rb: [32768]u8 = undefined;
+    var rw: std.Io.Writer = .fixed(&rb);
+    try rw.print("# Golden re-record report\n\n", .{});
+    try rw.print("Written by `replay rerecord` (tools/replay). Compare with the previous `stats.txt` in git history; the commit that changes the golden explains why.\n\n", .{});
+    if (old_final) |o| try rw.print("- final hash before: `{x:0>16}`\n", .{o});
+    try rw.print("- final hash after: `{x:0>16}`\n", .{h});
+    try rw.print("- state size: {d} bytes, layout hash `{x:0>16}`\n", .{ common.Sim16.state_size, common.Sim16.layout_hash });
+    try rw.print("- invariant breaks in the new recording: {d}\n\n", .{check16.total()});
+    try qa.PlayStats.diff(&rw, old, ps.values());
+    try rw.print("\n```\n", .{});
+    try check16.report(&rw);
+    try rw.print("```\n", .{});
+    try writeDirFile(io, dir, "REPORT.md", rw.buffered());
+    print("{s}", .{rw.buffered()});
+}
+
+/// Random input for one player slot: holds a random control set for a
+/// random number of ticks.
+const Chaos = struct {
+    rng: u32,
+    hold: u32 = 0,
+    f: Frame = Frame.neutral(0),
+
+    fn next(ch: *Chaos) u32 {
+        var x = ch.rng;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        ch.rng = x;
+        return x;
+    }
+
+    fn frame(ch: *Chaos, tick: u32) Frame {
+        if (ch.hold == 0) {
+            const r = ch.next();
+            ch.hold = 1 + (r & 63);
+            const r2 = ch.next();
+            ch.f = .{
+                .steer = @bitCast(@as(u8, @truncate(r2))),
+                .throttle = @bitCast(@as(u8, @truncate(r2 >> 8))),
+                .buttons = @truncate(ch.next() & 0x3FF),
+                .aim = @truncate(r2 >> 16),
+                .seq = 0,
+            };
+        }
+        ch.hold -= 1;
+        var f = ch.f;
+        f.seq = @truncate(tick);
+        return f.sanitize();
+    }
+};
+
+fn soak(ticks: u32, seed: u32) !bool {
+    const S = common.Sim16;
+    const players = 16;
+    const s = &sim16;
+    s.init(&grid, .{ .seed = seed, .mode = .authoritative });
+    check16 = .{};
+    var bots: [players]common.bots.Bot = undefined;
+    var chaos: [players]Chaos = undefined;
+    for (0..players) |i| {
+        bots[i] = common.bots.Bot.init(seed, @intCast(i));
+        chaos[i] = .{ .rng = (seed *% 0x2545F491) ^ (@as(u32, @intCast(i)) *% 0x9E3779B9) | 1 };
+    }
+    var frames: [players]Frame = undefined;
+    var cbuf: [players]abi.Command = undefined;
+    var ps: qa.PlayStats = .{};
+    var tr: qa.PlayStats.Tracker(S) = .{};
+    var load_fail: u32 = 0;
+    for (0..ticks) |ti| {
+        const t: u32 = @intCast(ti);
+        common.bots.tick(S, s, &bots, &frames);
+        for (0..players) |i| {
+            if (i % 2 == 1) frames[i] = chaos[i].frame(t);
+        }
+        // Players leave and rejoin through the run.
+        var n: usize = 0;
+        if (t == 0) {
+            for (0..players) |i| {
+                cbuf[n] = .{ .op = .join, .slot = @intCast(i), .arg = 0 };
+                n += 1;
+            }
+        } else if (t % 5000 == 0) {
+            cbuf[0] = .{ .op = .leave, .slot = @intCast((t / 5000) % players), .arg = 0 };
+            n = 1;
+        } else if (t % 5000 == 100) {
+            cbuf[0] = .{ .op = .join, .slot = @intCast((t / 5000) % players), .arg = 0 };
+            n = 1;
+        }
+        s.step(&frames, cbuf[0..n]);
+        check16.check(s);
+        tr.after(&ps, s);
+        if (t % 1000 == 999) {
+            const h = s.hash();
+            _ = s.save(&save_buf);
+            try s.load(save_buf[0..S.state_size]);
+            if (s.hash() != h) load_fail += 1;
+        }
+    }
+    tr.finish(&ps, s);
+    var buf: [4096]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try w.print("soak: {d} ticks, seed {x}, final {x:0>16}, save/load mismatches {d}\n", .{ ticks, seed, s.hash(), load_fail });
+    try ps.write(&w);
+    try check16.report(&w);
+    print("{s}", .{w.buffered()});
+    return check16.total() == 0 and load_fail == 0;
+}
+
+/// Break the state on purpose and check the checker notices: a ped inside
+/// matter, a car under the world, a driver who is gone.
+fn selftest() bool {
+    const S = common.Sim16;
+    const s = &sim16;
+    const fx = sim.fx;
+    const c = sim.c;
+    s.init(&grid, .{ .seed = 1, .mode = .authoritative });
+    var fr: [S.config.max_players]Frame = @splat(Frame.neutral(0));
+    s.step(fr[0..2], &.{ .{ .op = .join, .slot = 0, .arg = 0 }, .{ .op = .join, .slot = 1, .arg = 0 } });
+    var ok = true;
+    // Inside matter: the first solid spot at ground level.
+    {
+        check16 = .{};
+        const ped = s.pedOf(0).?;
+        const t = s.transformOf(ped).?;
+        var found = false;
+        outer: for (1..sim.map.size_y - 1) |y| for (1..sim.map.size_x - 1) |x| {
+            const px = fx.fromInt(@intCast(x)) + fx.half;
+            const py = fx.fromInt(@intCast(y)) + fx.half;
+            if (sim.map.blocks(&grid, px, py, fx.fromInt(1), sim.tuning.ped_step) and !sim.map.isVoid(&grid, px, py, fx.fromInt(2))) {
+                t.x = px;
+                t.y = py;
+                t.z = fx.fromInt(1);
+                found = true;
+                break :outer;
+            }
+        };
+        for (0..check16.limits.stuck_limit) |_| check16.check(s);
+        const n = check16.counts[@intFromEnum(qa.Which.inside_matter)];
+        print("selftest inside_matter: {s} ({d})\n", .{ if (found and n == 1) "ok" else "FAIL", n });
+        ok = ok and found and n == 1;
+    }
+    // Below the world.
+    {
+        check16 = .{};
+        const ped = s.pedOf(1).?;
+        s.transformOf(ped).?.z = -fx.fromInt(3);
+        check16.check(s);
+        const n = check16.counts[@intFromEnum(qa.Which.below_world)];
+        print("selftest below_world: {s} ({d})\n", .{ if (n >= 1) "ok" else "FAIL", n });
+        ok = ok and n >= 1;
+    }
+    // A car whose driver is gone.
+    {
+        check16 = .{};
+        const car = s.spawnCarAt(fx.fromInt(5) + fx.half, fx.fromInt(100) + fx.half, 0, 0).?;
+        s.state.world.get(car, c.Vehicle).?.driver = sim.abi.EntityId.make(.ped, 4000, 7);
+        check16.check(s);
+        const n = check16.counts[@intFromEnum(qa.Which.riding)];
+        print("selftest riding: {s} ({d})\n", .{ if (n >= 1) "ok" else "FAIL", n });
+        ok = ok and n >= 1;
+    }
+    return ok;
 }

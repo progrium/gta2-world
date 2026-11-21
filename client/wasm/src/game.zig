@@ -29,6 +29,8 @@ const gpa = if (builtin.cpu.arch == .wasm32) std.heap.wasm_allocator else std.he
 const mesh = render.mesh;
 const list = render.list;
 const Sim = sim.Sim16;
+/// Single player (story levels): one player, the SP state block and systems.
+const SimSp = sim.Sim(sim.config_sp);
 const max_players = Sim.config.max_players;
 
 var style: ?formats.sty.Style = null;
@@ -39,12 +41,39 @@ var grid: ?*abi.Grid = null;
 var anim_table: []u16 = &.{};
 
 var game: Sim = undefined;
+var game_sp: SimSp = undefined;
+/// Which offline game runs: deathmatch (`gameStart`, dm16) or single
+/// player (`spStart`). Online (`netStart`) is neither.
+const Offline = enum { dm, sp };
+var offline: Offline = .dm;
 var running = false;
-var prev_state: [Sim.state_size]u8 align(8) = undefined;
+var prev_state: [@max(Sim.state_size, SimSp.state_size)]u8 align(8) = undefined;
 var frames: [max_players]Frame = @splat(Frame.neutral(0));
 var pending: [max_players]abi.Command = undefined;
 var pending_len: usize = 0;
 var layout: list.Layout = list.Layout.init(Sim.views());
+var layout_sp: list.Layout = list.Layout.init(SimSp.views());
+
+/// The views, layout and state of whatever is drawn now.
+fn isSp() bool {
+    return client == null and offline == .sp;
+}
+fn curViews() []const abi.ColumnDesc {
+    return if (isSp()) SimSp.views() else Sim.views();
+}
+fn curLayout() *const list.Layout {
+    return if (isSp()) &layout_sp else &layout;
+}
+fn curState() []const u8 {
+    return if (offline == .sp) game_sp.stateBytes() else game.stateBytes();
+}
+fn prevState() []const u8 {
+    return prev_state[0..curState().len];
+}
+fn savePrev() void {
+    const st = curState();
+    @memcpy(prev_state[0..st.len], st);
+}
 var instances: [4096]list.Instance = undefined;
 var target_buf: list.Target = undefined;
 
@@ -171,7 +200,11 @@ export fn loadMap(p: [*]const u8, n: usize, bake_lights: bool) i32 {
     map = null;
     gpa.free(anim_table);
     anim_table = &.{};
+    level_data.deinit(gpa);
+    level_sp = .empty;
     map = formats.gmp.parse(gpa, p[0..n]) catch |e| return setError("map", e);
+    level_data = .{ .inner = formats.level.build(gpa, &map.?) catch |e| return setError("level", e) };
+    level_sp = level_data.inner.?.level;
     map_mesh = mesh.buildChunked(gpa, &map.?, .{ .bake_lights = bake_lights }) catch |e| return setError("mesh", e);
     if (grid == null) grid = gpa.create(abi.Grid) catch |e| return setError("grid", e);
     formats.grid.build(&map.?, grid.?);
@@ -195,6 +228,8 @@ export fn loadMap(p: [*]const u8, n: usize, bake_lights: bool) i32 {
 /// Builds only the collision grid, for tests and headless tools.
 pub fn loadGridOnly(bytes: []const u8) !void {
     running = false;
+    level_data.deinit(gpa);
+    level_sp = .empty;
     if (map) |*m| m.deinit();
     map = try formats.gmp.parse(gpa, bytes);
     if (grid == null) grid = try gpa.create(abi.Grid);
@@ -204,6 +239,8 @@ pub fn loadGridOnly(bytes: []const u8) !void {
 /// Uses the sim's synthetic test map (no game files needed).
 export fn loadTestMap() void {
     running = false;
+    level_data.deinit(gpa);
+    level_sp = .empty;
     if (grid == null) grid = gpa.create(abi.Grid) catch return;
     sim.testmap.build(grid.?);
 }
@@ -234,6 +271,248 @@ export fn meshInfo() [*]const u32 {
     return &mesh_info;
 }
 
+// ------------------------------------------------------------------ level
+
+/// The level the single-player sim reads (zones, map objects and lights
+/// from the map; the script once formats/scr.zig loads it).
+var level_sp: sim.Level = .empty;
+var level_data: LevelData = .{};
+const LevelData = struct {
+    inner: ?formats.level.LevelData = null,
+    fn deinit(d: *LevelData, a: std.mem.Allocator) void {
+        if (d.inner) |*i| i.deinit(a);
+        d.* = .{};
+    }
+};
+
+/// The level's script files, by name: the main `.scr` and its mission
+/// sub-scripts. Kept as bytes for formats/scr.zig (workstream A1), which
+/// builds `level_sp.script` and `.missions` from them; until it lands the
+/// level runs without a script.
+const ScriptFile = struct { name: []u8, bytes: []u8 };
+var script_files: [64]ScriptFile = undefined;
+var script_count: usize = 0;
+
+export fn scriptsClear() void {
+    for (script_files[0..script_count]) |f| {
+        gpa.free(f.name);
+        gpa.free(f.bytes);
+    }
+    script_count = 0;
+}
+
+/// Adds one script file (`name` lower case, e.g. "wil.scr" or
+/// "wil_lm1.scr"). Returns the file count, or -1.
+export fn scriptAdd(name_p: [*]const u8, name_n: usize, p: [*]const u8, n: usize) i32 {
+    if (script_count == script_files.len) return setError("script", error.TooManyFiles);
+    const name = gpa.dupe(u8, name_p[0..name_n]) catch |e| return setError("script", e);
+    const bytes = gpa.dupe(u8, p[0..n]) catch |e| {
+        gpa.free(name);
+        return setError("script", e);
+    };
+    script_files[script_count] = .{ .name = name, .bytes = bytes };
+    script_count += 1;
+    return @intCast(script_count);
+}
+
+/// The parsed scripts the level points into (freed on the next load).
+var parsed_main: ?formats.scr.Parsed = null;
+var parsed_missions: std.ArrayList(formats.scr.Parsed) = .empty;
+var mission_scripts: []sim.level.Script = &.{};
+
+fn freeScripts() void {
+    if (parsed_main) |*m| m.deinit();
+    parsed_main = null;
+    for (parsed_missions.items) |*m| m.deinit();
+    parsed_missions.clearAndFree(gpa);
+    gpa.free(mission_scripts);
+    mission_scripts = &.{};
+    level_sp.script = .{};
+    level_sp.missions = &.{};
+}
+
+/// Parses the added script files into the level: the first one added is
+/// the main script, the rest its mission sub-scripts (sorted by name; the
+/// VM finds a mission by its name).
+fn loadScripts() !void {
+    freeScripts();
+    if (script_count == 0) return;
+    parsed_main = try formats.scr.parseMain(gpa, script_files[0].bytes);
+    level_sp.script = parsed_main.?.script;
+    const subs = script_files[1..script_count];
+    std.mem.sort(ScriptFile, subs, {}, struct {
+        fn lt(_: void, x: ScriptFile, y: ScriptFile) bool {
+            return std.mem.order(u8, x.name, y.name) == .lt;
+        }
+    }.lt);
+    for (subs) |f| try parsed_missions.append(gpa, try formats.scr.parseMission(gpa, f.bytes, formats.scr.stem(f.name)));
+    mission_scripts = try gpa.alloc(sim.level.Script, parsed_missions.items.len);
+    for (parsed_missions.items, mission_scripts) |p, *o| o.* = p.script;
+    level_sp.missions = mission_scripts;
+}
+
+/// A loaded script file by name, for the script loader.
+pub fn scriptFile(name: []const u8) ?[]const u8 {
+    for (script_files[0..script_count]) |f| if (std.ascii.eqlIgnoreCase(f.name, name)) return f.bytes;
+    return null;
+}
+
+// ------------------------------------------------------------------ text
+
+/// The `.gxt` text table (formats/gxt.zig), kept for the HUD.
+var text_bytes: []u8 = &.{};
+var text_table: ?formats.gxt.Table = null;
+var text_out: []const u8 = &.{};
+
+export fn loadText(p: [*]const u8, n: usize) i32 {
+    text_table = null;
+    gpa.free(text_bytes);
+    text_bytes = &.{};
+    text_bytes = gpa.dupe(u8, p[0..n]) catch |e| return setError("text", e);
+    text_table = formats.gxt.parse(text_bytes) catch |e| return setError("text", e);
+    buildTextLengths() catch |e| return setError("text", e);
+    return @intCast(text_table.?.count());
+}
+
+/// Characters shown for each numeric text id (markup and the portrait
+/// marker left out), for `Level.text_lengths`: the sim times briefs by it.
+var text_lengths: []u16 = &.{};
+
+fn buildTextLengths() !void {
+    gpa.free(text_lengths);
+    text_lengths = &.{};
+    const t = &text_table.?;
+    var max: u32 = 0;
+    for (0..t.count()) |i| {
+        const id = std.fmt.parseInt(u32, t.keyAt(i), 10) catch continue;
+        if (id < 1 << 16) max = @max(max, id);
+    }
+    if (max == 0) return;
+    text_lengths = try gpa.alloc(u16, max + 1);
+    @memset(text_lengths, 0);
+    for (0..t.count()) |i| {
+        const id = std.fmt.parseInt(u32, t.keyAt(i), 10) catch continue;
+        if (id > max) continue;
+        const units = t.get(t.keyAt(i)) orelse continue;
+        var n: u32 = 0;
+        var k: usize = 0;
+        while (k + 1 < units.len) : (k += 2) {
+            const u = std.mem.readInt(u16, units[k..][0..2], .little);
+            if (u == '#' or (k == 0 and u >> 8 == 0x21)) continue;
+            n += 1;
+        }
+        text_lengths[id] = @intCast(@min(n, 0xFFFF));
+    }
+}
+
+/// Looks up a script message number; returns its length in 16-bit units
+/// (at `textPtr()`), or -1 when missing.
+export fn textById(id: u32) i32 {
+    const t = &(text_table orelse return -1);
+    text_out = t.getId(id) orelse return -1;
+    return @intCast(text_out.len / 2);
+}
+
+/// Looks up a named key (e.g. a fixed message); as `textById`.
+export fn textByKey(p: [*]const u8, n: usize) i32 {
+    const t = &(text_table orelse return -1);
+    text_out = t.get(p[0..n]) orelse return -1;
+    return @intCast(text_out.len / 2);
+}
+
+/// The last looked-up text, 16-bit little-endian code units. May be
+/// unaligned (it points into the file).
+export fn textPtr() [*]const u8 {
+    return text_out.ptr;
+}
+
+// ------------------------------------------------------------------ single-player HUD
+
+/// The single-player HUD state, i32 each:
+///   0 lives, 1 multiplier, 2 points, 3 jail cards, 4 stars, 5 wanted
+///   points, 6 career flags, 7 out (wasted or busted)
+///   8 banner text id, 9 banner ticks left, 10 banner voice
+///   11 brief on screen (text id, 0 none), 12 its ticks up, 13 its total
+///   ticks, 14 briefs queued (with the one showing)
+///   15-26 four display slots of (flags: 1 timer 2 counter, timer ticks,
+///   counter value)
+///   27 arrow (0 none, 1 entity, 2 point), 28 arrow x, 29 arrow y (fx)
+///   30 hud flags, 31 tick
+/// Text ids with the top bit set are fixed texts (`sim.sp_state.hud.text_named`).
+var sp_buf: [32]i32 = undefined;
+export fn spInfo() [*]const i32 {
+    sp_buf = @splat(0);
+    if (!running or offline != .sp or client != null) return &sp_buf;
+    const g = &game_sp;
+    const cs = g.state.sp.career[0];
+    const ws = g.state.sp.wanted[0];
+    const hs = g.state.sp.hud[0];
+    sp_buf[0] = SimSp.career.lives(g, 0);
+    sp_buf[1] = SimSp.career.multiplier(g, 0);
+    sp_buf[2] = SimSp.career.score(g, 0);
+    sp_buf[3] = SimSp.career.jailCards(g, 0);
+    sp_buf[4] = SimSp.wanted.stars(g, 0);
+    sp_buf[5] = ws.points;
+    sp_buf[6] = cs.flags;
+    sp_buf[7] = @intFromBool(SimSp.career.isOut(g, 0));
+    if (hs.banner_ticks > 0) {
+        sp_buf[8] = @bitCast(hs.banner);
+        sp_buf[9] = hs.banner_ticks;
+        sp_buf[10] = hs.banner_voice;
+    }
+    if (hs.brief_showing != 0 and hs.brief_len > 0) {
+        sp_buf[11] = @bitCast(hs.briefs[0].text);
+        sp_buf[12] = hs.brief_ticks;
+        sp_buf[13] = hs.brief_total;
+    }
+    sp_buf[14] = hs.brief_len;
+    for (hs.display, 0..) |d, i| {
+        sp_buf[15 + i * 3] = d.flags;
+        sp_buf[16 + i * 3] = d.timer;
+        sp_buf[17 + i * 3] = d.counter;
+    }
+    if (!hs.arrow.isNone()) {
+        if (g.state.world.isAlive(hs.arrow)) if (g.transformOf(hs.arrow)) |t| {
+            sp_buf[27] = 1;
+            sp_buf[28] = t.x;
+            sp_buf[29] = t.y;
+        };
+    } else if (hs.arrow_x != 0 or hs.arrow_y != 0) {
+        sp_buf[27] = 2;
+        sp_buf[28] = hs.arrow_x;
+        sp_buf[29] = hs.arrow_y;
+    }
+    sp_buf[30] = hs.flags;
+    sp_buf[31] = @bitCast(g.tick());
+    return &sp_buf;
+}
+
+/// Offline debug and test aid: drives the single-player HUD and career
+/// through their APIs (sim/sp/hud.zig, career.zig, wanted.zig), as the
+/// script would. Changes the state, so offline play only. Returns false
+/// when no single-player game runs or `op` is unknown.
+///   1 banner (a text id, b ticks)   2 brief (a text id)   3 timer (a ticks)
+///   4 counter (a which, b value)    5 arrow at block (a, b)   6 lives += a
+///   7 score += a (flat)   8 wanted points += a   9 multiplier = a
+export fn spDebug(op: u32, a: i32, b: i32) bool {
+    if (!running or offline != .sp or client != null) return false;
+    const g = &game_sp;
+    switch (op) {
+        1 => SimSp.hud.postBanner(g, 0, @bitCast(a), @intCast(std.math.clamp(b, 0, 0xFFFF))),
+        2 => SimSp.hud.queueBrief(g, 0, @bitCast(a)),
+        3 => SimSp.hud.setTimer(g, 0, @bitCast(a)),
+        4 => SimSp.hud.setCounter(g, 0, @intCast(a & 1), b),
+        5 => SimSp.hud.setArrow(g, 0, .none, (a << 16) + (1 << 15), (b << 16) + (1 << 15)),
+        6 => SimSp.career.addLives(g, 0, @intCast(std.math.clamp(a, -127, 127))),
+        7 => SimSp.career.addScore(g, 0, a, .flat),
+        8 => SimSp.wanted.addPoints(g, 0, a),
+        9 => SimSp.career.setMultiplier(g, 0, @intCast(std.math.clamp(a, 0, 255))),
+        else => return false,
+    }
+    savePrev();
+    return true;
+}
+
 // ------------------------------------------------------------------ game
 
 /// Starts a session on the loaded map: the sim spawns its ambient cars and
@@ -242,11 +521,31 @@ export fn meshInfo() [*]const u32 {
 export fn gameStart(seed: u32, hint: bool, hint_x: u32, hint_y: u32) i32 {
     const g = grid orelse return setError("start", error.NoMap);
     game.init(g, .{ .seed = seed, .mode = .authoritative });
+    offline = .dm;
     frames = @splat(Frame.neutral(0));
     pending_len = 0;
     const arg: u32 = if (hint) sim.spawnHint(@truncate(hint_x), @truncate(hint_y)) else 0;
     queue(.{ .op = .join, .slot = 0, .arg = arg });
-    @memcpy(&prev_state, game.stateBytes());
+    savePrev();
+    running = true;
+    return 0;
+}
+
+/// Starts a single-player game on the loaded map, with the level's static
+/// data (zones, map objects, lights and, once loaded, its script) attached.
+/// Player slot 0 joins as in `gameStart`.
+export fn spStart(seed: u32, hint: bool, hint_x: u32, hint_y: u32) i32 {
+    const g = grid orelse return setError("start", error.NoMap);
+    loadScripts() catch |e| return setError("script", e);
+    level_sp.text_lengths = text_lengths;
+    game_sp.init(g, .{ .seed = seed, .mode = .authoritative });
+    game_sp.attachLevel(&level_sp);
+    offline = .sp;
+    frames = @splat(Frame.neutral(0));
+    pending_len = 0;
+    const arg: u32 = if (hint) sim.spawnHint(@truncate(hint_x), @truncate(hint_y)) else 0;
+    queue(.{ .op = .join, .slot = 0, .arg = arg });
+    savePrev();
     running = true;
     return 0;
 }
@@ -270,31 +569,39 @@ export fn gameLeave(slot: u32) void {
 /// facing the same way. Returns false if the player is in a car or the car
 /// table is full. Changes the state, so offline play only.
 export fn gameSpawnCar(slot: u32) bool {
-    if (!running or slot >= max_players) return false;
-    if (!game.playerRow(slot).car.isNone()) return false;
-    const ped = game.pedOf(slot) orelse return false;
-    const t = game.transformOf(ped) orelse return false;
+    if (!running) return false;
+    return if (offline == .sp) spawnCarFor(SimSp, &game_sp, slot) else spawnCarFor(Sim, &game, slot);
+}
+fn spawnCarFor(comptime S: type, g: *S, slot: u32) bool {
+    if (slot >= S.config.max_players) return false;
+    if (!g.playerRow(slot).car.isNone()) return false;
+    const ped = g.pedOf(slot) orelse return false;
+    const t = g.transformOf(ped) orelse return false;
     const a = @as(f32, @floatFromInt(t.heading)) * (std.math.tau / 65536.0);
     const d: f32 = 1.1 * @as(f32, abi.fx_one);
     const x = t.x + @as(i32, @intFromFloat(@cos(a) * d));
     const y = t.y + @as(i32, @intFromFloat(@sin(a) * d));
-    _ = game.spawnCarAt(x, y, t.heading, 0) orelse return false;
-    @memcpy(&prev_state, game.stateBytes());
+    _ = g.spawnCarAt(x, y, t.heading, 0) orelse return false;
+    savePrev();
     return true;
 }
 
 /// Debug aid, like `gameSpawnCar`: drops pickup `kind` (a `Weapon.kind`
 /// or power-up) a block in front of the slot's ped. Offline play only.
 export fn gameSpawnPickup(slot: u32, kind: u32) bool {
-    if (!running or slot >= max_players or kind >= sim.tuning.pickup_kinds) return false;
-    const ped = game.pedOf(slot) orelse return false;
-    const t = game.transformOf(ped) orelse return false;
+    if (!running) return false;
+    return if (offline == .sp) spawnPickupFor(SimSp, &game_sp, slot, kind) else spawnPickupFor(Sim, &game, slot, kind);
+}
+fn spawnPickupFor(comptime S: type, g: *S, slot: u32, kind: u32) bool {
+    if (slot >= S.config.max_players or kind >= sim.tuning.pickup_kinds) return false;
+    const ped = g.pedOf(slot) orelse return false;
+    const t = g.transformOf(ped) orelse return false;
     const a = @as(f32, @floatFromInt(t.heading)) * (std.math.tau / 65536.0);
     const d: f32 = 1.0 * @as(f32, abi.fx_one);
     const x = t.x + @as(i32, @intFromFloat(@cos(a) * d));
     const y = t.y + @as(i32, @intFromFloat(@sin(a) * d));
-    _ = game.spawnPickupAt(x, y, @intCast(kind)) orelse return false;
-    @memcpy(&prev_state, game.stateBytes());
+    _ = g.spawnPickupAt(x, y, @intCast(kind)) orelse return false;
+    savePrev();
     return true;
 }
 
@@ -306,13 +613,23 @@ export fn framesPtr() [*]u8 {
 
 export fn gameStep() void {
     if (!running) return;
-    @memcpy(&prev_state, game.stateBytes());
+    savePrev();
     for (&frames) |*f| f.* = f.sanitize();
-    game.step(&frames, pending[0..pending_len]);
+    if (offline == .sp) stepFor(SimSp, &game_sp) else stepFor(Sim, &game);
+}
+fn stepFor(comptime S: type, g: *S) void {
+    // Commands for slots the configuration lacks are dropped.
+    var cmds: [pending.len]abi.Command = undefined;
+    var n: usize = 0;
+    for (pending[0..pending_len]) |cmd| if (cmd.slot < S.config.max_players) {
+        cmds[n] = cmd;
+        n += 1;
+    };
+    g.step(frames[0..S.config.max_players], cmds[0..n]);
     pending_len = 0;
     // Offline, the sim's game events go to JavaScript (online they come
     // from the server as I3 events).
-    for (game.events()) |e| {
+    for (g.events()) |e| {
         if (sim_events_len == sim_events.len) break;
         sim_events[sim_events_len] = .{ .kind = @intFromEnum(e.kind), .a = e.a, .b = e.b, .c = e.c, .x = e.x, .y = e.y, .z = e.z };
         sim_events_len += 1;
@@ -337,13 +654,14 @@ export fn simEventsPtr() [*]const u8 {
 
 export fn gameTick() u32 {
     if (client) |cl| return cl.sim.tick();
-    return if (running) game.tick() else 0;
+    if (!running) return 0;
+    return if (offline == .sp) game_sp.tick() else game.tick();
 }
 
 /// State hash as two u32 halves (low, high) for display.
 var hash_buf: [2]u32 = undefined;
 export fn gameHash() [*]const u32 {
-    const h = if (running) game.hash() else 0;
+    const h = if (!running) 0 else if (offline == .sp) game_sp.hash() else game.hash();
     hash_buf = .{ @truncate(h), @truncate(h >> 32) };
     return &hash_buf;
 }
@@ -354,7 +672,12 @@ var player_buf: [17]i32 = undefined;
 export fn playerInfo(slot: u32) [*]const i32 {
     player_buf = @splat(0);
     if (slot >= max_players) return &player_buf;
-    const g: *Sim = if (client) |cl| cl.sim else if (running) &game else return &player_buf;
+    if (client) |cl| return playerInfoFor(Sim, cl.sim, slot);
+    if (!running) return &player_buf;
+    return if (offline == .sp) playerInfoFor(SimSp, &game_sp, slot) else playerInfoFor(Sim, &game, slot);
+}
+fn playerInfoFor(comptime S: type, g: *S, slot: u32) [*]const i32 {
+    if (slot >= S.config.max_players) return &player_buf;
     const row = g.playerRow(slot).*;
     player_buf[0] = @intFromBool(row.flags & abi.PlayerRow.flag_active != 0);
     player_buf[1] = @intFromBool(!row.car.isNone());
@@ -362,7 +685,7 @@ export fn playerInfo(slot: u32) [*]const i32 {
     player_buf[10] = row.score;
     player_buf[4] = row.deaths;
     player_buf[5] = @bitCast(row.respawn_timer);
-    const t = list.target(&layout, g.stateBytes(), slot);
+    const t = list.target(curLayout(), g.stateBytes(), slot);
     if (t.found != 0) {
         player_buf[6] = @intFromFloat(@sqrt(t.vx * t.vx + t.vy * t.vy) * @as(f32, abi.fx_one));
         player_buf[7] = @intFromFloat(t.z * @as(f32, abi.fx_one));
@@ -389,8 +712,8 @@ export fn playerInfo(slot: u32) [*]const i32 {
     return &player_buf;
 }
 
-fn healthOf(g: *Sim, id: abi.EntityId) i32 {
-    for (Sim.views()) |v| {
+fn healthOf(g: anytype, id: abi.EntityId) i32 {
+    for (curViews()) |v| {
         if (v.kind != id.kind() or v.component != @intFromEnum(abi.ComponentId.health)) continue;
         if (id.index() >= v.count) return 0;
         const bytes = g.stateBytes()[v.offset + id.index() * v.stride ..][0..@sizeOf(abi.Health)];
@@ -426,8 +749,8 @@ export fn buildList(alpha: f32, now_ms: f64) usize {
         return decorate(st, n, now_ms, cl.own_slot);
     }
     if (!running) return 0;
-    const n = list.build(&layout, &prev_state, game.stateBytes(), alpha, bases(), &instances);
-    return decorate(game.stateBytes(), n, now_ms, 0);
+    const n = list.build(curLayout(), prevState(), curState(), alpha, bases(), &instances);
+    return decorate(curState(), n, now_ms, 0);
 }
 
 // ------------------------------------------------------------------ effects
@@ -484,6 +807,21 @@ const spr = struct {
 fn pedFrame(p: sim.c.Pedestrian, wp: ?sim.c.Weapon, t: u16) u16 {
     const P = sim.c.Pedestrian;
     if (p.shock >= sim.tuning.shock_threshold / 2) return spr.ped_shocked + t % spr.ped_shocked_frames;
+    // The animations C, D1 and D2 report (pedestrian.zig `anim_*`); frames
+    // reuse the ones picked above (ours until the animation note lands).
+    switch (p.anim) {
+        P.anim_electrocuted => return spr.ped_shocked + t % spr.ped_shocked_frames,
+        // Falling from a height: the fall frames by ticks fallen.
+        P.anim_fall => return spr.ped_fall + @min(p.fall / 2, spr.ped_cycle - 1),
+        // Drowning: thrashing through the fall frames.
+        P.anim_drown => return spr.ped_fall + (t / 2) % spr.ped_cycle,
+        P.anim_get_up => return spr.ped_fall + spr.ped_cycle - 1 - @min(t % 16, spr.ped_cycle - 1),
+        P.anim_lie => return spr.ped_down,
+        P.anim_punch => return spr.ped_aim + t % spr.ped_aim_frames,
+        P.anim_enter_car, P.anim_exit_car => return spr.ped_walk + t % spr.ped_cycle,
+        P.anim_burning => return spr.ped_run + t % spr.ped_cycle,
+        else => {},
+    }
     if (p.state != P.state_up or p.anim == P.anim_down) {
         // Thrown: falling back; at rest: lying.
         return if (p.down == 0) spr.ped_fall + @min(t % 16, spr.ped_cycle - 1) else spr.ped_down;
@@ -504,6 +842,32 @@ fn pedFrame(p: sim.c.Pedestrian, wp: ?sim.c.Weapon, t: u16) u16 {
     };
 }
 
+/// The sprite of map object `o` within the style's map-object group: its
+/// model's first sprite (OBJI) plus a frame. Phones flash while ringing,
+/// doors show their animation frame, other many-sprite models cycle
+/// (ours until the objects note says how each animates).
+fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
+    const K = sim.ids.ObjectKind;
+    if (@as(K, @enumFromInt(o.kind)) == .door) {
+        // The objects system steps the door's frame from its animation's
+        // start to end (`state.sp.objects.doors[value]`); drawn as an offset
+        // from the model's first sprite (ours: the note doesn't say what
+        // the frame numbers count).
+        const first: u16 = if (s.objectSprites(o.model)) |i| i.first else 0;
+        if (!isSp() or o.value >= game_sp.state.sp.objects.doors.len) return first;
+        const sp = &game_sp.state.sp.objects;
+        const d = sp.doors[o.value];
+        const start: u16 = if (d.anim < sp.anims.len) sp.anims[d.anim].start else 0;
+        return first + (d.frame -| start);
+    }
+    const info = s.objectSprites(o.model) orelse return 0;
+    if (info.count <= 1) return info.first;
+    if (@as(K, @enumFromInt(o.kind)) == .phone) {
+        return info.first + if (o.state & 1 != 0) (t / 4) % info.count else 0;
+    }
+    return info.first + (t / 2) % info.count;
+}
+
 /// `Instance.kind` marking an instance `decorate` drops.
 const hidden_kind = 0xFF;
 
@@ -521,7 +885,7 @@ export fn effectExplosion(x: i32, y: i32, z: i32, now_ms: f64) void {
 }
 
 fn columnOf(kind: abi.Kind, comp: abi.ComponentId) ?abi.ColumnDesc {
-    for (Sim.views()) |v| {
+    for (curViews()) |v| {
         if (v.kind == @intFromEnum(kind) and v.component == @intFromEnum(comp)) return v;
     }
     return null;
@@ -553,6 +917,7 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
     const veh_col = columnOf(.car, .vehicle);
     const ped_col = columnOf(.ped, .pedestrian);
     const wpn_col = columnOf(.ped, .weapon);
+    const obj_col = columnOf(.map_object, .object);
     for (instances[0..n_in]) |*in| {
         switch (in.kind) {
             @intFromEnum(abi.Kind.projectile) => {
@@ -592,6 +957,20 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                     instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
                     n += 1;
                 }
+            },
+            @intFromEnum(abi.Kind.map_object) => {
+                // Single player only (dm16's map objects have no Object).
+                const o = readAt(sim.c.Object, state, obj_col orelse continue, in.index) orelse continue;
+                switch (@as(sim.ids.ObjectKind, @enumFromInt(o.kind))) {
+                    // Traffic AI markers; lamps and lights have no known
+                    // sprite yet (model 0), so they are not drawn.
+                    .crossing_marker, .lamp, .traffic_light => {
+                        in.kind = hidden_kind;
+                        continue;
+                    },
+                    else => {},
+                }
+                in.sprite = @intCast(s.sprite_base.base(.map_obj) + objectFrame(s, o, frame16 +% in.index));
             },
             @intFromEnum(abi.Kind.car) => {
                 const v = readAt(sim.c.Vehicle, state, veh_col orelse continue, in.index) orelse continue;
@@ -654,9 +1033,11 @@ fn cue(kind: u32, a: u32, t: abi.Transform) void {
     cues_len += 1;
 }
 
-var seen_proj_gen: [Sim.config.projectile_capacity]u16 = @splat(0xFFFF);
-var seen_hp: [2][@max(Sim.config.car_capacity, Sim.config.ped_capacity)]i32 = @splat(@splat(0));
-var seen_gen: [2][@max(Sim.config.car_capacity, Sim.config.ped_capacity)]u16 = @splat(@splat(0xFFFF));
+const max_proj = @max(Sim.config.projectile_capacity, SimSp.config.projectile_capacity);
+const max_body = @max(Sim.config.car_capacity, Sim.config.ped_capacity, SimSp.config.car_capacity, SimSp.config.ped_capacity);
+var seen_proj_gen: [max_proj]u16 = @splat(0xFFFF);
+var seen_hp: [2][max_body]i32 = @splat(@splat(0));
+var seen_gen: [2][max_body]u16 = @splat(@splat(0xFFFF));
 var own_cooldown: u16 = 0;
 var own_weapon: u8 = 0;
 var own_ped: abi.EntityId = .none;
@@ -664,7 +1045,7 @@ var own_ped: abi.EntityId = .none;
 fn watch(state: []const u8, own_slot: u32) void {
     var own: abi.EntityId = .none;
     if (own_slot < max_players) {
-        const pr_off = for (Sim.views()) |v| {
+        const pr_off = for (curViews()) |v| {
             if (v.component == abi.ColumnDesc.Special.player_rows) break v;
         } else null;
         if (pr_off) |v| if (readAt(abi.PlayerRow, state, v, own_slot)) |row| {
@@ -686,14 +1067,14 @@ fn watch(state: []const u8, own_slot: u32) void {
     own_ped = own;
     // Everyone else's shots: projectiles that appeared, one cue per shooter.
     if (columnOf(.projectile, .projectile)) |pc| if (columnOf(.projectile, .transform)) |tc| {
-        const gens = for (Sim.views()) |v| {
+        const gens = for (curViews()) |v| {
             if (v.kind == @intFromEnum(abi.Kind.projectile) and v.component == abi.ColumnDesc.Special.generation) break v;
         } else null;
-        const slots = for (Sim.views()) |v| {
+        const slots = for (curViews()) |v| {
             if (v.kind == @intFromEnum(abi.Kind.projectile) and v.component == abi.ColumnDesc.Special.slot) break v;
         } else null;
         var last_owner: abi.EntityId = .none;
-        if (gens != null and slots != null) for (0..Sim.config.projectile_capacity) |i| {
+        if (gens != null and slots != null) for (0..@min(gens.?.count, max_proj)) |i| {
             const alive = state[slots.?.offset + i] == 1;
             if (!alive) {
                 seen_proj_gen[i] = 0xFFFF;
@@ -713,14 +1094,14 @@ fn watch(state: []const u8, own_slot: u32) void {
     inline for (.{ abi.Kind.car, abi.Kind.ped }, 0..) |kind, ki| {
         const hc = columnOf(kind, .health);
         const tc = columnOf(kind, .transform);
-        const gens = for (Sim.views()) |v| {
+        const gens = for (curViews()) |v| {
             if (v.kind == @intFromEnum(kind) and v.component == abi.ColumnDesc.Special.generation) break v;
         } else null;
-        const slots = for (Sim.views()) |v| {
+        const slots = for (curViews()) |v| {
             if (v.kind == @intFromEnum(kind) and v.component == abi.ColumnDesc.Special.slot) break v;
         } else null;
         if (hc != null and tc != null and gens != null and slots != null) {
-            for (0..hc.?.count) |i| {
+            for (0..@min(hc.?.count, max_body)) |i| {
                 if (state[slots.?.offset + i] != 1) continue;
                 const g = readAt(u16, state, gens.?, @intCast(i)) orelse continue;
                 const hp = (readAt(abi.Health, state, hc.?, @intCast(i)) orelse continue).hp;
@@ -748,8 +1129,8 @@ export fn cameraTarget(alpha: f32, slot: u32) [*]const u8 {
         target_buf = std.mem.zeroes(list.Target);
         return @ptrCast(&target_buf);
     }
-    const a = list.target(&layout, &prev_state, slot);
-    const b = list.target(&layout, game.stateBytes(), slot);
+    const a = list.target(curLayout(), prevState(), slot);
+    const b = list.target(curLayout(), curState(), slot);
     target_buf = b;
     if (a.found != 0 and b.found != 0) {
         target_buf.x = a.x + (b.x - a.x) * alpha;
@@ -966,4 +1347,44 @@ test "tuning round trip" {
     try std.testing.expectEqual(before * 2, T.carModel(0).max_speed);
     tuneReset();
     try std.testing.expectEqual(before, tuneGet(i));
+}
+
+test "single player starts on the test map, steps and reports its HUD" {
+    loadTestMap();
+    try std.testing.expectEqual(@as(i32, 0), spStart(7, false, 0, 0));
+    for (0..10) |_| gameStep();
+    try std.testing.expectEqual(@as(i32, 1), playerInfo(0)[0]);
+    const info = spInfo();
+    try std.testing.expectEqual(@as(i32, 10), info[31]);
+    try std.testing.expect(buildList(0.5, 0) > 0);
+    try std.testing.expect(spDebug(1, 500, 90));
+    gameStep();
+    try std.testing.expectEqual(@as(i32, 500), spInfo()[8]);
+    try std.testing.expect(!spDebug(99, 0, 0));
+    // Back to deathmatch: the other configuration draws again.
+    try std.testing.expectEqual(@as(i32, 0), gameStart(1, false, 0, 0));
+    gameStep();
+    try std.testing.expect(!spDebug(1, 500, 90));
+    try std.testing.expect(buildList(0.5, 0) > 0);
+}
+
+test "text table lookups by number and key" {
+    const bytes = try formats.gxt.build(std.testing.allocator, 'E', &.{ .{ "500", "Hi" }, .{ "mis_fail", "No" } });
+    defer std.testing.allocator.free(bytes);
+    try std.testing.expectEqual(@as(i32, 2), loadText(bytes.ptr, bytes.len));
+    try std.testing.expectEqual(@as(i32, 2), textById(500));
+    try std.testing.expectEqual(@as(u8, 'H'), textPtr()[0]);
+    try std.testing.expectEqual(@as(i32, -1), textById(501));
+    try std.testing.expectEqual(@as(i32, 2), textByKey("mis_fail", 8));
+    try std.testing.expectEqual(@as(u8, 'N'), textPtr()[0]);
+    try std.testing.expectEqual(@as(usize, 501), text_lengths.len);
+    try std.testing.expectEqual(@as(u16, 2), text_lengths[500]);
+}
+
+test "script files are kept by name" {
+    scriptsClear();
+    try std.testing.expectEqual(@as(i32, 1), scriptAdd("wil.scr", 7, "abc", 3));
+    try std.testing.expectEqualStrings("abc", scriptFile("WIL.SCR").?);
+    try std.testing.expect(scriptFile("ste.scr") == null);
+    scriptsClear();
 }

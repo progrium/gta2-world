@@ -88,6 +88,9 @@ pub const CarInfo = struct {
     num_doors: u8 = 0,
 };
 
+/// A map object model's sprites (OBJI).
+pub const ObjectInfo = struct { model: u8, sprites: u8 };
+
 pub const Style = struct {
     arena: std.heap.ArenaAllocator,
     version: u16,
@@ -102,6 +105,8 @@ pub const Style = struct {
     sprite_base: SpriteBase = .{},
     /// Car models from CARI, in file order.
     cars: []CarInfo = &.{},
+    /// Map object models from OBJI, in file order.
+    objects: []ObjectInfo = &.{},
     unknown_chunks: u32 = 0,
 
     pub fn deinit(s: *Style) void {
@@ -115,6 +120,18 @@ pub const Style = struct {
         for (s.cars[0..@min(i, s.cars.len)]) |c| n += c.sprite;
         if (i < s.cars.len and s.cars[i].sprite == 0 and n > 0) n -= 1;
         return n;
+    }
+
+    /// First sprite of object `model` within the map-object sprite group
+    /// (the sum of the sprite counts of the OBJI entries before it) and its
+    /// sprite count, or null for a model the style lacks.
+    pub fn objectSprites(s: *const Style, model: u16) ?struct { first: u16, count: u8 } {
+        var n: u16 = 0;
+        for (s.objects) |o| {
+            if (o.model == model) return .{ .first = n, .count = o.sprites };
+            n += o.sprites;
+        }
+        return null;
     }
 
     pub fn tileCount(s: *const Style) u32 {
@@ -203,8 +220,12 @@ pub fn parse(gpa: std.mem.Allocator, bytes: []const u8) Error!Style {
             for (&style.sprite_base.counts) |*n| n.* = r.int(u16) catch 0;
         } else if (c.is("CARI")) {
             style.cars = try parseCars(a, c.data);
+        } else if (c.is("OBJI")) {
+            // object_info: u8 model, u8 sprites (public format document).
+            style.objects = try a.alloc(ObjectInfo, c.data.len / 2);
+            for (style.objects, 0..) |*o, i| o.* = .{ .model = c.data[i * 2], .sprites = c.data[i * 2 + 1] };
         } else if (isKnownUnused(c)) {
-            // DELS, DELX, FONB, CARI, OBJI, PSXT, RECY, SPEC: not needed yet.
+            // DELS, DELX, FONB, PSXT, RECY, SPEC: not needed yet.
         } else {
             style.unknown_chunks += 1;
         }
@@ -262,4 +283,14 @@ test "palette base sums" {
     try std.testing.expectEqual(@as(u32, 0), p.base(.tile));
     try std.testing.expectEqual(@as(u32, 992), p.base(.sprite));
     try std.testing.expectEqual(@as(u32, 1002), p.base(.car_remap));
+}
+
+test "object sprites count from the OBJI order" {
+    var objs = [_]ObjectInfo{ .{ .model = 7, .sprites = 4 }, .{ .model = 1, .sprites = 6 }, .{ .model = 3, .sprites = 1 } };
+    var s: Style = .{ .arena = undefined, .version = 700, .palx = &.{}, .ppal = &.{}, .tiles = &.{}, .objects = &objs };
+    try std.testing.expectEqual(@as(u16, 0), s.objectSprites(7).?.first);
+    try std.testing.expectEqual(@as(u16, 4), s.objectSprites(1).?.first);
+    try std.testing.expectEqual(@as(u16, 10), s.objectSprites(3).?.first);
+    try std.testing.expectEqual(@as(u8, 6), s.objectSprites(1).?.count);
+    try std.testing.expect(s.objectSprites(2) == null);
 }

@@ -44,6 +44,14 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 - **Loopback**: the host's own player uses `Connection` with transport `"loopback"`: `sendStream`/`sendDatagram` post straight to the Worker as another peer id; the Worker's replies for that id are handed back in-page. hello.transport is 2, since the loopback is part of the WebRTC host.
 - **Lobby (`f`)**: the joiner sends `{t:"want", map}`; the host answers `{t:"match", description, share, files}` with the `.gmp` and `.sty` (name, kind, size, sha256). The joiner asks `{t:"get", files:[sha256…]}` for what its store lacks. With sharing on, each file is a `{t:"file", id, name, kind, size, sha256}` header, binary chunks (u32 id + up to 16 KB) and `{t:"end", id}`, at most 2 transfers at a time on the host; the joiner checks size and SHA-256 and imports the file under `shared/` in the asset store. With sharing off the host answers `{t:"refused", names}` and the joiner names the missing files. `{t:"ready"}` ends the lobby; nothing more is sent on `f`.
 
+## Single player
+
+Story levels come from a `.seq` file in the player's data (`MainOrBonus`, `GMPFile`, `STYFile`, `SCRFile`, `Description` blocks: main areas and bonus stages, in order), or, without one, from each `.gmp` with a same-named `.sty` and `.scr`. The import screen lists them under "Single player" above the deathmatch maps, with a choice of `.gxt` when there are several (`e.gxt` by default).
+
+Starting one loads the `.gxt`, the main `.scr` and the `.scr` files in the folder named after it (the mission sub-scripts) into `game.wasm` and runs the `sp` sim (`spStart`). `src/ui/spHud.ts` draws the HUD from `spInfo()`: points, multiplier and lives (top right), wanted stars (top centre), the banner message, the brief typing itself out at 3 ticks a character with a portrait badge from the text's speaker marker, the pager with the countdown and counters, and the arrow toward the mission target. Wasted (by cause: wasted, fried, shocked), busted, game over and level complete show as big centre text from the player's own `.gxt` keys, and the camera holds on the body, pulled back, for the 70-tick countdown. Text markup: `#` toggles highlighted words.
+
+What the HUD shows is filled in by the sim's workstreams (script engine A1, career G, wanted level E); until they land it stays empty. `?hudtest` feeds it a made-up state that cycles through every part, to look at the layout. Layout and colours are ours until the HUD note lands.
+
 ## Input
 
 - Every device produces the same 8-byte I2 frame. Slot 0 is the keyboard plus the first pad; further pads join as local players with Start (off on the M1 screen).
@@ -60,7 +68,7 @@ Default keys: arrows or WASD, Ctrl or J fire, Enter or F enter/exit, Space handb
 
 ## Assets
 
-The player picks their GTA2 folder (File System Access where available, else a `webkitdirectory` input), picks files, or drops a folder. A module worker hashes each `.gmp .sty .scr .mmp .gxt .sdt .raw`, checks `.gmp`/`.sty` headers and chunk tables, parses `.mmp` map descriptors, and writes the bytes to OPFS under `gta2/blobs/<sha256>` with a manifest. Nothing is uploaded. `AssetStore.find(name)` and `AssetStore.read(hash)` are the API for the renderer and sim; reads re-check the hash.
+The player picks their GTA2 folder (File System Access where available, else a `webkitdirectory` input), picks files, or drops a folder. A module worker hashes each `.gmp .sty .scr .mmp .seq .gxt .sdt .raw .gci`, checks `.gmp`/`.sty` headers and chunk tables, parses `.mmp` map descriptors, and writes the bytes to OPFS under `gta2/blobs/<sha256>` with a manifest. Nothing is uploaded. `AssetStore.find(name)` and `AssetStore.read(hash)` are the API for the renderer and sim; reads re-check the hash.
 
 Maps on offer come from `.mmp` files whose `.gmp` and `.sty` are present; without any `.mmp`, same-named `.gmp`/`.sty` pairs. With cached assets, the page opens straight into the last map.
 

@@ -12,10 +12,12 @@
 //!            high/denom of a block toward `dir` (the decoding S1's
 //!            `formats/gmp.zig` uses: up = toward smaller y). Codes 45-48
 //!            are diagonal walls (this is how `formats.grid` writes them).
-//!            Codes 49-52 (diagonal slopes) are treated as diagonal walls
-//!            for now.
-//!   partial  Codes 53-61: a partial block that fills part of the footprint
-//!            to the full height.
+//!            Codes 49-52 (three-sided diagonal blocks) have a flat top over
+//!            the whole block and are a diagonal wall along the closed half
+//!            (shape-and-map-collision.md 3.1, map-geometry.md 3.3).
+//!   partial  Codes 53-61: a partial block. Its top is a floor over part of
+//!            the footprint; it never blocks a body from the side (the
+//!            original counts it as missing for wall tests).
 //!   water    Deep water (car-height.md, ped-movement.md 3.7): a surface at
 //!            the top of the cell, like a slab, that bodies rest on. Peds on
 //!            it drown; cars on it lose drive and sink (the sim's rules).
@@ -190,7 +192,10 @@ pub fn topInCell(c: Cell, x: Fx, y: Fx) ?Fx {
         Shape.slope => {
             if (code >= 1 and code <= 44) return rampFrac(code, u, v);
             if (code >= 45 and code <= 48) return if (inDiagonal(@truncate(code - 45), u, v)) fx.one else null;
-            if (code >= 49 and code <= 52) return if (inDiagonal(@truncate(code - 49), u, v)) fx.one else null;
+            // Three-sided diagonal blocks: a flat top over the whole
+            // block (map-geometry.md 3.3); `blocks` makes only the closed
+            // half a wall.
+            if (code >= 49 and code <= 52) return fx.one;
             return fx.one;
         },
         Shape.slab, Shape.water => return fx.one,
@@ -226,25 +231,54 @@ pub fn blocks(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) bool {
     // Layers whose base is strictly below the top of the body.
     while (l <= fx.toInt(z + body_height - 1)) : (l += 1) {
         if (topAt(g, x, y, l)) |top| {
-            const sh = shapeOf(cellAt(g, fx.toInt(x), fx.toInt(y), l));
-            const bottom = if (sh == Shape.slab or sh == Shape.water) top - slab_thickness else fx.fromInt(l);
+            const bottom = matterBottom(cellAt(g, fx.toInt(x), fx.toInt(y), l), x, y, l, top);
             if (top > z + step and bottom < z + body_height) return true;
         }
     }
     return false;
 }
 
+/// Bottom of the matter at (x, y) in a cell of layer `l` whose top there is
+/// `top`. Most matter fills the layer; these are only a floor (their top
+/// `slab_thickness`), which bodies stand on but are never walled by:
+///   - slabs and deep water;
+///   - partial blocks 53-61, which never block in the original
+///     (shape-and-map-collision.md 3.2: they count as missing);
+///   - the open half of a three-sided diagonal block 49-52, whose closed
+///     half is the diagonal wall (3.4).
+fn matterBottom(c: Cell, x: Fx, y: Fx, l: i32, top: Fx) Fx {
+    const floor_only = switch (shapeOf(c)) {
+        Shape.slab, Shape.water, Shape.partial => true,
+        Shape.slope => blk: {
+            const code = codeOf(c);
+            if (code < 49 or code > 52) break :blk false;
+            break :blk !inDiagonal(@truncate(code - 49), x & (fx.one - 1), y & (fx.one - 1));
+        },
+        else => false,
+    };
+    return if (floor_only) top - slab_thickness else fx.fromInt(l);
+}
+
 /// Is the column under (x, y) empty all the way down from height z (no
-/// floor at any depth)? Real maps have such voids at their edges and around
-/// some structures; the original's water may be among them. Bodies treat a
-/// void as a wall rather than falling out of the world.
+/// floor whose top is at or below z)? Real maps have such voids at their
+/// edges and around some structures, often under a deck that floats above
+/// them; matter above z (that deck) is not a floor and does not count.
+/// Bodies treat a void as a wall rather than falling out of the world.
 pub fn isVoid(g: *const Grid, x: Fx, y: Fx, z: Fx) bool {
-    var l = fx.toInt(z);
-    if (l >= size_z) l = size_z - 1;
-    while (l >= 0) : (l -= 1) {
-        if (topAt(g, x, y, l) != null) return false;
-    }
-    return true;
+    return floorAt(g, x, y, z, 0) < 0;
+}
+
+/// The map edge at the top level (shape-and-map-collision.md 3.5,
+/// car-collision.md 3.7): at height 7 and above, a point less than one block
+/// from any side of the map is against an invisible straight wall. Lower
+/// levels rely on the map's own blocks (and voids).
+pub const edge_level: i32 = 7;
+pub fn pastTopEdge(x: Fx, y: Fx, z: Fx) bool {
+    if (z < fx.fromInt(edge_level)) return false;
+    const lo = fx.one;
+    const hi_x = fx.fromInt(size_x - 1);
+    const hi_y = fx.fromInt(size_y - 1);
+    return x < lo or y < lo or x > hi_x or y > hi_y;
 }
 
 /// `blocks`, or a void below: what stops a ped or a car.
@@ -322,6 +356,43 @@ inline fn spans(a0: Fx, a1: Fx, h: Fx) bool {
 
 /// A ground rectangle: centre, unit axis (cos, sin) of its length, and half
 /// length `a` along it and half width `b` across it.
+// ---------------------------------------------------------------------------
+// Surfaces (`Grid.surface`, W0): red arrows and electrified lids.
+
+pub const Surface = struct {
+    pub const red_pos_y = abi.surface_red_pos_y;
+    pub const red_neg_y = abi.surface_red_neg_y;
+    pub const red_pos_x = abi.surface_red_pos_x;
+    pub const red_neg_x = abi.surface_red_neg_x;
+    pub const red_mask = abi.surface_red_mask;
+    pub const electrified = abi.surface_electrified;
+};
+
+/// Surface bits of cell (cx, cy, cz); 0 outside the map.
+pub inline fn surfaceAt(g: *const Grid, cx: i32, cy: i32, cz: i32) abi.SurfaceBits {
+    if (cx < 0 or cy < 0 or cz < 0 or cx >= size_x or cy >= size_y or cz >= size_z) return 0;
+    return g.surface[@intCast(cz)][@intCast(cy)][@intCast(cx)];
+}
+
+/// Surface bits of the floor cell under (x, y) for a body at height z (the
+/// cell `floorCell` finds); 0 with no floor.
+pub fn floorSurface(g: *const Grid, x: Fx, y: Fx, z: Fx, step: Fx) abi.SurfaceBits {
+    var l = fx.toInt(z + step);
+    if (l >= size_z) l = size_z - 1;
+    while (l >= 0) : (l -= 1) {
+        const c = cellAt(g, fx.toInt(x), fx.toInt(y), l);
+        if (topInCell(c, x, y)) |t| {
+            if (fx.fromInt(l) + t <= z + step) return surfaceAt(g, fx.toInt(x), fx.toInt(y), l);
+        }
+    }
+    return 0;
+}
+
+/// The red arrows of a surface byte, in `Arrow` bit order (as `arrowsOf`).
+pub inline fn redArrowsOf(s: abi.SurfaceBits) u4 {
+    return @truncate(s & abi.surface_red_mask);
+}
+
 pub const Rect = struct {
     x: Fx,
     y: Fx,
@@ -423,9 +494,23 @@ pub fn moveHitsWall(g: *const Grid, x0: Fx, y0: Fx, x1: Fx, y1: Fx, z: Fx, shift
 /// Hash of the grid for replay files (FNV-1a over cells and wall faces).
 pub fn gridHash(g: *const Grid) u64 {
     var h: u64 = 0xcbf29ce484222325;
-    for (std.mem.asBytes(g)) |b| {
+    for (std.mem.asBytes(&g.blocks)) |b| {
         h ^= b;
         h *%= 0x100000001b3;
+    }
+    for (std.mem.asBytes(&g.walls)) |b| {
+        h ^= b;
+        h *%= 0x100000001b3;
+    }
+    // `surface` (W0) is folded in only when a bit is set, so a grid with no
+    // surfaces keeps the hash it had before the table existed (recorded
+    // replays carry it).
+    const surf = std.mem.asBytes(&g.surface);
+    if (std.mem.indexOfNone(u8, surf, &.{0}) != null) {
+        for (surf) |b| {
+            h ^= b;
+            h *%= 0x100000001b3;
+        }
     }
     return h;
 }
@@ -532,4 +617,3 @@ test "deep water is a surface, and waterAt finds it" {
     try std.testing.expect(waterAt(g, fx.fromInt(10) + fx.half, y, fx.one));
     try std.testing.expect(!waterAt(g, fx.fromInt(11) + fx.half, y, fx.one));
 }
-

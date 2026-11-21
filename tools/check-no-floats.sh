@@ -1,7 +1,18 @@
 #!/bin/sh
-# Determinism rule 1: no floating point in sim/. Exits non-zero on a hit.
+# Determinism rule 1: no floating point in sim/ (every .zig file, in every
+# subdirectory). Comments and string literals are ignored, so "3.2" in a
+# note reference, "-0.5..0.5" in a range comment or a test name is fine. Exits non-zero on a hit.
 cd "$(dirname "$0")/.." || exit 2
-if grep -nE '\bf(16|32|64|80|128)\b|comptime_float|@float|[0-9]\.[0-9]+[eE]?' sim/*.zig | grep -vE '^\S+:[0-9]+:\s*//'; then
+hits=$(find sim -name '*.zig' -not -path '*/.zig-cache/*' -not -path '*/zig-out/*' | sort | xargs awk '
+  {
+    line = $0
+    gsub(/"([^"\\]|\\.)*"/, "\"\"", line)
+    sub(/\/\/.*/, "", line)
+    if (line ~ /(^|[^A-Za-z0-9_])f(16|32|64|80|128)([^A-Za-z0-9_]|$)|comptime_float|@float|[0-9]\.[0-9]/)
+      printf "%s:%d: %s\n", FILENAME, FNR, $0
+  }')
+if [ -n "$hits" ]; then
+  echo "$hits"
   echo "floating point found in sim/" >&2; exit 1
 fi
 echo "sim/: no floating point"

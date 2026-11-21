@@ -6,7 +6,11 @@ name: Server
 # tick by tick. No game data is involved.
 
 on:
+  # Only the shared branches and pull requests. Workstream branches run
+  # tools/merge-check.sh (or their own tests) locally before handing over;
+  # the QA merge train re-runs everything on the integration branch.
   push:
+    branches: [main, claude/project-thread-6bbchu]
     paths:
       - 'server/**'
       - 'sim/**'

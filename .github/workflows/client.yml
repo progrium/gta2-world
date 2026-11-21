@@ -5,7 +5,19 @@ name: Client
 # playable client the tester site's play/ page is made from.
 
 on:
+  # Only the shared branches and pull requests. Workstream branches run
+  # tools/merge-check.sh (or their own tests) locally before handing over;
+  # the QA merge train re-runs everything on the integration branch.
   push:
+    branches: [main, claude/project-thread-6bbchu]
+    paths:
+      - 'client/**'
+      - 'sim/**'
+      - 'formats/**'
+      - 'net/**'
+      - 'interfaces/**'
+      - '.github/workflows/client.yml'
+  pull_request:
     paths:
       - 'client/**'
       - 'sim/**'
