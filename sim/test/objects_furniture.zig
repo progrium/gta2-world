@@ -330,7 +330,7 @@ test "generators: other models spawn every cycle; a count stops it; off stops it
     // Decide power-up: an unlisted car model gives type 65, 3 spawns.
     O.setCarList(h.sim, &.{ 3, 4 });
     O.decidePowerUp(h.sim, gen, 9);
-    try std.testing.expectEqual(@as(?u8, 65), O.objectModel(h.sim, gen));
+    try std.testing.expectEqual(@as(?u16, 65), O.objectModel(h.sim, gen));
     const g = &h.sim.state.sp.objects.gens[h.obj(gen).value];
     try std.testing.expectEqual(@as(u16, 3), g.remaining);
     try std.testing.expectEqual(@as(u8, 1), g.one_at_a_time);
@@ -543,4 +543,19 @@ test "barriers: a ped can't walk through one and a car is stopped by it" {
     h.sim.state.world.get(car, c.Velocity).?.vx = fx.ratio(2, 10);
     h.run(40);
     try std.testing.expect(h.sim.transformOf(car).?.x < fx.fromInt(64));
+}
+
+test "objects: models and door animation frames above 255" {
+    var h = try H.init(null);
+    defer h.deinit();
+    const id = O.spawnObject(h.sim, .decoration, 286, blk(44), blk(37), O.ground_z, 0).?;
+    try std.testing.expectEqual(@as(?u16, 286), O.objectModel(h.sim, id));
+    const anim = O.addDoorAnim(h.sim, 928, 935, 1).?;
+    const door = O.addDoor(h.sim, .{ .bx = 50, .by = 37, .bz = 1, .face = .west, .anim = anim, .open_rule = .unknown, .close_rule = .rule_false }).?;
+    const d = &h.sim.state.sp.objects.doors[h.obj(door).value];
+    try std.testing.expectEqual(@as(u16, 928), d.frame);
+    h.put(blk(49), blk(37));
+    h.run(10);
+    try std.testing.expectEqual(st.DoorState.open, O.doorState(h.sim, door).?);
+    try std.testing.expectEqual(@as(u16, 935), d.frame);
 }

@@ -7,7 +7,7 @@
 //! Ours until the objects note lands: what "near the door" means for an
 //! open rule (`door_reach`), the animation speed read as ticks per frame,
 //! a closing door reopening for someone who satisfies the open rule, and
-//! the "unknown" open rule never opening. Doors do not block bodies by
+//! the unconfirmed seventh open rule acting as "any player". Doors do not block bodies by
 //! themselves: the map is static, so collision asks `doorBlocks`
 //! (workstream C).
 
@@ -63,7 +63,7 @@ pub fn Sys(comptime Self: type) type {
 
         /// Type 230: add a shared door animation; its index, or null when
         /// all five are taken.
-        pub fn addDoorAnim(self: *Self, start: u8, end: u8, speed: u8) ?u8 {
+        pub fn addDoorAnim(self: *Self, start: u16, end: u16, speed: u8) ?u8 {
             if (comptime !sp) return null;
             const s = &self.state.sp.objects;
             for (&s.anims, 0..) |*a, i| {
@@ -172,7 +172,7 @@ pub fn Sys(comptime Self: type) type {
             const s = &self.state.sp.objects;
             for (&s.doors) |*d| {
                 if (!objects.slotUsed(self, d.obj)) continue;
-                const want_open = d.open_rule != @intFromEnum(OpenRule.unknown) and openRuleHolds(self, d);
+                const want_open = openRuleHolds(self, d);
                 if (d.state == @intFromEnum(DoorState.open) and d.timer < 0xFFFF) d.timer += 1;
                 if (closeRuleHolds(self, d, want_open)) d.flags |= flag_wants_close else d.flags &= ~flag_wants_close;
                 const manual = d.flags & Door.flag_manual != 0;
@@ -205,7 +205,7 @@ pub fn Sys(comptime Self: type) type {
             return &s.doors[o.value];
         }
 
-        const Frames = struct { from: u8, to: u8, speed: u8 };
+        const Frames = struct { from: u16, to: u16, speed: u8 };
 
         fn frames(s: *const st.State, d: *const Door) Frames {
             const a = if (d.anim < s.anims.len) s.anims[d.anim] else st.DoorAnim{};
@@ -241,7 +241,9 @@ pub fn Sys(comptime Self: type) type {
             const w = &self.state.world;
             const rule: OpenRule = @enumFromInt(d.open_rule);
             switch (rule) {
-                .any_player => {
+                // Ours: the unconfirmed seventh rule (levels use it) acts
+                // as any player until a note says otherwise.
+                .any_player, .unknown => {
                     for (self.state.players) |row| {
                         if (row.flags & abi.PlayerRow.flag_active == 0) continue;
                         const t = w.get(row.car, c.Transform) orelse w.get(row.ped, c.Transform) orelse continue;

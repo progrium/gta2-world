@@ -146,3 +146,16 @@ pub const queue_stuck_ticks: u16 = 150;
 /// During an FBI or army pursuit, 1 in this many new traffic cars near the
 /// player is one of their units (ours; police-ai.md 3.6 gives no rate).
 pub const reskin_odds: u32 = 4;
+/// How far (blocks) the junction exit search looks along and across
+/// (ours).
+pub const junction_scan: i32 = 6;
+/// A route turns again only after this many straight blocks since its last
+/// turn, and never reverses (ours: the AI's turning circle is about 1.5
+/// blocks, so a U-turn inside a junction can't be driven).
+pub const route_min_run: u8 = 2;
+// Route cost from the car within which turn rules apply (ours).
+pub const route_turn_horizon: u16 = 8;
+// Blocks ahead a traffic car looks for a bend in its lane (ours).
+pub const bend_scan: i32 = 2;
+// Traffic speed through a bend or a turn (ours).
+pub const bend_speed: Fx = fx.ratio(5, 100);

@@ -42,7 +42,9 @@ test "traffic follows its lane and brakes for a ped in the road" {
     h.run(60);
     try std.testing.expectEqual(T.ped_hp, w.get(ped, c.Health).?.hp);
     try std.testing.expect(fx.length(w.get(car, c.Velocity).?.vx, w.get(car, c.Velocity).?.vy) < fx.ratio(1, 100));
-    // Standing next to the stopped car, the player can take it.
+    // Standing next to the stopped car, the player can take it (held
+    // stopped while he runs to the door and pulls the driver out).
+    v.halt = 200;
     h.ped(0).* = .{ .x = h.sim.transformOf(car).?.x, .y = blk(33), .z = h.ped(0).z, .heading = 0 };
     h.tap(0, Button.enter_exit);
     try std.testing.expect(eql(w.get(ped, c.Riding).?.vehicle, car));

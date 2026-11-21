@@ -107,11 +107,15 @@ test "predict mode with everything predicted matches authoritative" {
     try std.testing.expectEqual(a.sim.hash(), p.sim.hash());
     var frames: [4]Frame = @splat(Frame.neutral(0));
     frames[0].buttons = Button.enter_exit;
-    for (0..3) |i| {
-        if (i == 1) frames[0] = .{ .steer = 30, .throttle = 127, .buttons = 0, .aim = 0, .seq = 0 };
+    // Getting in plays a sequence (run to the door, open it, climb in).
+    for (0..60) |i| {
+        if (i == 1) frames[0] = Frame.neutral(0);
         a.sim.step(&frames, &.{});
         p.sim.step(&frames, &.{});
+        try std.testing.expectEqual(a.sim.hash(), p.sim.hash());
     }
+    try std.testing.expect(eql(p.sim.state.world.get(p.sim.pedOf(0).?, c.Riding).?.vehicle, car));
+    frames[0] = .{ .steer = 30, .throttle = 127, .buttons = 0, .aim = 0, .seq = 0 };
     for (0..60) |_| {
         a.sim.step(&frames, &.{});
         p.sim.step(&frames, &.{});
@@ -122,6 +126,9 @@ test "predict mode with everything predicted matches authoritative" {
     p.sim.state.world.get(car, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
     frames[0] = .{ .steer = 0, .throttle = 0, .buttons = Button.enter_exit, .aim = 0, .seq = 0 };
     p.sim.step(&frames, &.{});
+    // Out of the car once the exit animation ends.
+    frames[0].buttons = 0;
+    for (0..20) |_| p.sim.step(&frames, &.{});
     frames[0].buttons = Button.fire;
     for (0..3) |_| p.sim.step(&frames, &.{});
     try std.testing.expectEqual(@as(u32, 0), p.sim.state.world.count(S.Shot));

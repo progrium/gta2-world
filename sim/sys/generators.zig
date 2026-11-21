@@ -36,7 +36,7 @@ pub fn Sys(comptime Self: type) type {
             /// `objects.ground_z` for the ground (the 2D forms).
             z: Fx,
             heading: u16 = 0,
-            model: u8,
+            model: u16,
             min_delay: u16,
             max_delay: u16,
             /// 0: the model's own ammo.
@@ -79,7 +79,7 @@ pub fn Sys(comptime Self: type) type {
         /// Types 268/269 (`model` null) and 351/352: turn it on for `count`
         /// more spawns, optionally retasked to `model`; the spawn pattern
         /// follows the (new) current model.
-        pub fn startGenerator(self: *Self, gen: EntityId, count: u16, model: ?u8) void {
+        pub fn startGenerator(self: *Self, gen: EntityId, count: u16, model: ?u16) void {
             if (comptime !sp) return;
             const g = genOf(self, gen) orelse return;
             if (model) |m| {

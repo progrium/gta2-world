@@ -25,6 +25,8 @@ step "replay build"; cd "$root/tools/replay" && zig build -Doptimize=ReleaseSafe
 step "golden native"; ./zig-out/bin/replay verify golden
 h=$(./zig-out/bin/replay hash200 2>&1 | sed -n 's/.*final hash \([0-9a-f]\{16\}\).*/\1/p')
 step "golden wasm"; node verify-wasm.mjs zig-out/bin/replay.wasm golden "$h"
+step "sp golden native"; ./zig-out/bin/replay sp-verify golden-sp
+step "sp golden wasm"; node verify-wasm.mjs zig-out/bin/replay.wasm golden-sp
 step selftest; ./zig-out/bin/replay selftest
 step stats
 ./zig-out/bin/replay stats golden > /tmp/qa-stats.out 2>&1

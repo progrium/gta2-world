@@ -48,6 +48,9 @@ pub fn Sys(comptime Self: type) type {
                     if (cx.sim.state.world.get(id, c.ScriptTag)) |tag| if (tag.handle != 0) return;
                     if (!farFromAll(cx.pos, t)) return;
                     const sim = cx.sim;
+                    // Single player: a car with a passenger but no driver
+                    // (a police crew's) stays.
+                    if (comptime Self.single_player) if (Self.spawn.hasRider(sim, id)) return;
                     const o = sim.randomPlayerBlock(id) orelse return;
                     const driving = v.flags & c.Vehicle.flag_ai != 0;
                     if (sim.spawnAmbientCar(driving, .{ .x = o.x, .y = o.y }) == null) return;

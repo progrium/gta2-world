@@ -83,30 +83,30 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [car-handling](coverage/car-handling.md) | 5 | 4 | 0 | 0 | 1 | 0 |  |
 | [car-height](coverage/car-height.md) | 8 | 6 | 0 | 0 | 1 | 1 |  |
 | [crushers-and-garages](coverage/crushers-and-garages.md) | 4 | 1 | 1 | 0 | 2 | 0 |  |
-| [entering-and-exiting-cars](coverage/entering-and-exiting-cars.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
+| [entering-and-exiting-cars](coverage/entering-and-exiting-cars.md) | 5 | 2 | 3 | 0 | 0 | 0 |  |
 | [explosions-and-damage](coverage/explosions-and-damage.md) | 9 | 0 | 0 | 0 | 0 | 9 |  |
-| [gangs-and-respect](coverage/gangs-and-respect.md) | 3 | 0 | 0 | 0 | 0 | 3 |  |
+| [gangs-and-respect](coverage/gangs-and-respect.md) | 3 | 3 | 0 | 0 | 0 | 0 |  |
 | [map-geometry](coverage/map-geometry.md) | 3 | 2 | 1 | 0 | 0 | 0 |  |
 | [mission-scripts](coverage/mission-scripts.md) | 5 | 2 | 2 | 0 | 1 | 0 |  |
 | [ped-ai](coverage/ped-ai.md) | 15 | 5 | 10 | 0 | 0 | 0 |  |
 | [ped-movement](coverage/ped-movement.md) | 9 | 7 | 2 | 0 | 0 | 0 |  |
-| [police-ai](coverage/police-ai.md) | 7 | 0 | 0 | 1 | 0 | 6 |  |
+| [police-ai](coverage/police-ai.md) | 7 | 2 | 5 | 0 | 0 | 0 |  |
 | [power-ups-death-and-arrest](coverage/power-ups-death-and-arrest.md) | 4 | 0 | 4 | 0 | 0 | 0 |  |
 | [projectiles](coverage/projectiles.md) | 4 | 0 | 1 | 0 | 0 | 3 |  |
 | [scoring](coverage/scoring.md) | 4 | 1 | 3 | 0 | 0 | 0 |  |
 | [script-cars](coverage/script-cars.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
 | [script-characters](coverage/script-characters.md) | 11 | 0 | 0 | 0 | 0 | 11 |  |
 | [script-counters](coverage/script-counters.md) | 6 | 2 | 3 | 0 | 1 | 0 |  |
-| [script-declarations](coverage/script-declarations.md) | 16 | 0 | 0 | 4 | 1 | 11 |  |
+| [script-declarations](coverage/script-declarations.md) | 16 | 0 | 1 | 4 | 1 | 10 |  |
 | [script-flow-control](coverage/script-flow-control.md) | 7 | 5 | 2 | 0 | 0 | 0 |  |
 | [script-messages](coverage/script-messages.md) | 7 | 5 | 2 | 0 | 0 | 0 |  |
-| [script-missions](coverage/script-missions.md) | 7 | 4 | 2 | 1 | 0 | 0 |  |
+| [script-missions](coverage/script-missions.md) | 7 | 3 | 3 | 1 | 0 | 0 |  |
 | [script-objects](coverage/script-objects.md) | 7 | 0 | 0 | 6 | 0 | 1 |  |
 | [script-player](coverage/script-player.md) | 5 | 1 | 0 | 0 | 0 | 4 |  |
 | [shape-and-map-collision](coverage/shape-and-map-collision.md) | 5 | 4 | 1 | 0 | 0 | 0 |  |
 | [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 4 | 3 | 0 | 0 | 0 |  |
-| [wanted-level](coverage/wanted-level.md) | 6 | 2 | 2 | 1 | 0 | 1 |  |
+| [wanted-level](coverage/wanted-level.md) | 6 | 4 | 2 | 0 | 0 | 0 |  |
 | [weapons](coverage/weapons.md) | 8 | 0 | 2 | 0 | 0 | 6 |  |
-| **all notes** | **197** | **65** | **42** | **15** | **7** | **68** | |
+| **all notes** | **197** | **73** | **52** | **13** | **7** | **52** | |
 
 <!-- coverage:end -->

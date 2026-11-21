@@ -16,6 +16,7 @@ const EntityId = prelude.EntityId;
 const eql = prelude.eql;
 const ids = @import("../ids.zig");
 const TP = @import("../tuning/police.zig");
+const TC = @import("../tuning/career.zig");
 
 /// Pursuit states (wanted-level.md 3.5, police-ai.md 3.1-3.3).
 pub const Pursuit = enum(u8) { idle = 0, responding = 1, active = 2, searching = 3, _ };
@@ -301,6 +302,10 @@ pub fn Sys(comptime Self: type) type {
             if (comptime !sp) return false;
             const v = self.state.world.get(car, c.Vehicle) orelse return false;
             if (Self.police.ownsCar(self, car)) return true;
+            switch (TC.roleOf(v.model)) {
+                .police, .swat, .fbi => return true,
+                else => {},
+            }
             if (v.driver.isNone()) return false;
             return switch (@as(ids.Occupation, @enumFromInt(occupationOf(self, v.driver)))) {
                 .police, .swat, .fbi => true,
@@ -314,6 +319,7 @@ pub fn Sys(comptime Self: type) type {
         pub fn onCarImpact(self: *Self, hit: EntityId, by_car: EntityId, impact: Fx, crushed: bool) void {
             if (comptime !sp) return;
             if (self.predicting()) return;
+            Self.police.onImpact(self, hit, by_car);
             if (!crushed and impact <= TP.ram_cop_impact) return;
             const v = self.state.world.get(by_car, c.Vehicle) orelse return;
             const slot = playerSlotOfPed(self, v.driver) orelse return;
@@ -336,6 +342,8 @@ pub fn Sys(comptime Self: type) type {
             if (p.jump > 0) return false;
             const ctl = w.get(ped, c.Controller).?;
             const on_foot = w.get(ped, c.Riding).?.vehicle.isNone();
+            // Invisible on foot: not seen (power-ups 3.1, ped-ai.md 3.15).
+            if (on_foot and Self.career.invisible(self, slot)) return false;
             const armed = on_foot and ctl.in.buttons & prelude.Button.fire != 0;
             const car = self.state.players[slot].car;
             const attacked = if (w.get(cop, c.Health)) |h| !h.last_hit_by.isNone() and (eql(h.last_hit_by, ped) or eql(h.last_hit_by, car)) else false;
@@ -349,17 +357,10 @@ pub fn Sys(comptime Self: type) type {
             return true;
         }
 
-        /// Does `cop` have the player at `t` in view? Ours until ped-ai's
-        /// search modes land (D1): a box around the cop, no sightline.
-        fn inView(self: *Self, cop: EntityId, t: *const c.Transform) bool {
-            const ct = self.state.world.get(cop, c.Transform) orelse return false;
-            return @abs(ct.x - t.x) <= TP.cop_view_x and @abs(ct.y - t.y) <= TP.cop_view_y and @abs(ct.z - t.z) <= TP.cop_view_z;
-        }
-
         /// Wanted bookkeeping, once a tick (wanted-level.md 4.1): drop old
         /// reports, clear the level of a player who has respawned or has
-        /// "no police" on, run the recent-crime timer, and let every cop
-        /// with a player in view check him.
+        /// "no police" on, and run the recent-crime timer. Cops check the
+        /// player through `copSees` (D1's threat search, E's crews).
         pub fn sysWanted(self: *Self) void {
             if (comptime !sp) return;
             if (self.predicting()) return;
@@ -380,18 +381,6 @@ pub fn Sys(comptime Self: type) type {
                 if (s.flags & State.flag_no_police != 0 and s.points != 0) clear(self, slot);
                 if (s.recent > 0) s.recent -= 1;
             }
-            self.state.world.eachFiltered(.{ c.Objective, c.Health, c.Transform }, false, self, struct {
-                fn f(sim: *Self, id: EntityId, o: *c.Objective, h: *c.Health, _: *c.Transform) void {
-                    if (!isLaw(o.occupation) or h.hp <= 0) return;
-                    for (0..cfg.max_players) |i| {
-                        const ped = sim.pedOf(@intCast(i)) orelse continue;
-                        const ph = sim.state.world.get(ped, c.Health).?;
-                        if (ph.hp <= 0) continue;
-                        if (!inView(sim, id, sim.state.world.get(ped, c.Transform).?)) continue;
-                        _ = copSees(sim, id, @intCast(i));
-                    }
-                }
-            }.f);
         }
     };
 }

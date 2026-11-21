@@ -4,10 +4,10 @@ Rules from [docs/behaviour/police-ai.md](../behaviour/police-ai.md). Status: don
 
 | rule | status | test | notes |
 |---|---|---|---|
-| 3.1 Dispatch and the drive to get there (idle → responding) | todo | | |
-| 3.2 The chase: boxing in and ramming | todo | | |
-| 3.3 Losing the target and searching | stubbed | sim/test/police_wanted.zig: crew targets per tier, and the pursuit states | The 250-tick sight clock drops an active pursuit to searching; crews and the leash wait for wave 2. |
-| 3.4 Roadblocks | todo | | |
-| 3.5 Chasing and arresting on foot | todo | | |
-| 3.6 SWAT, FBI and army specifics | todo | | |
-| 3.7 Sirens and lights | todo | | |
+| 3.1 Dispatch and the drive to get there (idle → responding) | ours | sim/test/police_wanted.zig: a wanted player gets a crew after the 200-tick delay | 200/50-tick delays, scrapped if no spot. Spawn spot ours: a road 10-18 blocks from the last known position, else the nearest road to a ring point. Drives with F's go-to and route planner (fast snap). Responding ends on a sighting. |
+| 3.2 The chase: boxing in and ramming | ours | sim/test/police_wanted.zig: a ram on the target's car adds 500 damage | Follow, pick a free side, approach, alongside, ahead, block, park; ram when both sides are taken past the patience or not caught up in 200 ticks; +500 per ram with a 30-tick cooldown. Ours: offsets, patience 150/50 (FBI x3), speeds. Box-in points are go-to targets for F's car tasks, so the line is approximate. Not checked against footage. |
+| 3.3 Losing the target and searching | ours | sim/test/police_wanted.zig: crew targets per tier, and the pursuit states | 250-tick sight clock; searching crews drive to the last known position, get out, wait 200 ticks, give up; the 5-block leash applies at every tier (police-ai.md's reading, not wanted-level.md's FBI-only). |
+| 3.4 Roadblocks | ours | sim/test/police_wanted.zig: a roadblock goes up across the road at three stars | `police.tryRoadblock` for F's off-screen spawner to call (not wired yet). Width measured across the lane, cars on alternate lanes, two barriers and every other time a guard between, army tanks only with the last lane open. Ours: 600-tick cooldown, guard alternation, 20 blocks for 'well away'. Barriers are decoration objects until B has a barrier kind with collision. |
+| 3.5 Chasing and arresting on foot | done | sim/test/police_wanted.zig: a one-star player on foot is chased down and arrested or shot by the crew | Officers get out within 5 blocks of a target on foot, or 3 of a stopped car (ours), and attack through D1; D1's punch knock-down calls `career.bust`, and its pull-out handles a target in a car. Back to the car at 10 blocks (ours). |
+| 3.6 SWAT, FBI and army specifics | ours | sim/test/police_wanted.zig: four stars add one SWAT crew of four | Police crews of 2 (60 hp and a pistol at one star, 100 hp; SMG from three stars), SWAT 4 at 200 hp with SMGs (hp and weapons ours). FBI and army are never dispatched as crews; at five stars and up police and SWAT crews go home, `top_kind` is kept for roadblocks and for F to reskin traffic (not wired yet). |
+| 3.7 Sirens and lights | done | sim/test/police_wanted.zig: a wanted player gets a crew | Siren events on and off for crew and roadblock cars; `ai_emergency` set (F's always-honk). |

@@ -46,7 +46,7 @@ pub const phone_spoken_for: u8 = 16;
 pub const phone_touched: u8 = 32;
 
 /// Is `model` one of the pickup object models (script-objects.md 4)?
-pub fn isPickupModel(model: u8) bool {
+pub fn isPickupModel(model: u16) bool {
     return (model >= OT.pickup_model_lo and model <= OT.pickup_model_hi) or
         (model >= OT.weapon_model_lo and model <= OT.weapon_model_hi);
 }
@@ -103,7 +103,7 @@ pub fn Sys(comptime Self: type) type {
         /// Place an object (`ids.ObjectKind`, `model` is the object type).
         /// `z` at or above `ground_z` puts it on the ground at (x, y).
         /// Authoritative `sp` only.
-        pub fn spawnObject(self: *Self, kind: ids.ObjectKind, model: u8, x: Fx, y: Fx, z: Fx, heading: u16) ?EntityId {
+        pub fn spawnObject(self: *Self, kind: ids.ObjectKind, model: u16, x: Fx, y: Fx, z: Fx, heading: u16) ?EntityId {
             if (comptime !sp) return null;
             if (self.predicting()) return null;
             const w = &self.state.world;
@@ -133,7 +133,7 @@ pub fn Sys(comptime Self: type) type {
 
         /// The object's model, or null if `id` is not a live object (the
         /// type 362 test).
-        pub fn objectModel(self: *Self, id: EntityId) ?u8 {
+        pub fn objectModel(self: *Self, id: EntityId) ?u16 {
             if (comptime !sp) return null;
             const o = objectOf(self, id) orelse return null;
             return o.model;
@@ -413,7 +413,7 @@ pub fn Sys(comptime Self: type) type {
                         if (!givePickupModel(sim, @intCast(slot), row.ped, o)) continue;
                         sim.scratch.stats.pickups_taken += 1;
                         // c = 1: b is an object model, not a weapon index.
-                        sim.pushEvent(.{ .kind = .pickup, .a = @intCast(slot), .b = o.model, .c = 1, .x = t.x, .y = t.y, .z = t.z });
+                        sim.pushEvent(.{ .kind = .pickup, .a = @intCast(slot), .b = @truncate(o.model), .c = 1, .x = t.x, .y = t.y, .z = t.z });
                         ww.despawn(id);
                         return;
                     }
@@ -430,7 +430,7 @@ pub fn Sys(comptime Self: type) type {
         /// are taken.
         fn givePickupModel(self: *Self, slot: u8, ped: EntityId, o: *const c.Object) bool {
             if (o.model >= OT.weapon_model_lo and o.model <= OT.weapon_model_hi) {
-                const k = o.model - OT.weapon_model_lo;
+                const k: u8 = @intCast(o.model - OT.weapon_model_lo);
                 if (k >= T.weapon_count) return true;
                 const rounds: u16 = if (o.value != 0) o.value else T.weapons[k].pickup_rounds;
                 var give: c.Weapon = std.mem.zeroes(c.Weapon);
@@ -439,7 +439,7 @@ pub fn Sys(comptime Self: type) type {
                 return self.givePickup(ped, &give);
             }
             const n = o.model -% OT.pickup_model_lo;
-            if (n < OT.powerup_kinds) Self.career.givePowerUp(self, slot, n, OT.powerup_ticks);
+            if (n < OT.powerup_kinds) Self.career.givePowerUp(self, slot, @intCast(n), OT.powerup_ticks);
             return true;
         }
 

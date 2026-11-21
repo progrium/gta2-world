@@ -117,3 +117,27 @@ test "zone spawning: no settings leaves the population as before" {
     f.run(400);
     try std.testing.expectEqual(before, f.sim.state.world.count(S.Car));
 }
+
+test "recycling: a car with a passenger aboard and no driver is never despawned" {
+    var f = try Fixture.init(69, 69);
+    defer f.deinit();
+    // The zone wants no cars, so the drain looks for spares; one car sits
+    // in the drain's reach (out of sight, under `ambient_far`) and one
+    // beyond it, where the ambient recycler moves cars.
+    try std.testing.expect(S.spawn.setZoneDensity(f.sim, "downtown", .{ .car_density = 0, .ped_density = 0 }));
+    const w = &f.sim.state.world;
+    var cars: [2]EntityId = undefined;
+    var peds: [2]EntityId = undefined;
+    for ([2][2]i32{ .{ 69 + 20, 66 }, .{ 69 + 60, 66 } }, 0..) |p, i| {
+        cars[i] = f.sim.spawnCarAt(h_.blk(p[0]), h_.blk(p[1]), 0, 0).?;
+        peds[i] = S.spawn.spawnPed(f.sim, c.Controller.no_player, 0).?;
+    }
+    f.run(1);
+    for (cars, peds) |car, ped| w.get(ped, c.Riding).?.vehicle = car;
+    f.run(2000);
+    for (cars, peds) |car, ped| {
+        try std.testing.expect(w.isAlive(car));
+        try std.testing.expect(w.isAlive(ped));
+        try std.testing.expectEqual(car.raw, w.get(ped, c.Riding).?.vehicle.raw);
+    }
+}

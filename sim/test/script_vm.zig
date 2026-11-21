@@ -75,7 +75,7 @@ const Run = struct {
 test "script 3-1: declarations apply once at start, even unreachable ones; the thread starts at level start" {
     var r = try Run.init(
         \\1 counter 5
-        \\2 save_counter 7
+        \\2 counter_v 7
         \\3 level_start
         \\4 set 1 6 -> end
         \\9 counter 42      # never reached by any thread
@@ -615,6 +615,139 @@ test "missions 2-1: the gang-phone gate refuses with a canned brief, or launches
         try std.testing.expectEqual(@as(u16, 1), r.st().mission);
         try std.testing.expectEqual(@as(u8, 1), r.st().thread[0].sp);
     }
+}
+
+fn countEvents(r: *Run, kind: anytype, n: u32) u32 {
+    var total: u32 = 0;
+    for (0..n) |_| {
+        r.step(1);
+        for (r.sim.events()) |e| if (e.kind == kind) {
+            total += 1;
+        };
+    }
+    return total;
+}
+
+test "missions 2-1 (ours): a mission that ends normally reports a pass; a 274 launch has no flags to read" {
+    var r = try Run.init(mission_text);
+    defer r.deinit();
+    try std.testing.expectEqual(@as(u32, 1), countEvents(r, .mission_pass, 30));
+    try std.testing.expectEqual(@as(u16, 0), r.st().mission_thread);
+}
+
+const gate_pass_text =
+    \\.string 30 mission demo_m1.mis
+    \\.string 40 gang testgang
+    \\.main
+    \\1 counter 0
+    \\2 counter 0          # passed
+    \\3 counter 0          # failed
+    \\4 counter 0
+    \\5 counter 0          # what the mission sets: 1 pass, 2 fail
+    \\6 level_start
+    \\7 gang_phone 1098 2 3 0 1 4 0 0 40 0 30 0
+    \\8 gang_phone 1098 2 3 0 1 4 0 0 40 0 30 0 -> end
+    \\.mission demo_m1 100 101
+    \\101 mission_begin
+    \\102 eq 5 1
+    \\103 if 0 106 -> 104
+    \\104 set 2 1
+    \\105 mission_end
+    \\106 set 3 1
+    \\107 mission_end
+;
+
+test "missions 2-1 (ours): the gate's passed or failed counter decides the outcome; a running mission blocks a second gate" {
+    // Passed.
+    {
+        var r = try Run.init(gate_pass_text);
+        defer r.deinit();
+        r.step(1);
+        r.st().slot[5] = 1;
+        try std.testing.expectEqual(@as(u32, 1), countEvents(r, .mission_pass, 12));
+        try std.testing.expectEqual(@as(u16, 0), r.st().mission_thread);
+    }
+    // Failed by the mission's own logic.
+    {
+        var r = try Run.init(gate_pass_text);
+        defer r.deinit();
+        r.step(1);
+        r.st().slot[5] = 2;
+        try std.testing.expectEqual(@as(u32, 1), countEvents(r, .mission_fail, 12));
+    }
+    // A second gate while the mission runs: the "on a job" line, no reload.
+    {
+        var r = try Run.init(
+            \\.string 30 mission demo_m1.mis
+            \\.string 40 gang testgang
+            \\.main
+            \\1 counter 0
+            \\2 counter 0
+            \\3 counter 0
+            \\4 counter 0
+            \\6 level_start
+            \\7 start_thread 20
+            \\8 gang_phone 1098 2 3 0 1 4 0 0 40 0 30 0 -> end
+            \\20 thread_decl
+            \\21 gang_phone 1098 2 3 0 1 4 0 0 40 0 30 0 -> end
+            \\.mission demo_m1 100 101
+            \\100 counter 0
+            \\101 mission_begin
+            \\102 inc 100 -> 102
+        );
+        defer r.deinit();
+        r.step(10);
+        try std.testing.expectEqual(@as(u16, 1), r.st().mission);
+        try std.testing.expect(r.ctr(100) >= 5); // never reset by a reload
+        try std.testing.expectEqual(@as(u32, 1098 - 5), r.hud().briefs[0].text);
+    }
+}
+
+test "script 3-1: the declaration pass steps over the VM's own commands without counting them" {
+    var r = try Run.init(
+        \\1 counter 0
+        \\2 level_start
+        \\3 set 1 1
+        \\4 eq 1 1
+        \\5 if 0 7 -> 6
+        \\6 inc 1 -> end
+        \\7 level_end
+    );
+    defer r.deinit();
+    r.step(1);
+    try std.testing.expectEqual(@as(u32, 0), r.st().unhandled);
+}
+
+test "triggers 3-4 (ours): a phone trigger's target object becomes a phone" {
+    var r = try Run.init(
+        \\1 level_start -> end
+    );
+    defer r.deinit();
+    r.join();
+    const obj = S.objects.spawnObject(r.sim, .none, 7, fx.fromInt(20), fx.fromInt(20), 0, 0).?;
+    const Kind = enum(u8) { car, phone };
+    const ctx: V.Ctx = .{ .self = r.sim, .t = null, .num = 9 };
+    ctx.addTrigger(.{ .kind = Kind.phone, .thread = @as(u16, 1), .character = r.sim.pedOf(0).?, .target = obj, .x = @as(fx.Fx, 0), .y = @as(fx.Fx, 0), .z = @as(fx.Fx, 0), .w = @as(fx.Fx, 0), .h = @as(fx.Fx, 0) });
+    try std.testing.expectEqual(@as(u8, @intFromEnum(simmod.ids.ObjectKind.phone)), r.sim.state.world.get(obj, c.Object).?.kind);
+}
+
+test "declarations 2-6 (ours for 113/114/116): an arrow points at a place or a thing; only its own removal clears it" {
+    var r = try Run.init(
+        \\1 arrow
+        \\2 arrow
+        \\3 level_start
+        \\4 arrow_pos 0 10 0 12 0 0 1 0
+        \\5 arrow_clear 2
+        \\6 arrow_clear 1
+        \\7 arrow_at 3 0 2 0 -> end
+    );
+    defer r.deinit();
+    r.step(2);
+    try std.testing.expectEqual(fx.fromInt(40), r.hud().arrow_x); // 10 << 16 in script units (Q14)
+    r.step(1);
+    try std.testing.expect(r.hud().arrow_x != 0); // another arrow's removal leaves it
+    r.step(1);
+    try std.testing.expectEqual(@as(fx.Fx, 0), r.hud().arrow_x);
 }
 
 test "missions 2-2: 391 removes everything on the cleanup list" {

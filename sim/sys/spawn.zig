@@ -94,12 +94,19 @@ pub fn Sys(comptime Self: type) type {
         /// A random free spot whose floor has ground type `ground`, keyed on
         /// the entity being spawned.
         pub fn findSpot(self: *Self, key: EntityId, ground: u2, clearance: Fx) ?Spot {
+            return Api.findSpotOpts(self, key, ground, clearance, false);
+        }
+
+        /// `findSpot`; with `lane`, only a road cell with exactly one arrow
+        /// (a lane, not a junction): where traffic starts.
+        pub fn findSpotOpts(self: *Self, key: EntityId, ground: u2, clearance: Fx, lane: bool) ?Spot {
             var attempt: u32 = 0;
             while (attempt < 96) : (attempt += 1) {
                 const cx: i32 = @intCast(self.randBelow(key, salt_spawn_x + attempt, map.size_x));
                 const cy: i32 = @intCast(self.randBelow(key, salt_spawn_y + attempt, map.size_y));
                 const f = self.columnFloor(cx, cy) orelse continue;
                 if (map.groundOf(f.cell) != ground) continue;
+                if (lane and @popCount(map.arrowsOf(f.cell)) != 1) continue;
                 const x = fx.fromInt(cx) + fx.half;
                 const y = fx.fromInt(cy) + fx.half;
                 const z = fx.fromInt(f.z);
@@ -112,6 +119,11 @@ pub fn Sys(comptime Self: type) type {
         /// Like `findSpot`, but within `radius` blocks (Chebyshev) of block
         /// (`ox`, `oy`), and at least `min_dist` away from it.
         pub fn findSpotNear(self: *Self, key: EntityId, ground: u2, clearance: Fx, ox: i32, oy: i32, radius: i32, min_dist: i32) ?Spot {
+            return Api.findSpotNearOpts(self, key, ground, clearance, ox, oy, radius, min_dist, false);
+        }
+
+        /// `findSpotNear`, with `findSpotOpts`'s `lane`.
+        pub fn findSpotNearOpts(self: *Self, key: EntityId, ground: u2, clearance: Fx, ox: i32, oy: i32, radius: i32, min_dist: i32, lane: bool) ?Spot {
             const span: u32 = @intCast(2 * radius + 1);
             var attempt: u32 = 0;
             while (attempt < 64) : (attempt += 1) {
@@ -123,6 +135,7 @@ pub fn Sys(comptime Self: type) type {
                 if (cx < 0 or cy < 0 or cx >= map.size_x or cy >= map.size_y) continue;
                 const f = self.columnFloor(cx, cy) orelse continue;
                 if (map.groundOf(f.cell) != ground) continue;
+                if (lane and @popCount(map.arrowsOf(f.cell)) != 1) continue;
                 const x = fx.fromInt(cx) + fx.half;
                 const y = fx.fromInt(cy) + fx.half;
                 const z = fx.fromInt(f.z);
@@ -160,7 +173,11 @@ pub fn Sys(comptime Self: type) type {
             const w = &self.state.world;
             const id = w.spawn(Car) orelse return null;
             const r = T.carModel(0).radius;
-            const found = if (near) |o| self.findSpotNear(id, map.Ground.road, r, o.x, o.y, T.ambient_near_radius, T.ambient_near_min) else self.findSpot(id, map.Ground.road, r);
+            // Single player: every ambient car drives (parked cars come
+            // from the level script). Traffic starts on a lane, never in a
+            // junction (ours).
+            const drives = driving or Self.single_player;
+            const found = if (near) |o| Api.findSpotNearOpts(self, id, map.Ground.road, r, o.x, o.y, T.ambient_near_radius, T.ambient_near_min, drives) else Api.findSpotOpts(self, id, map.Ground.road, r, drives);
             const spot = found orelse {
                 w.despawn(id);
                 return null;
@@ -169,7 +186,7 @@ pub fn Sys(comptime Self: type) type {
             // Off-screen traffic near a player at three stars or more may
             // become a roadblock instead (E's hook; police-ai.md 3.4).
             if (comptime Self.single_player and @hasDecl(Self.police, "tryRoadblock")) {
-                if (driving and near != null) {
+                if (drives and near != null) {
                     const l = route_mod.levelUnder(self.grid, spot.x, spot.y, spot.z, T.car_step);
                     if (Self.police.tryRoadblock(self, fx.toInt(spot.x), fx.toInt(spot.y), l, dir)) {
                         w.despawn(id);
@@ -180,18 +197,24 @@ pub fn Sys(comptime Self: type) type {
             var model = self.pickAmbientModel(id);
             var reskin = false;
             if (comptime Self.single_player) {
-                if (driving and near != null) if (Api.reskinModel(self, id)) |m| {
+                if (drives and near != null) if (Api.reskinModel(self, id)) |m| {
                     model = m;
                     reskin = true;
                 };
             }
             self.initCar(id, spot, model);
-            if (driving) {
+            if (drives) {
                 const v = w.get(id, c.Vehicle).?;
                 v.flags = c.Vehicle.flag_ai;
                 v.ai_dir = dir;
                 if (reskin) v.ai_flags |= c.Vehicle.ai_emergency;
             }
+            // The zone's car mix, for every car brought near a player
+            // (spawned or recycled).
+            if (comptime Self.single_player) if (near) |o| if (Api.zoneDensityAt(self, o.x, o.y)) |d| {
+                const kind: CarKind = @enumFromInt(Api.pickWeighted(self, id, salt_zone_car_kind, d.car_ratio));
+                Api.dressCar(self, id, kind);
+            };
             return id;
         }
 
@@ -407,13 +430,24 @@ pub fn Sys(comptime Self: type) type {
             if (ctx.n < target) {
                 const key = EntityId.none;
                 const driving = self.randBelow(key, salt_zone_driving, 8) < T.traffic_8ths;
-                const id = Api.spawnAmbientCar(self, driving, .{ .x = bx, .y = by }) orelse return;
-                const kind: CarKind = @enumFromInt(Api.pickWeighted(self, id, salt_zone_car_kind, d.car_ratio));
-                Api.dressCar(self, id, kind);
+                _ = Api.spawnAmbientCar(self, driving, .{ .x = bx, .y = by }) orelse return;
                 self.scratch.stats.ambient_moved += 1;
-            } else if (ctx.n > target + TF.zone_slack and !ctx.spare.isNone()) {
+            } else if (ctx.n > target + TF.zone_slack and !ctx.spare.isNone() and !Api.hasRider(self, ctx.spare)) {
                 w.despawn(ctx.spare);
             }
+        }
+
+        /// Is any ped riding `car` (a passenger, say a police crew member
+        /// whose driver got out)? Such a car is never despawned.
+        pub fn hasRider(self: *Self, car: EntityId) bool {
+            const Ctx = struct { car: EntityId, found: bool = false };
+            var ctx = Ctx{ .car = car };
+            self.state.world.each(.{c.Riding}, &ctx, struct {
+                fn f(cx: *Ctx, _: EntityId, r: *c.Riding) void {
+                    if (r.vehicle.raw == cx.car.raw) cx.found = true;
+                }
+            }.f);
+            return ctx.found;
         }
 
         fn zonePeds(self: *Self, bx: i32, by: i32, d: ZoneDensity) void {

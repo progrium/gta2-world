@@ -442,7 +442,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     nextPickup = nextPickup + 1 >= WEAPON_NAMES.length + PICKUP_NAMES.length ? 1 : nextPickup + 1;
   }
   function hudLine(p: PlayerInfo): string {
-    const parts = [`${WEAPON_NAMES[p.weapon] ?? "?"}${p.rounds < 0 ? "" : ` · ${p.rounds}`}`];
+    const parts = [p.rounds === 0 ? "Unarmed" : `${WEAPON_NAMES[p.weapon] ?? "?"}${p.rounds < 0 ? "" : ` · ${p.rounds}`}`];
     if (p.charge > 0) parts.push(`throw ${"▮".repeat(Math.min(6, Math.ceil(p.charge / 10)))}`);
     parts.push(`♥ ${Math.max(0, p.hp)}`);
     if (p.armour > 0) parts.push(`armour ${p.armour}`);
