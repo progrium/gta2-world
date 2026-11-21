@@ -24,4 +24,5 @@ test {
     _ = @import("test/script_vm.zig");
     _ = @import("test/traffic_rules.zig");
     _ = @import("test/traffic_spawn.zig");
+    _ = @import("test/shops.zig");
 }

@@ -123,6 +123,9 @@ pub const EventKind = enum(u8) {
     /// x, y, z of the speaker; a = what (0 a cop shouts "Freeze!", 1 police
     /// radio chatter), b = the pursued slot (cosmetic, police-ai.md)
     police_voice = 19,
+    /// x, y, z of a spray shop; a = slot, b = the car's new remap, c = 0 no
+    /// wanted level, 1 wanted level cleared (paid), 2 could not pay
+    respray = 20,
     _,
 };
 

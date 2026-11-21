@@ -122,6 +122,7 @@ async function start(m: Extract<ToHost, { t: "start" }>): Promise<void> {
     const entropy = crypto.getRandomValues(new Uint8Array(32));
     const now = clock();
     const cars = m.cars ? h.loadCars(new Uint8Array(m.cars.style), m.cars.gci ? new Uint8Array(m.cars.gci) : null) : { cars: 0, hash: "" };
+    if (m.script) h.loadScript(new Uint8Array(m.script));
     const info = h.start({ session: m.session, map: new Uint8Array(m.map), maxPlayers: m.maxPlayers, seed: m.seed, record: m.record, now, entropy });
     host = h;
     running = true;

@@ -153,6 +153,7 @@ export class HostPeers {
       this.readyWait = { resolve, reject };
       const transfer = [o.map];
       if (o.cars) transfer.push(o.cars.style, ...(o.cars.gci ? [o.cars.gci] : []));
+      if (o.script) transfer.push(o.script);
       this.worker.postMessage({ t: "start", ...o }, transfer);
     });
   }

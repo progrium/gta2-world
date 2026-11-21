@@ -22,6 +22,7 @@ interface Exports {
   start(mapPtr: number, mapLen: number, namePtr: number, nameLen: number, maxPlayers: number, seedLo: number, seedHi: number, record: boolean, now: number, wallSeconds: number, entropy: number): number;
   synthMap(): number;
   loadCars(styPtr: number, styLen: number, gciPtr: number, gciLen: number): number;
+  loadScript?(ptr: number, len: number): number;
   opened(peer: number, transport: number, now: number): number;
   stream(peer: number, p: number, n: number, now: number): void;
   datagram(peer: number, p: number, n: number, now: number): void;
@@ -136,6 +137,19 @@ export class HostModule {
       return JSON.parse(this.text()) as { cars: number; hash: string };
     } finally {
       this.w.free(p, Math.max(total, 1));
+    }
+  }
+
+  /** The map's main .scr, for its car shops. Before start; a host.wasm without the export skips it. */
+  loadScript(scr: Uint8Array): void {
+    if (!this.w.loadScript) return;
+    const p = this.w.alloc(Math.max(scr.length, 1));
+    if (!p) throw new Error("host.wasm: out of memory for the script");
+    try {
+      this.u8(p, scr.length).set(scr);
+      if (this.w.loadScript(p, scr.length) !== 0) console.warn(`host.wasm loadScript: ${this.text()}`);
+    } finally {
+      this.w.free(p, Math.max(scr.length, 1));
     }
   }
 

@@ -79,6 +79,8 @@ pub const Vehicle = extern struct {
     /// Squashed flat by a crusher (crushers-and-garages.md 3.2; set by
     /// workstream B's `sys/crusher.zig`).
     pub const flag_crushed: u8 = 64;
+    /// Inside a car shop's block (`sys/shops.zig`), so a visit acts once.
+    pub const flag_in_shop: u8 = 128;
 
     /// `ai_flags`: script-created (never gives up off-road).
     pub const ai_script: u8 = 1;

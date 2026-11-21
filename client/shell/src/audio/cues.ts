@@ -49,6 +49,7 @@ const INFO = {
   car_bump: { label: "Car bump (light)", group: "Vehicles", fallback: "car_crash" },
   tyre_screech: { label: "Tyre screech (hard turn at speed)", group: "Vehicles" },
   siren: { label: "Siren", group: "Vehicles" },
+  respray: { label: "Spray shop respray", group: "Vehicles" },
   // Pickups: the pickup sound, then the announcer names what it was.
   pickup: { label: "Weapon pickup", group: "Pickups" },
   pickup_health: { label: "Health pickup", group: "Pickups", fallback: "pickup" },

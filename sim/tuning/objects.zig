@@ -9,6 +9,23 @@
 const fx = @import("../fixed.zig");
 const Fx = fx.Fx;
 
+// --- Car shops (ours: no behaviour note covers them yet; sys/shops.zig)
+
+/// The `CAR_SHOP` object model in the level scripts (the player's data:
+/// every main script declares its shops with this model).
+pub const car_shop_model: u16 = 130;
+/// Declaration values from here up are the weapon shops' codes (250-254
+/// in the data); below it the value is a spray shop's paint remap.
+pub const first_weapon_shop: u8 = 250;
+/// Ours: a car is in a shop when its centre is in the shop's block and
+/// within a block of the shop's floor height.
+pub const shop_reach_z = fx.one;
+/// Ours: the price of losing the wanted level at a spray shop, in career
+/// cash (single player) and in points (a police room, where a player kill
+/// is 2000). The repaint itself is free.
+pub const shop_price_sp: i32 = 5000;
+pub const shop_price_mp: i32 = 2000;
+
 // --- Crushers (notes: crushers-and-garages.md 3.1-3.2, 4)
 
 /// Piston distance from the centre when open and when closed.
