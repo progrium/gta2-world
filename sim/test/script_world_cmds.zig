@@ -447,7 +447,7 @@ test "script world: doors, generators, areas and phones reach B's objects" {
     var g: B = .{};
     _ = g.pos2d(4, 42, 42).u16_(16, 0).u16_(18, 210).u16_(20, 1800).u16_(22, 1800).u16_(24, 15);
     try std.testing.expectEqual(W.Outcome.done, e.run(30, 226, g.s()));
-    try std.testing.expectEqual(@as(?u8, 210), S.objects.objectModel(e.sim, e.ctx.handles[226]));
+    try std.testing.expectEqual(@as(u32, 210), @as(u32, S.objects.objectModel(e.sim, e.ctx.handles[226]).?));
     // 27: a conveyor pushing +x.
     var a: B = .{};
     _ = a.pos2d(4, 41, 41).i32_(16, 2 * W.script_one).i32_(20, 2 * W.script_one);

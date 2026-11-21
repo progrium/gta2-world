@@ -107,7 +107,7 @@ pub fn Sys(comptime Self: type) type {
                 362 => {
                     const have = Self.objects.objectModel(self, id) orelse return cond(ctx, false);
                     const m = p.u16_(4);
-                    ctx.setCond(m < 256 and have == m);
+                    ctx.setCond(have == m);
                 },
                 160, 356 => {
                     ctx.setCond(false);
