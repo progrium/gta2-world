@@ -51,7 +51,9 @@ pub const Header = struct {
 
 pub const Writer = struct {
     gpa: std.mem.Allocator,
-    file: util.OutFile,
+    /// Null for an in-memory capture (`createMem`): everything stays in
+    /// `buf` until the owner takes it with `captured`.
+    file: ?util.OutFile,
     buf: std.ArrayList(u8) = .empty,
     max_players: u16,
     ticks: u64 = 0,
@@ -59,9 +61,19 @@ pub const Writer = struct {
     failed: bool = false,
 
     pub fn create(gpa: std.mem.Allocator, path: []const u8, h: Header) !*Writer {
+        return init(gpa, try util.OutFile.create(path), h);
+    }
+
+    /// A capture kept in memory (the browser host, which has no files).
+    pub fn createMem(gpa: std.mem.Allocator, h: Header) !*Writer {
+        return init(gpa, null, h);
+    }
+
+    fn init(gpa: std.mem.Allocator, file: ?util.OutFile, h: Header) !*Writer {
         const w = try gpa.create(Writer);
         errdefer gpa.destroy(w);
-        w.* = .{ .gpa = gpa, .file = try util.OutFile.create(path), .max_players = h.max_players };
+        w.* = .{ .gpa = gpa, .file = file, .max_players = h.max_players };
+        errdefer w.buf.deinit(gpa);
         const b = &w.buf;
         try b.appendSlice(gpa, magic);
         try putInt(gpa, b, u16, format_version);
@@ -104,9 +116,15 @@ pub const Writer = struct {
         w.ticks += 1;
     }
 
+    /// The whole capture so far, for an in-memory writer.
+    pub fn captured(w: *const Writer) []const u8 {
+        return w.buf.items;
+    }
+
     pub fn flush(w: *Writer) void {
+        const f = w.file orelse return;
         if (w.buf.items.len == 0 or w.failed) return;
-        w.file.writeAll(w.buf.items) catch {
+        f.writeAll(w.buf.items) catch {
             w.failed = true;
         };
         w.bytes += w.buf.items.len;
@@ -115,7 +133,7 @@ pub const Writer = struct {
 
     pub fn close(w: *Writer) void {
         w.flush();
-        w.file.close();
+        if (w.file) |f| f.close();
         w.buf.deinit(w.gpa);
         w.gpa.destroy(w);
     }

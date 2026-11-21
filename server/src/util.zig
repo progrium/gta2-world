@@ -1,21 +1,53 @@
 const std = @import("std");
-const c = @import("c");
+const builtin = @import("builtin");
+
+/// Built for the browser host (host/, wasm32-freestanding): no libc, no
+/// clocks, no files. Time and entropy come from the embedder through
+/// `embedded`; everything that needs a file or a socket is native only.
+pub const freestanding = builtin.os.tag == .freestanding;
+const c = if (freestanding) struct {} else @import("c");
+
+/// What the embedder supplies when `freestanding`. Unused natively.
+pub const embedded = struct {
+    /// The current time in ns, set by the embedder before every call into
+    /// the manager (the browser Worker's monotonic clock).
+    pub var now_ns: u64 = 0;
+    /// Unix seconds when the session started (replay header only).
+    pub var wall_seconds: i64 = 0;
+    /// A clock for timing work only (step and encode metrics), never fed
+    /// to the session. Falls back to `now_ns` when unset.
+    pub var stopwatch: ?*const fn () u64 = null;
+    /// Resume tokens. The embedder seeds it from its own CSPRNG before
+    /// anything asks for random bytes.
+    pub var rng: ?std.Random.DefaultCsprng = null;
+};
 
 /// Monotonic clock in nanoseconds. ngtcp2 timestamps use this clock.
 pub fn now() u64 {
+    if (freestanding) return embedded.now_ns;
     var ts: c.struct_timespec = undefined;
     _ = c.clock_gettime(c.CLOCK_MONOTONIC, &ts);
     return @as(u64, @intCast(ts.tv_sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.tv_nsec));
 }
 
+/// A clock for timing work (step and snapshot encode metrics). Natively
+/// the same as `now`; in the browser host a separate high-resolution one,
+/// because `now` there only moves when the embedder says so.
+pub fn stopwatch() u64 {
+    if (freestanding) return if (embedded.stopwatch) |f| f() else embedded.now_ns;
+    return now();
+}
+
 /// Wall clock, seconds since the epoch (for log lines only).
 pub fn wallSeconds() i64 {
+    if (freestanding) return embedded.wall_seconds;
     var ts: c.struct_timespec = undefined;
     _ = c.clock_gettime(c.CLOCK_REALTIME, &ts);
     return @intCast(ts.tv_sec);
 }
 
 pub fn randomBytes(buf: []u8) void {
+    if (freestanding) return if (embedded.rng) |*r| r.fill(buf) else @panic("util.embedded.rng not seeded");
     var off: usize = 0;
     while (off < buf.len) {
         const n = c.getrandom(buf[off..].ptr, buf.len - off, 0);
@@ -106,6 +138,7 @@ pub fn nowMs16() u16 {
 
 /// Read a whole file with libc (keeps us off the moving std.Io API).
 pub fn readFile(gpa: std.mem.Allocator, path: []const u8, max: usize) ![]u8 {
+    if (freestanding) return error.Unsupported;
     var zpath: [4096]u8 = undefined;
     if (path.len >= zpath.len) return error.NameTooLong;
     @memcpy(zpath[0..path.len], path);
@@ -131,6 +164,7 @@ pub const OutFile = struct {
     fd: c_int,
 
     pub fn create(path: []const u8) !OutFile {
+        if (freestanding) return error.Unsupported;
         var zpath: [4096]u8 = undefined;
         if (path.len >= zpath.len) return error.NameTooLong;
         @memcpy(zpath[0..path.len], path);
@@ -140,6 +174,7 @@ pub const OutFile = struct {
         return .{ .fd = fd };
     }
     pub fn writeAll(f: OutFile, bytes: []const u8) !void {
+        if (freestanding) return error.Unsupported;
         var off: usize = 0;
         while (off < bytes.len) {
             const n = c.write(f.fd, bytes[off..].ptr, bytes.len - off);
@@ -148,6 +183,7 @@ pub const OutFile = struct {
         }
     }
     pub fn close(f: OutFile) void {
+        if (freestanding) return;
         _ = c.close(f.fd);
     }
 };

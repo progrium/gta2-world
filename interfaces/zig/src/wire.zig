@@ -63,7 +63,9 @@ pub const Msg = enum(u8) {
 /// followed by exactly one I3 message.
 pub const WsChannel = enum(u8) { datagram = 0, stream = 1, _ };
 
-pub const Transport = enum(u8) { webtransport = 0, websocket = 1, _ };
+/// 2 (webrtc) was added after the v1 freeze: browser-hosted games over
+/// WebRTC data channels. Old servers never see it (they are not WebRTC peers).
+pub const Transport = enum(u8) { webtransport = 0, websocket = 1, webrtc = 2, _ };
 
 pub const RejectCode = enum(u8) {
     protocol_mismatch = 1,

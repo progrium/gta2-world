@@ -11,7 +11,8 @@ tester site's `play/` page is that folder.
 ```sh
 npm install
 npm run check   # tsc, no emit
-npm test        # node --test on the pure parts (input, assets, loop)
+npm test        # node --test on the pure parts (input, assets, loop, lobby, signalling)
+npm run test:e2e  # Playwright: two tabs, host + join over WebRTC (fake host Worker)
 npm run build   # dist/main.js + dist/worker.js
 npm run dev     # rebuild on change and serve on http://localhost:8000
 ```
@@ -28,7 +29,20 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 | `src/session.ts` | Fixed session id `m1-local`, or `#s=<id>` from the link. |
 | `src/game/wasm.ts` | Loads `game.wasm`; copies files in, hands buffers to the renderer, steps the sim, reads player info and tuning. |
 | `src/audio/` | Sound banks (.sdt/.raw), WebAudio engine, the cue list and mapping, procedural fallbacks. |
-| `src/ui/` | Import screen, game screen (real map, sim and renderer, HUD), controls (remap) overlay, handling tuning panel, sound board. |
+| `src/ui/` | Import screen, game screen (real map, sim and renderer, HUD), controls (remap) overlay, handling tuning panel, sound board, host and join screens. |
+| `src/net/` | I3 `Connection` (WebTransport, WebSocket, WebRTC, loopback), WebRTC peer (`rtc.ts`), signalling (`signal.ts` contract, `signal-bc.ts`, `signaller.ts` factory). |
+| `src/host/` | Browser host: `hostPeers.ts` (Worker, peers, loopback), `hostSession.ts` (one hosted game), `protocol.ts` (Worker contract). |
+| `src/lobby/` | File channel `f`: format and chunking (`files.ts`), host and joiner sides (`lobby.ts`), asset store glue (`assets.ts`). |
+
+## Browser-hosted games
+
+"Host a game…" on the import screen runs the session in the tab: `HostPeers` starts the host Worker (`dist/host-worker.js`, or `?hostWorker=<same-origin path>`) on the map's `.gmp`, opens a signalling room and shows the link `#join/<room>.<maphash12>`. Opening that link shows the join screen.
+
+- **Signalling**: BroadcastChannel by default (tabs of one browser). `?signal=wss://…` or `SIGNAL_URL` in `net/signaller.ts` selects a WebSocket signaller registered with `registerSignaller("ws", …)`; `?signal=bc` forces BroadcastChannel.
+- **Peer connection**: the joiner creates channels `s` (ordered, reliable), `d` (`ordered: false, maxRetransmits: 0`) and `f` (ordered, reliable), makes the offer and trickles ICE; the host answers. One channel message is one I3 message. Datagrams over min(1100, SCTP max message size), or sent while `d` has over 64 KB queued, are dropped.
+- **Worker routing**: peers get ids from 1. `opened` (transport 2) goes to the Worker right before the peer's first stream message (its hello), so time spent in the lobby doesn't count. `s` closing, ICE `failed`, or `disconnected` for 5 s sends `closed`. Worker `close` flushes `s`, then closes the peer connection (and `closed` follows, as with the native transports).
+- **Loopback**: the host's own player uses `Connection` with transport `"loopback"`: `sendStream`/`sendDatagram` post straight to the Worker as another peer id; the Worker's replies for that id are handed back in-page. hello.transport is 2, since the loopback is part of the WebRTC host.
+- **Lobby (`f`)**: the joiner sends `{t:"want", map}`; the host answers `{t:"match", description, share, files}` with the `.gmp` and `.sty` (name, kind, size, sha256). The joiner asks `{t:"get", files:[sha256…]}` for what its store lacks. With sharing on, each file is a `{t:"file", id, name, kind, size, sha256}` header, binary chunks (u32 id + up to 16 KB) and `{t:"end", id}`, at most 2 transfers at a time on the host; the joiner checks size and SHA-256 and imports the file under `shared/` in the asset store. With sharing off the host answers `{t:"refused", names}` and the joiner names the missing files. `{t:"ready"}` ends the lobby; nothing more is sent on `f`.
 
 ## Single player
 

@@ -121,33 +121,10 @@ fn mapsCmd(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
     }
 }
 
-/// A small synthetic city for CI and demos: pavement everywhere, a road
-/// grid with lane arrows every 16 blocks, and solid buildings between.
+/// A small synthetic city for CI and demos (maps.synthCity).
 fn synthMap(gpa: std.mem.Allocator, args: []const [:0]const u8) !void {
     if (args.len != 1) die(usage);
-    const formats = @import("formats");
-    const gmp = formats.gmp;
-    var b = try formats.synth.MapBuilder.init(gpa);
-    defer b.deinit();
-    const lid: gmp.Face = .{ .tile = 1, .bit10 = false, .bit11 = false, .flat = false, .flip = false, .rotation = 0 };
-    const wall: gmp.Face = .{ .tile = 2, .bit10 = true, .bit11 = true, .flat = false, .flip = false, .rotation = 0 };
-    for (0..256) |y| for (0..256) |x| {
-        const road_x = x % 16 < 2; // north-south road
-        const road_y = y % 16 < 2; // east-west road
-        var blk: gmp.Block = .{ .lid = lid, .slope_type = 2 }; // pavement
-        if (road_x or road_y) {
-            blk.slope_type = 1; // road
-            if (road_x and !road_y) blk.arrows = if (x % 16 == 0) 8 else 4; // +y / -y lanes
-            if (road_y and !road_x) blk.arrows = if (y % 16 == 0) 1 else 2; // -x / +x lanes
-        }
-        b.set(x, y, 0, blk);
-        const in_block = x % 16 >= 4 and x % 16 < 14 and y % 16 >= 4 and y % 16 < 14;
-        const edge = x < 1 or y < 1 or x > 254 or y > 254;
-        if (in_block and (x / 16 + y / 16) % 3 != 0 or edge) {
-            b.set(x, y, 1, .{ .left = wall, .right = wall, .top = wall, .bottom = wall, .lid = lid, .slope_type = 0 });
-        }
-    };
-    const bytes = try b.write(.dmap);
+    const bytes = try maps.synthCity(gpa);
     defer gpa.free(bytes);
     const f = try util.OutFile.create(args[0]);
     defer f.close();
