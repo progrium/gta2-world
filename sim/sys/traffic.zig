@@ -392,18 +392,7 @@ pub fn Sys(comptime Self: type) type {
                 v.ai_dir = ld;
                 // A bend in the lane ahead: start turning before it.
                 if (Api.bendAhead(self, t, ld)) |b| {
-                    // Full turn once the new lane's centre line is one
-                    // turning radius ahead, so the arc ends on it.
                     v.ai_plan = 0;
-                    const ex = fx.fromInt(b[0]) + fx.half;
-                    const ey = fx.fromInt(b[1]) + fx.half;
-                    const along = switch (ld) {
-                        0 => ex - t.x,
-                        1 => ey - t.y,
-                        2 => t.x - ex,
-                        else => t.y - ey,
-                    };
-                    _ = along;
                     return aimAt(t, .{ b[0], b[1] }, @intCast(b[2]));
                 }
                 if (!Api.junctionAhead(self, t, ld)) {
