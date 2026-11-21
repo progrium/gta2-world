@@ -222,6 +222,11 @@ export class GameModule {
     return n;
   }
 
+  /** Hash of the installed car models (hex); a client and its host must agree. */
+  carModelsHash(): string {
+    return this.w.carModelsHash ? this.w.carModelsHash().toString(16).padStart(16, "0") : "";
+  }
+
   /** One default car model for every car (online, to match the server). */
   useDefaultCars(): void {
     this.w.useDefaultCars!();
@@ -472,12 +477,32 @@ export class GameModule {
     return { bytes: this.u8(this.w.instancePtr!(), count * INSTANCE_BYTES), count };
   }
 
+  /** Tyre marks still showing at `nowMs`: x, y, z, opacity per vertex. */
+  skidMarks(nowMs = performance.now()): Float32Array {
+    if (typeof this.w.skidMarks !== "function") return new Float32Array(0);
+    const n = this.w.skidMarks(nowMs);
+    return new Float32Array(this.buf, this.w.skidMarksPtr!(), n * 4);
+  }
+
+  /** Door leaves as map vertices for this frame (single player; empty otherwise). */
+  doorFaces(): Uint8Array {
+    if (typeof this.w.doorFaces !== "function") return new Uint8Array(0);
+    const n = this.w.doorFaces();
+    return this.u8(this.w.doorFacesPtr!(), n * VERTEX_BYTES);
+  }
+
   camera(alpha: number, slot = 0): CameraTarget {
     const t = new Float32Array(this.buf, this.w.cameraTarget!(alpha, slot), 7);
     return { x: t[0]!, y: t[1]!, z: t[2]!, angle: t[3]!, vx: t[4]!, vy: t[5]!, found: t[6] !== 0 };
   }
 
   // -------------------------------------------------------------- online
+
+  /** Before `layoutHash` and `netStart`: the room has police on (dmp16). */
+  netPolice(on: boolean): void {
+    if (this.w.netPolice) this.w.netPolice(on ? 1 : 0);
+    else if (on) throw new Error("this game.wasm has no police rooms; reload the page");
+  }
 
   get layoutHash(): bigint {
     const h = new Uint32Array(this.buf, this.w.layoutHashPtr!(), 2);

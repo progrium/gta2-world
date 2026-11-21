@@ -1,12 +1,7 @@
 # Single-player golden: what changed at the last re-record
 
-Re-recorded for the merge of A1 slice 2 (m4ts1u 9acc6ec), E's crew
-passenger fix (notes/e 8400673) and F slice 5 (notes/f 71f0248).
-
-| summary line | before | after | why |
-|---|---|---|---|
-| passed | 0 | 1 | A1: mission end emits mission_pass |
-| unhandled | 11 | 0 | A1: the declaration pass skips the VM's own commands |
-| invariant_breaks | 3 | 0 | E and F: no police passenger is left in a removed car |
-
-Everything else is unchanged (1 mission started at tick 82, 2 rings).
+Re-recorded for E round 2 slice 2 (notes/e 11a4f69, police as a room
+setting: SP systems behind a `city` gate, model roles from the public
+car numbering) and F traffic slice 6 (notes/f 6a61ab5). Hashes change;
+the play summary is the same (1 mission started and passed, 2 rings,
+0 unhandled, 0 invariant breaks).

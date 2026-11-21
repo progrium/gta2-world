@@ -13,6 +13,7 @@ import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
 import { type Cue, type GameEvent, GameModule, type SoundSource, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
+import { carInfoRecord } from "../lobby/assets.ts";
 import { type ConnectOptions, Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
 import { Effects, rumbleSettings, rumbleSupport } from "../input/rumble.ts";
@@ -27,6 +28,7 @@ import { textChoice } from "./importScreen.ts";
 import { deathKey } from "../game/text.ts";
 import { demoHud } from "./spDemo.ts";
 import { touchPad } from "./touchPad.ts";
+import { PlayerArrows, type ArrowTarget, playerColour } from "./playerArrows.ts";
 
 export interface GameScreenOpts {
   input: InputSystem;
@@ -35,7 +37,11 @@ export interface GameScreenOpts {
   /** Game server base URL (ws:// or http://); offline when absent. */
   server?: string | null;
   /** A browser-hosted game: the link to use, and a label for the HUD. */
-  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string };
+  /**
+   * A browser-hosted game. `gciHash` is the .gci the host built its car
+   * models from (null: style only); this client builds the same ones.
+   */
+  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string; police?: boolean; gciHash: string | null };
   /** Extra HUD content, e.g. the host's join link and player list. */
   extraHud?: HTMLElement;
   map: MapChoice;
@@ -70,10 +76,20 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const banner = h("div", { class: "banner hidden" });
   const scores = h("div", { class: "scores hidden" });
   let showScores = false;
+  // Deathmatch: edge arrows toward the other players.
+  const arrows = new PlayerArrows();
   // Single player: a story level offline (the SP sim, its script and text).
   const sp = !!o.map.story && !remote;
   const hudDemo = new URLSearchParams(location.search).has("hudtest");
   const spHud = sp ? new SpHudView({ text: (id) => game?.text(id) ?? null, textKey: (k) => game?.textKey(k) ?? null }) : null;
+  // Online with police on: the own wanted level, from wanted events (kind 9).
+  const mpStars = remote && o.net?.police ? h("div", { class: "sp-stars hidden", title: "Wanted level" }) : null;
+  const setMpStars = (n: number): void => {
+    if (!mpStars) return;
+    clear(mpStars);
+    for (let i = 0; i < 6; i++) mpStars.append(h("span", { class: i < n ? "on" : "" }, "★"));
+    mpStars.classList.toggle("hidden", n === 0);
+  };
   /** The camera holds on the body (wasted or busted) until this tick. */
   let holdUntil = 0;
   let holdAt: { x: number; y: number; z: number } | null = null;
@@ -367,7 +383,11 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
     if (spHud) spHud.update(hudDemo ? demoHud(game.tick) : game.spInfo(), t.found ? { x: t.x, y: t.y } : null);
     const list = game.renderList(paused ? 1 : alpha, now);
-    renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
+    if (sp) renderer.setExtraFaces(game.doorFaces());
+    renderer.setMarks(game.skidMarks(now));
+    const view = camera.view();
+    renderer.draw(view, list.bytes, list.count, now / 1000);
+    if (!sp) drawArrows(view, paused ? 1 : alpha, t.found ? { x: t.x, y: t.y } : null);
     for (const c of game.takeCues()) playCue(c);
     soundTick(game, dt);
     if (bannerUntil && now > bannerUntil) {
@@ -390,14 +410,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       if (disposed) return;
       renderer = new Renderer(canvas);
       renderer.setStyle(g.loadStyle(new Uint8Array(sty)));
-      // Car handling from the player's .gci (nyc.gci), if imported. Online
-      // games use the one default model until the server loads car info.
-      if (remote) g.useDefaultCars();
+      // Car handling from the style and a .gci (nyc.gci). Offline: the
+      // player's own, if imported. A browser-hosted game: the host's (it
+      // came with the match files), so prediction matches the host. The
+      // native server doesn't load car info yet, so its games keep the one
+      // default model.
+      if (o.server && !o.net) g.useDefaultCars();
       else {
-        const gciRec = o.store.manifest.files.find((f) => f.kind === "gci");
-        const gci = gciRec ? new Uint8Array(await o.store.read(gciRec.hash)) : null;
+        const gciHash = o.net ? o.net.gciHash : (carInfoRecord(o.store)?.hash ?? null);
+        const gci = gciHash ? new Uint8Array(await o.store.read(gciHash)) : null;
         const cars = g.loadCarInfo(gci);
-        if (!gci) console.info(`[cars] ${cars} models from the style; no .gci imported, default handling`);
+        console.info(`[cars] ${cars} models (hash ${g.carModelsHash()}) from the style${gci ? " and .gci" : "; no .gci, default handling"}`);
       }
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
       if (sp) await loadLevelFiles(g);
@@ -440,6 +463,9 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   function connect(g: GameModule): Promise<void> {
     status.textContent = `Connecting to ${o.net?.label ?? o.server}…`;
     status.classList.remove("hidden");
+    // A room with police on runs the dmp16 sim: hello's layout hash and the
+    // prediction client follow it.
+    g.netPolice(!!o.net?.police);
     return new Promise((resolve) => {
       conn = new Connection(
         { server: o.server ?? undefined, transport: o.net?.transport ?? transportParam(), rtc: o.net?.rtc, loopback: o.net?.loopback, session: o.sessionId, layoutHash: g.layoutHash, mapHash: o.map.gmpRecord.hash, name: playerName() },
@@ -589,6 +615,19 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         // a vehicle's siren; a = 1 switched on
         if (e.a === 1) audio.play("siren", e.x, e.y, e.z);
         break;
+      case 19:
+        // police voice: a = 0 a cop shouts ("Freeze!"), 1 radio chatter
+        audio.play(e.a === 0 ? "cop_shout" : "police_radio", e.x, e.y, e.z);
+        break;
+      case 9:
+        // wanted level: a slot, b now, c before
+        if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
+        else if (mpStars && e.a === ownSlot) {
+          setMpStars(e.b);
+          if (e.b > e.c) audio.play("wanted_up");
+          else if (e.b < e.c) audio.play("wanted_down");
+        }
+        break;
       default:
         if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
     }
@@ -653,7 +692,6 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     5: "ped_panic",
     6: "ped_bumped",
     7: "carjacked",
-    8: "cop_shout",
     9: "mugger",
     10: "gang_shout",
     11: "elvis",
@@ -661,8 +699,6 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   };
   const VOICE_GAP_MS = 900;
   const voiceAt = new Map<CueName, number>();
-  // Police radio chatter while wanted, in seconds until the next line.
-  let radioIn = 3;
 
   // Footstep timers by player slot, in seconds since the last step.
   const stepClock = new Map<number, number>();
@@ -673,13 +709,6 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     const srcs = g.soundSources();
     const cars = srcs.filter((s) => s.kind === "car" && near(s) < 26).sort((a, b) => near(a) - near(b));
     for (const s of cars.slice(0, 8)) audio.setEngine(s.id, s.speed, s.x, s.y, s.z);
-    if (spHud && g.spInfo().stars > 0) {
-      radioIn -= dt;
-      if (radioIn <= 0) {
-        radioIn = 7 + Math.random() * 8;
-        audio.play("police_radio");
-      }
-    } else radioIn = 3;
     for (const s of srcs) {
       if (s.kind !== "walker") continue;
       const stride = s.anim === 2 ? 0.27 : s.anim === 1 ? 0.42 : 0;
@@ -716,6 +745,19 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
   }
 
+  function drawArrows(view: ReturnType<ChaseCamera["view"]>, alpha: number, me: { x: number; y: number } | null): void {
+    const g = game!;
+    const targets: ArrowTarget[] = [];
+    for (let s = 0; s < MAX_PLAYERS; s++) {
+      if (s === ownSlot) continue;
+      const p = g.player(s);
+      if (!p.active || p.respawnTimer > 0) continue;
+      const c = g.camera(alpha, s);
+      if (c.found) targets.push({ slot: s, name: nameOf(s), x: c.x, y: c.y, z: c.z });
+    }
+    arrows.update(view, me, targets, canvas.clientWidth, canvas.clientHeight);
+  }
+
   let scoresKey = "";
   function renderScores(): void {
     const g = game;
@@ -737,13 +779,13 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         "table",
         {},
         h("tr", {}, h("th", {}, "Player"), h("th", {}, "Frags"), h("th", {}, "Points"), h("th", {}, "Deaths")),
-        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, nameOf(r.slot)), h("td", {}, String(r.kills)), h("td", {}, r.score.toLocaleString("en-US")), h("td", {}, String(r.deaths)))),
+        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, h("span", { class: "pdot", style: `background:${playerColour(r.slot)}` }), nameOf(r.slot)), h("td", {}, String(r.kills)), h("td", {}, r.score.toLocaleString("en-US")), h("td", {}, String(r.deaths)))),
       ),
       h("div", { class: "muted small" }, "First to 10 frags wins the round. Points: 2,000 a player shot, 1,000 run over, 5,000 electrocuted; civilians, car hits, hijacks and wrecks score too. Hold Tab for scores."),
     );
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores, touchView.el), hud);
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();

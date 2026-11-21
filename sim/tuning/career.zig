@@ -69,6 +69,26 @@ pub const emergency_window: u8 = 150;
 pub const ModelRole = enum(u8) { ordinary, bus, ambulance, police, swat, fbi, fire_truck, tank, army_jeep, _ };
 pub var model_roles: [96]ModelRole = @splat(.ordinary);
 
+/// The standard car numbering: the cars' script names in alphabetical
+/// order from 0 (docs/research/public-sources.md 1), which the player's
+/// style files follow when their car info has `count` >= 87 models. Fills
+/// `model_roles` with it; any other count leaves every model `ordinary`.
+/// The army's APC (3) and unarmed jeep (30) stay ordinary (ours: no role
+/// fits them yet).
+pub const standard_model_count = 87;
+pub fn setStandardRoles(count: usize) void {
+    model_roles = @splat(.ordinary);
+    if (count < standard_model_count) return;
+    model_roles[11] = .bus;
+    model_roles[12] = .police;
+    model_roles[17] = .fire_truck;
+    model_roles[22] = .army_jeep;
+    model_roles[34] = .ambulance;
+    model_roles[52] = .swat;
+    model_roles[54] = .tank;
+    model_roles[84] = .fbi;
+}
+
 pub fn roleOf(model: u8) ModelRole {
     return if (model < model_roles.len) model_roles[model] else .ordinary;
 }

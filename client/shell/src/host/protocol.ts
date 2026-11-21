@@ -16,7 +16,17 @@ export type TransportKind = 0 | 1 | 2;
 /** Page -> Worker. */
 export type ToHost =
   /** Load the sim on this map and start the 30 Hz tick. Sent once. */
-  | { t: "start"; session: string; map: ArrayBuffer; maxPlayers: number; seed: number; record: boolean }
+  | {
+      t: "start";
+      session: string;
+      map: ArrayBuffer;
+      maxPlayers: number;
+      seed: number;
+      record: boolean;
+      police?: boolean;
+      /** The .sty and optional .gci for the car models; without a style, the sim's one default model. */
+      cars?: { style: ArrayBuffer; gci: ArrayBuffer | null };
+    }
   /** A transport connected. Mirrors Hub.opened. `peer` is chosen by the page, unique per host. */
   | { t: "opened"; peer: PeerId; transport: TransportKind }
   /** Mirrors Hub.stream: one reliable I3 message from the peer. */
@@ -31,7 +41,7 @@ export type ToHost =
 /** Worker -> page. */
 export type FromHost =
   /** The sim is loaded and ticking; peers may be opened. */
-  | { t: "ready"; mapHash: string; layoutHash: string; maxPlayers: number }
+  | { t: "ready"; mapHash: string; layoutHash: string; maxPlayers: number; cars: number; carsHash: string }
   /** Mirrors Link.sendStream. */
   | { t: "stream"; peer: PeerId; msg: ArrayBuffer }
   /** Mirrors Link.sendDatagram. The page may drop it. */

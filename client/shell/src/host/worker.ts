@@ -67,8 +67,9 @@ function loop(): void {
   }
 }
 
-async function load(): Promise<HostModule> {
-  const url = new URL("./host.wasm", import.meta.url);
+async function load(police: boolean): Promise<HostModule> {
+  // A room with police on runs the dmp16 sim (host-police.wasm).
+  const url = police ? new URL("./host-police.wasm", import.meta.url) : new URL("./host.wasm", import.meta.url);
   // no-cache revalidates, so a new page never runs against a cached old module.
   const res = await fetch(url, { cache: "no-cache" });
   if (!res.ok) throw new Error(`host.wasm: HTTP ${res.status}`);
@@ -116,15 +117,16 @@ function handle(m: ToHost): void {
 async function start(m: Extract<ToHost, { t: "start" }>): Promise<void> {
   if (host || loading) return fail("host: already started");
   try {
-    loading = load();
+    loading = load(!!m.police);
     const h = await loading;
     const entropy = crypto.getRandomValues(new Uint8Array(32));
     const now = clock();
+    const cars = m.cars ? h.loadCars(new Uint8Array(m.cars.style), m.cars.gci ? new Uint8Array(m.cars.gci) : null) : { cars: 0, hash: "" };
     const info = h.start({ session: m.session, map: new Uint8Array(m.map), maxPlayers: m.maxPlayers, seed: m.seed, record: m.record, now, entropy });
     host = h;
     running = true;
     lastStats = now;
-    post({ t: "ready", mapHash: info.mapHash, layoutHash: info.layoutHash, maxPlayers: info.maxPlayers });
+    post({ t: "ready", mapHash: info.mapHash, layoutHash: info.layoutHash, maxPlayers: info.maxPlayers, cars: cars.cars, carsHash: cars.hash });
     for (const q of queued.splice(0)) handle(q);
     loop();
   } catch (e) {

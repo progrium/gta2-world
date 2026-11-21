@@ -157,5 +157,11 @@ pub const route_min_run: u8 = 2;
 pub const route_turn_horizon: u16 = 8;
 // Blocks ahead a traffic car looks for a bend in its lane (ours).
 pub const bend_scan: i32 = 2;
+// No other car this close (each axis) where traffic spawns (ours: a car
+// is about a block long, and two spawned nose to tail start in a crash).
+pub const spawn_car_gap: Fx = fx.ratio(2, 1);
+// Ticks a car turning back to its lane waits on a ped in its nose
+// before it backs out (ours).
+pub const ped_turn_stuck_ticks: u16 = 100;
 // Traffic speed through a bend or a turn (ours).
 pub const bend_speed: Fx = fx.ratio(5, 100);

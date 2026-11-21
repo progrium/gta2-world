@@ -52,7 +52,7 @@ pub const State = extern struct {
 
 pub fn Sys(comptime Self: type) type {
     return struct {
-        const sp = Self.single_player;
+        const sp = Self.city;
         const Shot = Self.Shot;
 
         /// The fitted weapon of `car`, if any.

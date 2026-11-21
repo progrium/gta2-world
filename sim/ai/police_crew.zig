@@ -315,6 +315,7 @@ pub fn Sys(comptime Self: type) type {
             Self.car_tasks.setCarTaskOpts(self, car, .{ .fast_snap = true });
             driveTo(self, cr, s.last_x, s.last_y);
             siren(self, car, true);
+            Self.wanted.voice(self, cr.slot, car, 1);
             return true;
         }
 
@@ -355,6 +356,10 @@ pub fn Sys(comptime Self: type) type {
                 getOut(self, m);
                 Self.objectives.attack(self, m, target);
             }
+            for (cr.members) |m| if (alive(self, m)) {
+                Self.wanted.voice(self, cr.slot, m, 0);
+                break;
+            };
             cr.phase = @intFromEnum(Phase.on_foot);
         }
 

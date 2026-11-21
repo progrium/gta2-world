@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
     const deps = b.option([]const u8, "deps", "prefix where ngtcp2/nghttp3 are installed") orelse "deps/out";
-    const sim_choice = b.option([]const u8, "sim", "real (../sim, default) or stub (abi.Stub)") orelse "real";
+    const sim_choice = b.option([]const u8, "sim", "real (../sim dm16, default), police (../sim dmp16: deathmatch with police) or stub (abi.Stub)") orelse "real";
 
     const interfaces = b.dependency("interfaces", .{ .target = target, .optimize = optimize }).module("interfaces");
     const formats = b.dependency("formats", .{ .target = target, .optimize = optimize }).module("formats");
@@ -17,7 +17,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{.{ .name = "interfaces", .module = interfaces }},
     }) else b.createModule(.{
-        .root_source_file = b.path("src/sim_real.zig"),
+        .root_source_file = b.path(if (std.mem.eql(u8, sim_choice, "police")) "src/sim_police.zig" else "src/sim_real.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
