@@ -163,5 +163,7 @@ pub const spawn_car_gap: Fx = fx.ratio(2, 1);
 // Ticks a car turning back to its lane waits on a ped in its nose
 // before it backs out (ours).
 pub const ped_turn_stuck_ticks: u16 = 100;
+// Steering lock multiplier for traffic taking a bend or a turn (ours).
+pub const corner_lock: Fx = fx.ratio(2, 1);
 // Traffic speed through a bend or a turn (ours).
 pub const bend_speed: Fx = fx.ratio(5, 100);

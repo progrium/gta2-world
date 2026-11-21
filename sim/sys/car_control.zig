@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const prelude = @import("../prelude.zig");
+const TF = @import("../tuning/traffic.zig");
 const abi = prelude.abi;
 const input = prelude.input;
 const fx = prelude.fx;
@@ -112,6 +113,9 @@ pub fn Sys(comptime Self: type) type {
                     const dir = frac(in.steer, 127);
                     var angle = fx.mul(dir, m.turn_ratio);
                     if (player) angle = fx.div(fx.mul(angle, @max(T.steer_speed_min, T.steer_speed_ref - speed)), T.steer_div);
+                    // Ours (workstream F): traffic taking a bend or a turn
+                    // steers harder, so it gets round a one-block corner.
+                    if (!player and v.ai_flags & c.Vehicle.ai_cornering != 0) angle = fx.mul(angle, TF.corner_lock);
                     const steering = in.steer != 0;
 
                     // 8. Tyre forces at each axle.

@@ -106,6 +106,7 @@ pub fn Sys(comptime Self: type) type {
                 return;
             }
             v.ai_age +|= 1;
+            v.ai_flags &= ~c.Vehicle.ai_cornering;
             const fwd_x = fx.cos(t.heading);
             const fwd_y = fx.sin(t.heading);
             const vf = fx.mul(vel.vx, fwd_x) + fx.mul(vel.vy, fwd_y);
@@ -275,7 +276,10 @@ pub fn Sys(comptime Self: type) type {
             // 6. Speed setting.
             // Ours: traffic slows for a bend or a turn, which tightens its
             // turning circle enough for a one-block lane.
-            if (task == null and (turning or (lane and Api.bendAhead(self, t, v.ai_dir & 3) != null))) goal = @min(goal, TF.bend_speed);
+            if (task == null and (turning or (lane and Api.bendAhead(self, t, v.ai_dir & 3) != null))) {
+                goal = @min(goal, TF.bend_speed);
+                if (turning) v.ai_flags |= c.Vehicle.ai_cornering;
+            }
             if (obstacle or neutral) goal = 0;
             goal = @min(goal, TF.traffic_speed_max);
             var sp: Fx = v.ai_speed;

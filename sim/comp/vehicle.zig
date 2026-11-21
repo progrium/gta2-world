@@ -92,6 +92,9 @@ pub const Vehicle = extern struct {
     pub const ai_bus: u8 = 16;
     /// Settling into the lane after a turn.
     pub const ai_settling: u8 = 32;
+    /// Traffic: taking a bend or a turn this tick; the car's steering lock
+    /// is widened (`car_control`, `TF.corner_lock`).
+    pub const ai_cornering: u8 = 64;
 
     pub const reverse_base: u16 = 1000;
     pub const plan_in_junction: u8 = 0x80;
