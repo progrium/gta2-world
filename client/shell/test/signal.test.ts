@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { BcSignaller } from "../src/net/signal-bc.ts";
 import { joinHash, parseJoinHash } from "../src/net/signal.ts";
-import { newRoom, signalSetting } from "../src/net/signaller.ts";
+import { SIGNAL_URL, newRoom, signalSetting } from "../src/net/signaller.ts";
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -14,8 +14,8 @@ test("room names fit the join link", () => {
   }
 });
 
-test("?signal= picks the signaller; bc or nothing means BroadcastChannel", () => {
-  assert.equal(signalSetting(""), null);
+test("?signal= picks the signaller; bc means BroadcastChannel, nothing means SIGNAL_URL", () => {
+  assert.equal(signalSetting(""), SIGNAL_URL);
   assert.equal(signalSetting("?signal=bc"), null);
   assert.equal(signalSetting("?signal=wss://sig.example/r"), "wss://sig.example/r");
 });

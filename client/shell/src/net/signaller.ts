@@ -10,7 +10,7 @@ import { BcSignaller } from "./signal-bc.ts";
 import type { Signaller } from "./signal.ts";
 
 /** Build-time default signalling URL (wss://...), or null for BroadcastChannel. */
-export const SIGNAL_URL: string | null = null;
+export const SIGNAL_URL: string | null = "wss://gta2-signal.proteco.workers.dev";
 
 export type Role = "host" | "peer";
 /** For "host", a service that assigns room ids returns the room it made (the `room` passed in is only a suggestion). */
