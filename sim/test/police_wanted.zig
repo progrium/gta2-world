@@ -528,3 +528,45 @@ test "police: a roadblock goes up across the road at three stars, and comes down
     runC(s, TP.roadblock_unseen_ticks + 2);
     try std.testing.expectEqual(@as(u8, 0), s.state.sp.police.roadblocks[0].active);
 }
+
+fn voiceSeen(s: *Spc, what: u8) bool {
+    for (s.events()) |e| {
+        if (e.kind == .police_voice and e.a == what and e.b == 0) return true;
+    }
+    return false;
+}
+
+test "police: voice lines (radio on a rise and a dispatch, a shout on foot), spaced by the voice gap" {
+    const s = try crewSim();
+    defer freeCrewSim(s);
+    Spc.career.start(s, 0);
+    Spc.wanted.setStars(s, 0, 1);
+    try std.testing.expect(voiceSeen(s, 1));
+    runC(s, 1);
+    // Within the gap, a second rise is silent.
+    Spc.wanted.setStars(s, 0, 2);
+    try std.testing.expect(!voiceSeen(s, 1));
+    runC(s, 1);
+    Spc.wanted.setStars(s, 0, 1);
+    var radio: u32 = 0;
+    var shout = false;
+    var last: u32 = 0;
+    var min_gap: u32 = std.math.maxInt(u32);
+    var n: u32 = 2;
+    while (n < 3000 and !(shout and radio > 0)) : (n += 1) {
+        runC(s, 1);
+        if (Spc.wanted.stars(s, 0) == 0 and !Spc.career.isOut(s, 0)) Spc.wanted.setStars(s, 0, 1);
+        const r = voiceSeen(s, 1);
+        const f = voiceSeen(s, 0);
+        if (r) radio += 1;
+        if (f) shout = true;
+        if (r or f) {
+            if (last != 0) min_gap = @min(min_gap, n - last);
+            last = n;
+        }
+        if (Spc.career.isOut(s, 0)) break;
+    }
+    try std.testing.expect(radio > 0);
+    try std.testing.expect(shout);
+    if (min_gap != std.math.maxInt(u32)) try std.testing.expect(min_gap >= TP.voice_gap);
+}
