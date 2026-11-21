@@ -43,3 +43,20 @@ jobs:
         run: |
           printf '%s' "$TURN_KEY_ID" | npx wrangler secret put TURN_KEY_ID
           printf '%s' "$TURN_KEY_API_TOKEN" | npx wrangler secret put TURN_KEY_API_TOKEN
+      - name: Smoke check (room, host welcome, TURN entries)
+        run: |
+          node -e '
+          const base = "https://gta2-signal.proteco.workers.dev";
+          const o = { headers: { Origin: "https://progrium.github.io" } };
+          (async () => {
+            const r = await fetch(base + "/rooms", { method: "POST", ...o });
+            const { room } = await r.json();
+            console.log("POST /rooms", r.status, room);
+            const ws = new WebSocket(base.replace("https", "wss") + "/r/" + room + "?role=host", o);
+            const m = await new Promise((res, rej) => { ws.onmessage = (e) => res(JSON.parse(e.data)); ws.onerror = rej; setTimeout(() => rej(new Error("no welcome")), 10000); });
+            const urls = (m.ice?.iceServers ?? []).flatMap((s) => [].concat(s.urls));
+            console.log("welcome", m.type, m.role, "ice urls:", urls.join(" "));
+            ws.close();
+            if (m.type !== "welcome") process.exit(1);
+            if (!urls.some((u) => u.startsWith("turn"))) console.log("::warning::no TURN servers in the welcome (STUN only)");
+          })().catch((e) => { console.error(e); process.exit(1); });'
