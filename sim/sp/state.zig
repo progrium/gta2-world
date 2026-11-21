@@ -11,6 +11,8 @@ pub const hud = @import("hud.zig");
 pub const script = @import("../script/vm.zig");
 pub const lights = @import("../sys/lights.zig");
 pub const arms = @import("../sys/car_weapons.zig");
+pub const world = @import("../script/world.zig");
+pub const objects = @import("../sys/objects_state.zig");
 
 pub fn SpState(comptime max_players: u16) type {
     return extern struct {
@@ -22,5 +24,7 @@ pub fn SpState(comptime max_players: u16) type {
         script: script.State, // A1
         lights: lights.State, // B
         arms: arms.State, // G (vehicle weapons)
+        world: world.State, // A2
+        objects: objects.State, // B
     };
 }

@@ -17,7 +17,8 @@ pub const Object = extern struct {
     value: u8 = 0,
     /// Per-kind countdown in ticks.
     timer: u16 = 0,
-    _pad: u16 = 0,
+    /// Per-kind extra (a mine's arming countdown, a crusher's shrink).
+    aux: u16 = 0,
     /// Who placed or last used it (a mine's layer, a phone's caller).
     owner: EntityId = .none,
 };

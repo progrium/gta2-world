@@ -203,8 +203,10 @@ pub fn Sys(comptime Self: type) type {
                 },
                 .oil, .mines => {
                     const back = m.half_len + TC.drop_behind;
-                    const okind: ids.ObjectKind = if (kind == .oil) .oil else .mine;
-                    _ = Self.objects.spawnObject(self, okind, 0, t.x - fx.mul(dx, back), t.y - fx.mul(dy, back), t.z, t.heading);
+                    const ox = t.x - fx.mul(dx, back);
+                    const oy = t.y - fx.mul(dy, back);
+                    // Credited: oil to the car, a mine's blast to the driver.
+                    _ = if (kind == .oil) Self.objects.dropOil(self, ox, oy, t.z, car) else Self.objects.dropMine(self, ox, oy, t.z, driver);
                 },
                 .car_bomb => {
                     const a = fitted orelse return;

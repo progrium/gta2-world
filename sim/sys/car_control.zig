@@ -37,7 +37,7 @@ pub fn Sys(comptime Self: type) type {
                     const player = !v.driver.isNone() and ctl.player != c.Controller.no_player;
                     const handbrake = in.buttons & Button.handbrake_jump != 0;
                     const in_water = v.flags & c.Vehicle.flag_in_water != 0;
-                    const keep = v.flags & (c.Vehicle.flag_ai | c.Vehicle.flag_burning | c.Vehicle.flag_wrecked | c.Vehicle.flag_in_water);
+                    const keep = v.flags & (c.Vehicle.flag_ai | c.Vehicle.flag_burning | c.Vehicle.flag_wrecked | c.Vehicle.flag_in_water | c.Vehicle.flag_crushed);
                     v.flags = keep | (if (handbrake) c.Vehicle.flag_handbrake else 0) | (if (in.buttons & Button.special != 0) c.Vehicle.flag_horn else 0);
                     v.steer = in.steer;
 
