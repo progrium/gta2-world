@@ -1,4 +1,4 @@
-// The game sounds (cues), grouped for the sound board, and the player's mapping
+// The game sounds (cues), grouped for the sound board, and the player's mapping from each one to
 // samples in their own sound banks. The mapping is made by ear on the sound
 // board, kept in localStorage and exported as JSON.
 
