@@ -22,6 +22,7 @@
 //!   setMissionFlag(which: u2, counter: u16)  240, 429-431
 //!   setFailBase(gang: u2, base: u16)  435-437 (gang 0-2 = gangs 1-3)
 //!   player(slot: u8) EntityId     the player's ped
+//!   registerGang(index: u8, key: u16)  223: gang `index` is named by `key`
 //!
 //! Parameter layouts were read from the player's own `.scr` files (the
 //! sizes and field positions, never the original code): every handle is
@@ -159,7 +160,9 @@ pub const State = extern struct {
     car_list_len: u8 = 0,
     door_anim_count: u8 = 0,
     keyframe_count: u8 = 0,
-    _pad: [3]u8 = .{ 0, 0, 0 },
+    /// 223: gangs declared so far (the next gang's index).
+    gang_count: u8 = 0,
+    _pad: [2]u8 = .{ 0, 0 },
     /// 353: car models for the by-model power-up generator (19).
     car_list: [20]u8 = @splat(0),
     /// 422: basic keyframe ids (25).

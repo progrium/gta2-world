@@ -21,6 +21,7 @@
 //!   304      u16 unused, stars @2
 //!   343      i32 @0;  344, 345, 386-388  count @2
 //!   346-349, 389, 390  counter @0;  353  19 model bytes @0
+//!   223      gang name key @0 (the rest waits on D2)
 //!   435-437  u16 unused, u32 message base @4;  422  id @0
 
 const std = @import("std");
@@ -155,7 +156,16 @@ pub fn Sys(comptime Self: type) type {
                     return addTrigger(ctx, t);
                 },
                 // Decoded elsewhere or waiting on an owner's API.
-                102, 37, 38, 39, 375, 376, 378, 379, 223, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 => return .stubbed,
+                // 223: gangs are numbered in declaration order; the rest of
+                // the gang info (remap, weapons, car) waits on D2.
+                223 => {
+                    if (s.gang_count < ids.max_gangs) {
+                        ctx.registerGang(s.gang_count, p.u16_(0));
+                        s.gang_count += 1;
+                    }
+                    return .stubbed;
+                },
+                102, 37, 38, 39, 375, 376, 378, 379, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 => return .stubbed,
                 else => return .unhandled,
             }
             return .done;
