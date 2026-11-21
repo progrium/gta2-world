@@ -299,6 +299,13 @@ pub fn Sim(comptime cfg: Config) type {
         pub const tryExit = sys_enter_exit.tryExit;
         pub const releaseCar = sys_enter_exit.releaseCar;
         pub const sysRiders = sys_enter_exit.sysRiders;
+        pub const startEnter = sys_enter_exit.startEnter;
+        pub const cancelEnter = sys_enter_exit.cancelEnter;
+        pub const enterPhase = sys_enter_exit.enterPhase;
+        pub const sysEnterExit = sys_enter_exit.sysEnterExit;
+        pub const EnterPhase = @import("sys/enter_exit.zig").Phase;
+        pub const doorPos = sys_enter_exit.doorPos;
+        pub const firstUsableDoor = sys_enter_exit.firstUsableDoor;
         pub const sysPedAi = sys_ped_ai.sysPedAi;
         pub const sysPedControl = sys_ped_control.sysPedControl;
         pub const sysCarControl = sys_car_control.sysCarControl;
@@ -390,6 +397,7 @@ pub fn Sim(comptime cfg: Config) type {
         pub const wanted = @import("sp/wanted.zig").Sys(Self); // E
         pub const police = @import("sp/police.zig").Sys(Self); // E
         pub const gangs = @import("sp/gangs.zig").Sys(Self); // D2
+        pub const groups = @import("ai/groups.zig").Sys(Self); // D2
         pub const objects = @import("sys/objects.zig").Sys(Self); // B
         pub const lights = @import("sys/lights.zig").Sys(Self); // B
         pub const hooks = @import("script/hooks.zig").Sys(Self); // A1
@@ -443,6 +451,7 @@ pub fn Sim(comptime cfg: Config) type {
             car_tasks.sysCarTasks(self); // F
             spawn.sysZoneSpawn(self); // F
             self.sysPedControl();
+            self.sysEnterExit(); // D2: after on-foot control, before movement
             self.sysCarControl();
             car_weapons.sysCarWeapons(self); // G
             self.sysWeapons();

@@ -44,11 +44,24 @@ pub const Harness = struct {
     pub fn ped(h: *Harness, slot: u32) *c.Transform {
         return h.sim.transformOf(h.sim.pedOf(slot).?).?;
     }
+    /// Press and release `b`. Getting in or out of a car plays a sequence
+    /// (sys/enter_exit.zig): for the enter key, run on until it ends.
     pub fn tap(h: *Harness, slot: u32, b: u16) void {
         h.frames[slot].buttons |= b;
         h.run(1);
         h.frames[slot].buttons &= ~b;
         h.run(1);
+        if (b & Button.enter_exit != 0) h.settleCar(slot);
+    }
+    /// Run until player `slot`'s ped has no car order left (at most 300
+    /// ticks).
+    pub fn settleCar(h: *Harness, slot: u32) void {
+        for (0..300) |_| {
+            const id = h.sim.pedOf(slot) orelse return;
+            const p = h.sim.state.world.get(id, c.Pedestrian) orelse return;
+            if (p.car_phase == 0 or p.car_phase == 5) return;
+            h.run(1);
+        }
     }
 };
 

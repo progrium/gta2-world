@@ -24,6 +24,15 @@ pub const frames = struct {
     /// lethal.
     pub const fall_hurt_first: u8 = 12;
     pub const fall_lethal: u8 = 14;
+    /// entering-and-exiting-cars.md 3.3: the door-entry animation. The
+    /// refuse check is on frame 3 and the hijack on frame 5 (notes); the
+    /// lengths are ours.
+    pub const enter_refuse: u8 = 3;
+    pub const enter_hijack: u8 = 5;
+    pub const enter_car: u8 = 8; // ours
+    /// Pull-out frames a hijack inserts after frame 5. Ours.
+    pub const pull_out: u8 = 8; // ours
+    pub const exit_car: u8 = 6; // ours
 };
 
 /// The frame reached after `ticks` in an animation of `per_frame` ticks.

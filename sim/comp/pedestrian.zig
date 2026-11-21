@@ -50,6 +50,16 @@ pub const Pedestrian = extern struct {
     _pad: [2]u8 = .{ 0, 0 },
     /// `Health.last_hit_by` as last seen, to notice a new attacker.
     prev_hit: abi.EntityId = .none,
+    /// Getting in and out of cars (D2, `sys/enter_exit.zig`): the car being
+    /// walked to, entered, left or pulled out of; or, for an AI thief, the
+    /// car he drives. None otherwise.
+    car: abi.EntityId = .none,
+    /// Ticks into the current car phase.
+    car_ticks: u16 = 0,
+    /// `car_*` phase (`sys/enter_exit.zig` `Phase`).
+    car_phase: u8 = 0,
+    /// `car_flag_*`, and the door in bit 0 (0 driver's side, 1 the other).
+    car_flags: u8 = 0,
 
     pub const anim_stand: u8 = 0;
     pub const anim_walk: u8 = 1;
@@ -84,7 +94,8 @@ pub const Pedestrian = extern struct {
     pub const state_getting_up: u8 = 6;
     /// Held by an electric shock (C, G).
     pub const state_electrocuted: u8 = 7;
-    /// Walking to a car door, opening it, getting in (D2).
+    /// Opening a car door and getting in (D2). Walking to the door keeps
+    /// `state_up` (`car_phase` says where he is going).
     pub const state_entering: u8 = 8;
     /// Getting out of a car (D2).
     pub const state_exiting: u8 = 9;
