@@ -4,7 +4,7 @@ compatibility_date = "2025-11-01"
 
 [vars]
 # Pages allowed to call the Worker, comma-separated, e.g. "https://<user>.github.io".
-ALLOWED_ORIGINS = ""
+ALLOWED_ORIGINS = "https://progrium.github.io"
 # `npm run dev` overrides this to "true" so localhost pages work.
 ALLOW_LOCALHOST = "false"
 
