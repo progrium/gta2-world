@@ -10,6 +10,8 @@ on:
       - 'sim/**'
       - 'interfaces/**'
       - 'tools/replay/**'
+      - 'formats/**'
+      - 'tools/level/src/autopilot.zig'
       - 'tools/check-no-floats.sh'
       - '.github/workflows/golden-replay.yml'
   pull_request:
@@ -17,6 +19,8 @@ on:
       - 'sim/**'
       - 'interfaces/**'
       - 'tools/replay/**'
+      - 'formats/**'
+      - 'tools/level/src/autopilot.zig'
       - 'tools/check-no-floats.sh'
       - '.github/workflows/golden-replay.yml'
   workflow_dispatch:
@@ -71,6 +75,10 @@ jobs:
         working-directory: tools/replay
         run: ./zig-out/bin/replay verify golden
 
+      - name: Single-player golden (script, hashes, rewinds, play summary)
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay sp-verify golden-sp
+
       - name: Invariant checker self-test
         working-directory: tools/replay
         run: ./zig-out/bin/replay selftest
@@ -100,3 +108,7 @@ jobs:
       - name: WASM replay vs recorded hashes, and 200-player hash vs native
         working-directory: tools/replay
         run: node verify-wasm.mjs zig-out/bin/replay.wasm golden ${{ steps.native200.outputs.hash }}
+
+      - name: WASM single-player golden vs recorded hashes
+        working-directory: tools/replay
+        run: node verify-wasm.mjs zig-out/bin/replay.wasm golden-sp

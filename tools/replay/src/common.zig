@@ -101,3 +101,15 @@ pub fn writeTick(out: *std.ArrayList(u8), gpa: std.mem.Allocator, cmds: []const 
         try out.appendSlice(gpa, &b);
     }
 }
+
+pub fn readDir(io: std.Io, gpa: std.mem.Allocator, dir: []const u8, name: []const u8) ![]u8 {
+    var path_buf: [512]u8 = undefined;
+    return std.Io.Dir.cwd().readFileAlloc(io, try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir, name }), gpa, .unlimited);
+}
+
+pub fn writeDir(io: std.Io, dir: []const u8, name: []const u8, data: []const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, dir) catch {};
+    var path_buf: [512]u8 = undefined;
+    try cwd.writeFile(io, .{ .sub_path = try std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir, name }), .data = data });
+}

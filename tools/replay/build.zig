@@ -10,13 +10,20 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const sim_native = b.dependency("sim", .{ .target = target, .optimize = optimize });
+    const formats_native = b.dependency("formats", .{ .target = target, .optimize = optimize }).module("formats");
+    // The single-player golden's player is the level runner's autopilot.
+    const autopilot = b.createModule(.{ .root_source_file = b.path("../level/src/autopilot.zig"), .target = target, .optimize = optimize, .imports = &.{.{ .name = "sim", .module = sim_native.module("sim") }} });
     const exe = b.addExecutable(.{
         .name = "replay",
         .root_module = b.createModule(.{
             .root_source_file = b.path("src/native.zig"),
             .target = target,
             .optimize = optimize,
-            .imports = &.{.{ .name = "sim", .module = sim_native.module("sim") }},
+            .imports = &.{
+                .{ .name = "sim", .module = sim_native.module("sim") },
+                .{ .name = "formats", .module = formats_native },
+                .{ .name = "autopilot", .module = autopilot },
+            },
         }),
     });
     b.installArtifact(exe);
@@ -29,7 +36,10 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/wasm.zig"),
             .target = wasm_target,
             .optimize = optimize,
-            .imports = &.{.{ .name = "sim", .module = sim_wasm.module("sim") }},
+            .imports = &.{
+                .{ .name = "sim", .module = sim_wasm.module("sim") },
+                .{ .name = "formats", .module = b.dependency("formats", .{ .target = wasm_target, .optimize = optimize }).module("formats") },
+            },
             .strip = true,
         }),
     });
@@ -44,4 +54,9 @@ pub fn build(b: *std.Build) void {
     rec.addArg("rerecord");
     rec.addDirectoryArg(b.path("golden"));
     b.step("golden", "Re-record golden/ with a play-terms report").dependOn(&rec.step);
+
+    const sp_rec = b.addRunArtifact(exe);
+    sp_rec.addArg("sp-record");
+    sp_rec.addDirectoryArg(b.path("golden-sp"));
+    b.step("golden-sp", "Re-record golden-sp/ (single player)").dependOn(&sp_rec.step);
 }

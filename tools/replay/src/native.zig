@@ -20,6 +20,10 @@
 //!                                 against the stats.txt that was there
 //!   replay selftest               plant one break of each kind the checker
 //!                                 can see and check that it reports them
+//!   replay sp-record <dir>        record the single-player golden (golden-sp):
+//!                                 the sp config running src/sp_golden.sasm
+//!   replay sp-verify <dir>        replay it: hashes every tick, rewinds,
+//!                                 invariants, and the play summary
 //!   replay soak [ticks] [seed]    16 players, half bots and half random input,
 //!                                 invariants every tick and a save/load check
 //!                                 every 1000 ticks; exits nonzero on a break
@@ -27,6 +31,7 @@
 const std = @import("std");
 const common = @import("common.zig");
 const qa = @import("qa.zig");
+const sp_native = @import("sp_native.zig");
 const sim = common.sim;
 const abi = sim.abi;
 const Frame = sim.input.Frame;
@@ -75,6 +80,10 @@ pub fn main(init: std.process.Init) !void {
         const ticks = if (args.len > 2) try std.fmt.parseInt(u32, args[2], 10) else 100_000;
         const seed = if (args.len > 3) try std.fmt.parseInt(u32, args[3], 0) else 0x50A4;
         if (!try soak(ticks, seed)) std.process.exit(1);
+    } else if (std.mem.eql(u8, cmd, "sp-record")) {
+        try sp_native.record(io, init.gpa, &grid, args[2]);
+    } else if (std.mem.eql(u8, cmd, "sp-verify")) {
+        if (!try sp_native.verify(io, init.gpa, &grid, args[2])) std.process.exit(1);
     } else if (std.mem.eql(u8, cmd, "selftest")) {
         if (!selftest()) std.process.exit(1);
     } else if (std.mem.eql(u8, cmd, "handling")) {

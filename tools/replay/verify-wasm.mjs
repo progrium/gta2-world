@@ -1,5 +1,7 @@
 // Golden replay under WASM:
 //   node verify-wasm.mjs <replay.wasm> <golden-dir> [native-hash200] [--bench]
+// A one-player recording (golden-sp) runs the single-player configuration
+// with the script built into the module.
 // Replays inputs.bin (frames and commands) and compares hash() every tick
 // with the natively recorded hashes.bin, with a save/run-ahead/load rewind
 // every 100 ticks. Optionally checks a 200-bot run's final hash against the
@@ -25,7 +27,7 @@ const players = dv.getUint32(16, true);
 const ticks = dv.getUint32(20, true);
 const gridHash = dv.getBigUint64(24, true);
 
-ex.rp_init(16, Number(seed & 0xffffffffn), Number(seed >> 32n));
+ex.rp_init(players === 1 ? 1 : 16, Number(seed & 0xffffffffn), Number(seed >> 32n));
 if (BigInt.asUintN(64, ex.rp_grid_hash()) !== gridHash) { console.error('replay recorded on a different map'); process.exit(1); }
 if (BigInt.asUintN(64, ex.rp_hash()) !== want[0]) { console.error(`mismatch at init: ${hex(ex.rp_hash())} vs ${hex(want[0])}`); process.exit(1); }
 
