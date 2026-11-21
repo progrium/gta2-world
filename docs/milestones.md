@@ -90,7 +90,7 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [mission-scripts](coverage/mission-scripts.md) | 5 | 2 | 2 | 0 | 1 | 0 |  |
 | [ped-ai](coverage/ped-ai.md) | 15 | 5 | 10 | 0 | 0 | 0 |  |
 | [ped-movement](coverage/ped-movement.md) | 9 | 7 | 2 | 0 | 0 | 0 |  |
-| [police-ai](coverage/police-ai.md) | 7 | 0 | 0 | 1 | 0 | 6 |  |
+| [police-ai](coverage/police-ai.md) | 7 | 2 | 5 | 0 | 0 | 0 |  |
 | [power-ups-death-and-arrest](coverage/power-ups-death-and-arrest.md) | 4 | 0 | 4 | 0 | 0 | 0 |  |
 | [projectiles](coverage/projectiles.md) | 4 | 0 | 1 | 0 | 0 | 3 |  |
 | [scoring](coverage/scoring.md) | 4 | 1 | 3 | 0 | 0 | 0 |  |
@@ -105,8 +105,8 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [script-player](coverage/script-player.md) | 5 | 1 | 0 | 0 | 0 | 4 |  |
 | [shape-and-map-collision](coverage/shape-and-map-collision.md) | 5 | 4 | 1 | 0 | 0 | 0 |  |
 | [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 4 | 3 | 0 | 0 | 0 |  |
-| [wanted-level](coverage/wanted-level.md) | 6 | 2 | 2 | 1 | 0 | 1 |  |
+| [wanted-level](coverage/wanted-level.md) | 6 | 4 | 2 | 0 | 0 | 0 |  |
 | [weapons](coverage/weapons.md) | 8 | 0 | 2 | 0 | 0 | 6 |  |
-| **all notes** | **197** | **70** | **45** | **15** | **7** | **60** | |
+| **all notes** | **197** | **74** | **50** | **13** | **7** | **53** | |
 
 <!-- coverage:end -->
