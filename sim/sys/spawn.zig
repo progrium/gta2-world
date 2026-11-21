@@ -31,6 +31,8 @@ const salt_zone_car_kind: u32 = 0x1600;
 const salt_zone_ped_kind: u32 = 0x1601;
 const salt_zone_driving: u32 = 0x1602;
 const salt_zone_pick: u32 = 0x1603;
+const salt_zone_reskin: u32 = 0x1604;
+const route_mod = @import("../ai/route.zig");
 
 /// One zone's spawn settings, from the script's map-zone declaration
 /// (script-declarations.md 2.5, type 102).
@@ -163,14 +165,58 @@ pub fn Sys(comptime Self: type) type {
                 w.despawn(id);
                 return null;
             };
-            const model = self.pickAmbientModel(id);
+            const dir: u2 = @truncate(spot.heading >> 14);
+            // Off-screen traffic near a player at three stars or more may
+            // become a roadblock instead (E's hook; police-ai.md 3.4).
+            if (comptime Self.single_player and @hasDecl(Self.police, "tryRoadblock")) {
+                if (driving and near != null) {
+                    const l = route_mod.levelUnder(self.grid, spot.x, spot.y, spot.z, T.car_step);
+                    if (Self.police.tryRoadblock(self, fx.toInt(spot.x), fx.toInt(spot.y), l, dir)) {
+                        w.despawn(id);
+                        return null;
+                    }
+                }
+            }
+            var model = self.pickAmbientModel(id);
+            var reskin = false;
+            if (comptime Self.single_player) {
+                if (driving and near != null) if (Api.reskinModel(self, id)) |m| {
+                    model = m;
+                    reskin = true;
+                };
+            }
             self.initCar(id, spot, model);
             if (driving) {
                 const v = w.get(id, c.Vehicle).?;
                 v.flags = c.Vehicle.flag_ai;
-                v.ai_dir = @truncate(spot.heading >> 14);
+                v.ai_dir = dir;
+                if (reskin) v.ai_flags |= c.Vehicle.ai_emergency;
             }
             return id;
+        }
+
+        /// During an FBI or army pursuit, 1 in `reskin_odds` new traffic
+        /// cars near the player is one of their units (police-ai.md 3.6;
+        /// the rate is ours): its model, or null.
+        fn reskinModel(self: *Self, id: EntityId) ?u8 {
+            if (comptime !(Self.single_player and @hasDecl(Self.police, "crew"))) return null;
+            const kind = Api.reskinKind(self) orelse return null;
+            if (self.randBelow(id, salt_zone_reskin, TF.reskin_odds) != 0) return null;
+            return Self.police.crew.modelFor(kind);
+        }
+
+        /// The highest crew kind (FBI or army) of any player's pursuit, if
+        /// E's wanted state records one.
+        fn reskinKind(self: *Self) ?u8 {
+            if (comptime !(Self.single_player and @hasField(@TypeOf(self.state.sp.wanted[0]), "top_kind"))) return null;
+            var best: ?u8 = null;
+            for (self.state.sp.wanted) |wst| {
+                const k = wst.top_kind;
+                if (k == @intFromEnum(ids.Occupation.fbi) or k == @intFromEnum(ids.Occupation.army)) {
+                    if (best == null or k > best.?) best = k;
+                }
+            }
+            return best;
         }
 
         /// A random model allowed as an ambient car (not trains or tanks).

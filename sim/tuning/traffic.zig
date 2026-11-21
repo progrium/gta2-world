@@ -143,3 +143,6 @@ pub const seek_road_blocks: i32 = 3;
 /// Stopped behind a stopped car in the same lane this long, back out
 /// anyway (ours: breaks a jam behind a car turned the wrong way).
 pub const queue_stuck_ticks: u16 = 150;
+/// During an FBI or army pursuit, 1 in this many new traffic cars near the
+/// player is one of their units (ours; police-ai.md 3.6 gives no rate).
+pub const reskin_odds: u32 = 4;
