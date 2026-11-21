@@ -312,10 +312,10 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       const dv = lastSpeed - p.speed;
       if (p.inCar && lastInCar && dv > 0.12) {
         input.rumble(0, Effects.collisionHeavy);
-        audio.play("car_crash");
+        crashSound("car_crash");
       } else if (p.inCar && lastInCar && dv > 0.05) {
         input.rumble(0, Effects.collisionLight);
-        audio.play("car_bump");
+        crashSound("car_bump");
       }
       // Hard steering at speed; at most once every half second.
       if (p.inCar && p.speed > 0.2 && Math.abs(f.steer) > 100 && performance.now() - lastScreech > 500) {
@@ -636,6 +636,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
   }
 
+  // One crash sound per collision: both cars lose health on the same tick,
+  // and your own car's crash is also heard from its loss of speed.
+  let crashUntil = 0;
+  function crashSound(name: "car_crash" | "car_bump", x?: number, y?: number, z?: number): void {
+    const now = performance.now();
+    if (now < crashUntil) return;
+    crashUntil = now + 150;
+    if (x === undefined) audio.play(name);
+    else audio.play(name, x, y, z);
+  }
+
   // Pedestrian voices from the wasm cue watcher (kinds 5-12).
   const VOICE_CUES: Record<number, CueName> = {
     5: "ped_panic",
@@ -683,6 +694,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     else if (c.kind === 2) audio.play("ped_hurt", c.x, c.y, c.z);
     else if (c.kind === 3) audio.play("bullet_hit", c.x, c.y, c.z);
     else if (c.kind === 4) audio.play("weapon_switch");
+    else if (c.kind === 13) crashSound(c.a >= 600 ? "car_crash" : "car_bump", c.x, c.y, c.z);
     else {
       const name = VOICE_CUES[c.kind];
       if (!name) return;
