@@ -160,7 +160,11 @@ pub fn Sys(comptime Self: type) type {
             const want = direct orelse dir_heading[v.ai_dir & 3];
             const turning_exit = direct != null and task == null;
             var target = want;
-            if (direct == null and on_road and (lane or task != null) and v.ai_pass == 0) {
+            // Ours: also straight on through a junction (a cell whose arrows
+            // include ours, or none), so two cars side by side there keep
+            // their lanes instead of scraping.
+            const straight_on = on_road and (arrows == 0 or arrows & dir_arrow[v.ai_dir & 3] != 0) and v.ai_plan & 3 == 0;
+            if (direct == null and on_road and (lane or task != null or straight_on) and v.ai_pass == 0) {
                 target = Api.laneTarget(self, id, v, t, want);
             }
             if (v.ai_pass > 0) {
@@ -226,6 +230,10 @@ pub fn Sys(comptime Self: type) type {
                         // Waiting on a ped in the road: honk (ours: the
                         // note says "slow, stop or honk").
                         if (h.dist < TF.traffic_close or vf < TF.marker_release_speed) honk = true;
+                        // Ours: a car stopped at an angle to its lane with a
+                        // ped (usually on the pavement) in its nose can't
+                        // turn on the spot; after a while it backs out.
+                        if (turning and fx.abs(vf) < fx.ratio(1, 100)) blocked_by = TF.ped_turn_stuck_ticks;
                     },
                     .marker => if (task == null) {
                         obstacle = true;
@@ -375,8 +383,9 @@ pub fn Sys(comptime Self: type) type {
                     v.ai_plan = 0;
                     return null;
                 }
-                if (pending and turn != 0 and ld == dir) {
-                    // Still on the approach: keep steering for the exit.
+                if (pending and turn != 0) {
+                    // Still on the approach, or crossing a lane of other
+                    // traffic mid-turn: keep steering for the exit.
                     if (Api.exitFor(self, t, dir, nd)) |e| return aimAt(t, e, nd);
                 }
                 // Run wide onto a lane going the other way: back to the lane
