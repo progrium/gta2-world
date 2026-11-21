@@ -88,7 +88,7 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [gangs-and-respect](coverage/gangs-and-respect.md) | 3 | 0 | 0 | 0 | 0 | 3 |  |
 | [map-geometry](coverage/map-geometry.md) | 3 | 0 | 0 | 0 | 0 | 3 |  |
 | [mission-scripts](coverage/mission-scripts.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
-| [ped-ai](coverage/ped-ai.md) | 15 | 0 | 0 | 0 | 0 | 15 |  |
+| [ped-ai](coverage/ped-ai.md) | 15 | 5 | 10 | 0 | 0 | 0 |  |
 | [ped-movement](coverage/ped-movement.md) | 9 | 0 | 0 | 0 | 0 | 9 |  |
 | [police-ai](coverage/police-ai.md) | 7 | 0 | 0 | 1 | 0 | 6 |  |
 | [power-ups-death-and-arrest](coverage/power-ups-death-and-arrest.md) | 4 | 0 | 4 | 0 | 0 | 0 |  |
@@ -106,7 +106,7 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [shape-and-map-collision](coverage/shape-and-map-collision.md) | 5 | 0 | 0 | 0 | 0 | 5 |  |
 | [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 1 | 0 | 0 | 0 | 6 |  |
 | [wanted-level](coverage/wanted-level.md) | 6 | 2 | 2 | 1 | 0 | 1 |  |
-| [weapons](coverage/weapons.md) | 8 | 0 | 1 | 0 | 0 | 7 |  |
-| **all notes** | **197** | **9** | **13** | **14** | **3** | **158** | |
+| [weapons](coverage/weapons.md) | 8 | 0 | 2 | 0 | 0 | 6 |  |
+| **all notes** | **197** | **14** | **24** | **14** | **3** | **142** | |
 
 <!-- coverage:end -->

@@ -14,4 +14,7 @@ test {
     _ = @import("test/career.zig");
     _ = @import("test/script_world_cmds.zig");
     _ = @import("test/objects_furniture.zig");
+    _ = @import("test/ped_ai_objectives.zig");
+    _ = @import("test/ped_ai_threat.zig");
+    _ = @import("test/ped_ai_combat.zig");
 }
