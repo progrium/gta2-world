@@ -1242,6 +1242,8 @@ pub const cue_mugger: u32 = 9;
 pub const cue_gang_shout: u32 = 10;
 pub const cue_elvis: u32 = 11;
 pub const cue_driver_angry: u32 = 12;
+/// A car hurt by another car (a collision), a = the health it lost.
+pub const cue_car_hit: u32 = 13;
 var cues: [64]Cue = undefined;
 var cues_len: usize = 0;
 var cues_out: [64]Cue = undefined;
@@ -1476,10 +1478,14 @@ fn watch(state: []const u8, own_slot: u32) void {
             for (0..@min(hc.?.count, max_body)) |i| {
                 if (state[slots.?.offset + i] != 1) continue;
                 const g = readAt(u16, state, gens.?, @intCast(i)) orelse continue;
-                const hp = (readAt(abi.Health, state, hc.?, @intCast(i)) orelse continue).hp;
+                const health = readAt(abi.Health, state, hc.?, @intCast(i)) orelse continue;
+                const hp = health.hp;
                 if (g == seen_gen[ki][i] and hp < seen_hp[ki][i] - 4) {
                     if (readAt(abi.Transform, state, tc.?, @intCast(i))) |t| {
-                        cue(if (ki == 0) cue_hurt_car else cue_hurt_ped, 0, t);
+                        // A car hurt by a car crashed into it; anything else
+                        // (bullets, fire, blasts) is a hit.
+                        const crash = ki == 0 and !health.last_hit_by.isNone() and health.last_hit_by.kind() == @intFromEnum(abi.Kind.car);
+                        if (crash) cue(cue_car_hit, @intCast(@min(seen_hp[ki][i] - hp, 0xFFFF)), t) else cue(if (ki == 0) cue_hurt_car else cue_hurt_ped, 0, t);
                         // A car someone else drives, hit: its driver shouts.
                         if (ki == 0) if (columnOf(.car, .vehicle)) |vc| if (readAt(sim.c.Vehicle, state, vc, @intCast(i))) |veh| {
                             if (!veh.driver.isNone() and !isPlayerPed(players[0..n_players], veh.driver)) cue(cue_driver_angry, 0, t);
@@ -1803,6 +1809,36 @@ test "ped voices: a pedestrian pulled from a car is heard" {
     // Nothing changed: nothing more is heard.
     watchPeds(st, &players);
     try std.testing.expectEqual(@as(usize, 0), cues_len);
+}
+
+test "a car hurt by another car is a crash, not a bullet hit" {
+    loadTestMap();
+    try std.testing.expectEqual(@as(i32, 0), gameStart(1, false, 0, 0));
+    for (0..5) |_| gameStep();
+    const st = try std.testing.allocator.dupe(u8, curState());
+    defer std.testing.allocator.free(st);
+    const hc = columnOf(.car, .health).?;
+    const slots = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.car) and v.component == abi.ColumnDesc.Special.slot) break v;
+    } else unreachable;
+    const i: u32 = for (0..hc.count) |k| {
+        if (st[slots.offset + k] == 1) break @intCast(k);
+    } else return error.SkipZigTest;
+    watch(st, max_players);
+    cues_len = 0;
+    const off = hc.offset + i * hc.stride;
+    var h = std.mem.bytesToValue(abi.Health, st[off..][0..@sizeOf(abi.Health)]);
+    h.hp -= 900;
+    h.last_hit_by = abi.EntityId.make(.car, (i + 1) % hc.count, 0);
+    @memcpy(st[off..][0..@sizeOf(abi.Health)], std.mem.asBytes(&h));
+    watch(st, max_players);
+    var crash: ?Cue = null;
+    for (cues[0..cues_len]) |c| {
+        try std.testing.expect(c.kind != cue_hurt_car);
+        if (c.kind == cue_car_hit) crash = c;
+    }
+    try std.testing.expectEqual(@as(u32, 900), crash.?.a);
+    cues_len = 0;
 }
 
 test "tuning round trip" {
