@@ -1,5 +1,5 @@
 started 1
-passed 0
+passed 1
 failed 0
 rings 2
 wasted 0
@@ -7,7 +7,7 @@ busted 0
 heartbeat 99
 missions_passed 1
 stage 3
-unhandled 11
+unhandled 0
 max_threads 3
 first_start 82
 invariant_breaks 3

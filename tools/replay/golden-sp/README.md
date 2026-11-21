@@ -7,6 +7,7 @@ walk into the trigger area by the phone, go to the mission car, then loop
 round the city.
 
 - `inputs.bin`, `hashes.bin`: the dm16 golden's formats with one player.
+- `REPORT.md`: what changed at the last re-record.
 - `summary.txt`: what the run did (missions, rings, wasted and busted, the
   script's counters, unhandled commands, invariant breaks). `sp-verify`
   fails if any line changes.
