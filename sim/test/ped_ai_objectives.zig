@@ -191,6 +191,9 @@ test "ped ai: flee_on_car_stop gets out of a still car and flees the danger alwa
     Obj.setObjective(wd.sim, a, .{ .kind = .flee_on_car_stop, .target = danger });
     wd.run(3);
     try expect(wd.sim.state.world.get(a, c.Riding).?.vehicle.isNone());
+    // Out of the door (D2's exit animation may take a while), then away.
+    var n: u32 = 0;
+    while (n < 100 and Obj.objectiveOf(wd.sim, a).kind != .flee_ped_always) : (n += 1) wd.run(1);
     try expectEqual(u.Kind.flee_ped_always, Obj.objectiveOf(wd.sim, a).kind);
     wd.run(60);
     try expect(wd.dist(a, danger) > fx.fromInt(2));

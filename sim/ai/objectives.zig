@@ -387,8 +387,11 @@ pub fn Sys(comptime Self: type) type {
             threat.noticeHits(self, p);
             // Knocked down, falling, in a door sequence: no control.
             if (p.ped.state != c.Pedestrian.state_up) return;
+            // In D2's door sequence the ped's body is D2's; a car thief
+            // driving off (`.thief`) still takes orders.
             if (comptime @hasDecl(Self, "enterPhase")) {
-                if (self.enterPhase(p.id) != .none) return;
+                const ph = self.enterPhase(p.id);
+                if (ph != .none and ph != .thief) return;
             }
             // Timeouts: the generic give-up (3.1).
             if (o.main != 0 and o.status == @backingInt(Status.active) and o.timeout > 0) {
