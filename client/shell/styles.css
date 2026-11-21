@@ -49,6 +49,7 @@ button:disabled { opacity: .5; cursor: default; }
 .bindings td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
 .bindings td:last-child { text-align: right; }
 .stage { position: relative; min-height: 0; }
+.stage:focus { outline: none; }
 .stage .view { position: absolute; inset: 0; }
 .status { position: absolute; left: 12px; top: 12px; padding: 6px 10px; border-radius: 6px; background: rgba(0,0,0,.6); color: #eee; font-size: 13px; }
 .status.hidden, .status:empty { display: none; }
