@@ -7,39 +7,41 @@ Written by `tools/level --sp` (workstream Q). Each level runs its own script in 
 - scripts: main plus 22 mission sub-scripts; up to 2 threads live
 - ran 30000 ticks
 - missions: 0 started, 0 passed, 0 failed; phones rang 0 times
-- player: wasted 2, busted 0; arrow shown 1 ticks; teleports 13
-- unhandled commands met: 201
+- player: wasted 1, busted 0; arrow shown 1 ticks; teleports 15
+- unhandled commands met: 200
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0794 ms, p99 0.1131 ms, max 0.8106 ms
-- invariant breaks: 0
+- step: mean 0.0779 ms, p99 0.1136 ms, max 1.1695 ms
+- invariant breaks: 1
 
 ```
-invariants: 30000 ticks checked, 0 breaks
+invariants: 30000 ticks checked, 1 breaks
+  riding: 1
+  first: riding tick 13780 id 00051042 at (0.00, 0.00, 0.00)
 ticks 30000
-kills 2
+kills 1
 player_kills 0
-run_over 1
+run_over 0
 fire_kills 1
 suicides 0
-explosions 2
-pickups 1
+explosions 1
+pickups 2
 rounds 0
 shots 0
 shot_hits 0
-ped_deaths 57
-car_wrecks 2
+ped_deaths 39
+car_wrecks 1
 boardings 18
-exits 15
-contacts 57512
-impacts 1352
-wall_hits 15381
-driven 1205
-walked 69
-ticks_in_cars 25360
-score_total 486
+exits 16
+contacts 54545
+impacts 1103
+wall_hits 15466
+driven 1067
+walked 66
+ticks_in_cars 24183
+score_total 658
 max_kills 0
-max_deaths 2
-final_cars 97
+max_deaths 1
+final_cars 98
 final_peds 102
 ```
 
@@ -48,56 +50,60 @@ final_peds 102
 - scripts: main plus 0 mission sub-scripts; up to 1 threads live
 - ran 30000 ticks
 - missions: 0 started, 0 passed, 0 failed; phones rang 0 times
-- player: wasted 2, busted 0; arrow shown 0 ticks; teleports 13
-- unhandled commands met: 328
+- player: wasted 3, busted 0; arrow shown 0 ticks; teleports 12
+- unhandled commands met: 346
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0758 ms, p99 0.1088 ms, max 2.5301 ms
-- invariant breaks: 0
+- step: mean 0.0886 ms, p99 0.1437 ms, max 1.7893 ms
+- invariant breaks: 3
 
 ```
-invariants: 30000 ticks checked, 0 breaks
+invariants: 30000 ticks checked, 3 breaks
+  riding: 3
+  first: riding tick 12950 id 0001100c at (0.00, 0.00, 0.00)
+  first: riding tick 14632 id 000010aa at (0.00, 0.00, 0.00)
+  first: riding tick 17481 id 000010ac at (0.00, 0.00, 0.00)
 ticks 30000
-kills 2
+kills 3
 player_kills 0
 run_over 1
-fire_kills 1
+fire_kills 0
 suicides 0
-explosions 1
-pickups 17
+explosions 3
+pickups 20
 rounds 0
-shots 0
-shot_hits 0
-ped_deaths 94
-car_wrecks 1
-boardings 23
-exits 17
-contacts 137307
-impacts 1580
-wall_hits 11937
-driven 1272
-walked 59
-ticks_in_cars 27536
-score_total -172198
+shots 48
+shot_hits 40
+ped_deaths 116
+car_wrecks 3
+boardings 28
+exits 23
+contacts 196345
+impacts 2626
+wall_hits 15390
+driven 1249
+walked 77
+ticks_in_cars 27323
+score_total -172381
 max_kills 0
-max_deaths 2
-final_cars 55
-final_peds 166
+max_deaths 3
+final_cars 59
+final_peds 176
 ```
 
 ## lorne2h.gmp
 
 - scripts: main plus 0 mission sub-scripts; up to 1 threads live
-- ran 2408 ticks, ended in game over
+- ran 909 ticks, ended in game over
 - missions: 0 started, 0 passed, 0 failed; phones rang 0 times
-- player: wasted 3, busted 0; arrow shown 1988 ticks; teleports 1
-- unhandled commands met: 354
+- player: wasted 3, busted 0; arrow shown 200 ticks; teleports 0
+- unhandled commands met: 372
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0526 ms, p99 0.0771 ms, max 0.1442 ms
+- step: mean 0.0604 ms, p99 0.0921 ms, max 0.1346 ms
 - invariant breaks: 0
 
 ```
-invariants: 2408 ticks checked, 0 breaks
-ticks 2408
+invariants: 909 ticks checked, 0 breaks
+ticks 909
 kills 4
 player_kills 0
 run_over 0
@@ -108,16 +114,16 @@ pickups 0
 rounds 0
 shots 0
 shot_hits 0
-ped_deaths 13
-car_wrecks 13
-boardings 5
-exits 1
-contacts 3595
-impacts 173
-wall_hits 10641
-driven 11
-walked 25
-ticks_in_cars 1986
+ped_deaths 10
+car_wrecks 17
+boardings 6
+exits 4
+contacts 1990
+impacts 196
+wall_hits 1968
+driven 49
+walked 23
+ticks_in_cars 312
 score_total -69000
 max_kills 0
 max_deaths 4
@@ -131,9 +137,9 @@ final_peds 166
 - ran 30000 ticks
 - missions: 0 started, 0 passed, 0 failed; phones rang 0 times
 - player: wasted 2, busted 0; arrow shown 0 ticks; teleports 15
-- unhandled commands met: 333
+- unhandled commands met: 353
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0634 ms, p99 0.1132 ms, max 2.1829 ms
+- step: mean 0.0733 ms, p99 0.1228 ms, max 0.2645 ms
 - invariant breaks: 0
 
 ```
@@ -144,26 +150,26 @@ player_kills 0
 run_over 2
 fire_kills 0
 suicides 0
-explosions 5
-pickups 16
+explosions 2
+pickups 13
 rounds 0
-shots 0
+shots 43
 shot_hits 0
 ped_deaths 65
-car_wrecks 5
-boardings 18
-exits 12
-contacts 84492
-impacts 1337
-wall_hits 21442
-driven 991
-walked 76
-ticks_in_cars 23235
-score_total -172363
+car_wrecks 2
+boardings 21
+exits 19
+contacts 105718
+impacts 1597
+wall_hits 28336
+driven 849
+walked 105
+ticks_in_cars 22380
+score_total -172432
 max_kills 0
 max_deaths 2
-final_cars 53
-final_peds 166
+final_cars 56
+final_peds 173
 ```
 
 ## mike1e.gmp
@@ -171,40 +177,40 @@ final_peds 166
 - scripts: main plus 0 mission sub-scripts; up to 1 threads live
 - ran 30000 ticks
 - missions: 0 started, 0 passed, 0 failed; phones rang 0 times
-- player: wasted 2, busted 0; arrow shown 0 ticks; teleports 15
+- player: wasted 1, busted 0; arrow shown 0 ticks; teleports 14
 - unhandled commands met: 414
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0104 ms, p99 0.0288 ms, max 0.0922 ms
+- step: mean 0.0094 ms, p99 0.0263 ms, max 0.0827 ms
 - invariant breaks: 0
 
 ```
 invariants: 30000 ticks checked, 0 breaks
 ticks 30000
-kills 2
+kills 1
 player_kills 0
-run_over 1
+run_over 0
 fire_kills 1
 suicides 0
-explosions 1
-pickups 0
+explosions 0
+pickups 5
 rounds 0
 shots 0
 shot_hits 0
 ped_deaths 7
-car_wrecks 1
-boardings 19
-exits 17
-contacts 17809
-impacts 113
-wall_hits 15146
-driven 838
-walked 53
-ticks_in_cars 25887
-score_total 95287
+car_wrecks 0
+boardings 34
+exits 32
+contacts 14895
+impacts 8
+wall_hits 18645
+driven 945
+walked 40
+ticks_in_cars 28609
+score_total 95155
 max_kills 0
-max_deaths 2
-final_cars 5
-final_peds 21
+max_deaths 1
+final_cars 6
+final_peds 20
 ```
 
 ## mike1h.gmp
@@ -212,56 +218,56 @@ final_peds 21
 - scripts: main plus 0 mission sub-scripts; up to 1 threads live
 - ran 30000 ticks
 - missions: 0 started, 0 passed, 0 failed; phones rang 0 times
-- player: wasted 2, busted 0; arrow shown 89 ticks; teleports 12
+- player: wasted 3, busted 0; arrow shown 89 ticks; teleports 14
 - unhandled commands met: 406
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0098 ms, p99 0.0324 ms, max 2.4435 ms
+- step: mean 0.0092 ms, p99 0.0315 ms, max 0.0796 ms
 - invariant breaks: 0
 
 ```
 invariants: 30000 ticks checked, 0 breaks
 ticks 30000
-kills 2
+kills 3
 player_kills 0
 run_over 0
-fire_kills 2
+fire_kills 3
 suicides 0
 explosions 0
-pickups 2
+pickups 3
 rounds 0
 shots 0
 shot_hits 0
-ped_deaths 6
-car_wrecks 5
-boardings 11
-exits 9
-contacts 9554
-impacts 59
-wall_hits 11786
-driven 705
-walked 93
-ticks_in_cars 22761
-score_total 95145
+ped_deaths 5
+car_wrecks 4
+boardings 16
+exits 14
+contacts 6270
+impacts 45
+wall_hits 11010
+driven 692
+walked 106
+ticks_in_cars 22130
+score_total 95216
 max_kills 0
-max_deaths 2
-final_cars 6
-final_peds 21
+max_deaths 3
+final_cars 5
+final_peds 22
 ```
 
 ## mike1m.gmp
 
 - scripts: main plus 0 mission sub-scripts; up to 1 threads live
-- ran 11340 ticks, ended in game over
+- ran 8869 ticks, ended in game over
 - missions: 0 started, 0 passed, 0 failed; phones rang 0 times
-- player: wasted 3, busted 0; arrow shown 0 ticks; teleports 5
-- unhandled commands met: 406
+- player: wasted 3, busted 0; arrow shown 0 ticks; teleports 4
+- unhandled commands met: 390
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0137 ms, p99 0.0534 ms, max 0.0936 ms
+- step: mean 0.0187 ms, p99 0.0614 ms, max 0.1270 ms
 - invariant breaks: 0
 
 ```
-invariants: 11340 ticks checked, 0 breaks
-ticks 11340
+invariants: 8869 ticks checked, 0 breaks
+ticks 8869
 kills 4
 player_kills 0
 run_over 0
@@ -273,20 +279,20 @@ rounds 0
 shots 0
 shot_hits 0
 ped_deaths 6
-car_wrecks 35
-boardings 8
-exits 6
-contacts 2330
-impacts 32
-wall_hits 4440
-driven 204
-walked 42
-ticks_in_cars 6760
-score_total 95045
+car_wrecks 31
+boardings 7
+exits 5
+contacts 33976
+impacts 153
+wall_hits 6102
+driven 168
+walked 74
+ticks_in_cars 4949
+score_total 95046
 max_kills 0
 max_deaths 4
-final_cars 6
-final_peds 26
+final_cars 5
+final_peds 24
 ```
 
 ## mike2e.gmp
@@ -297,7 +303,7 @@ final_peds 26
 - player: wasted 2, busted 0; arrow shown 0 ticks; teleports 10
 - unhandled commands met: 157
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0794 ms, p99 0.2667 ms, max 0.7066 ms
+- step: mean 0.0782 ms, p99 0.2641 ms, max 3.1799 ms
 - invariant breaks: 0
 
 ```
@@ -338,7 +344,7 @@ final_peds 166
 - player: wasted 3, busted 0; arrow shown 0 ticks; teleports 2
 - unhandled commands met: 160
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0725 ms, p99 0.2395 ms, max 0.4434 ms
+- step: mean 0.0688 ms, p99 0.2342 ms, max 0.4153 ms
 - invariant breaks: 0
 
 ```
@@ -379,7 +385,7 @@ final_peds 166
 - player: wasted 3, busted 0; arrow shown 0 ticks; teleports 4
 - unhandled commands met: 160
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0717 ms, p99 0.2365 ms, max 0.9807 ms
+- step: mean 0.0693 ms, p99 0.2258 ms, max 0.4163 ms
 - invariant breaks: 0
 
 ```
@@ -417,52 +423,10 @@ final_peds 166
 - scripts: main plus 22 mission sub-scripts; up to 1 threads live
 - ran 30000 ticks
 - missions: 0 started, 0 passed, 0 failed; phones rang 0 times
-- player: wasted 3, busted 0; arrow shown 1 ticks; teleports 15
+- player: wasted 1, busted 0; arrow shown 1 ticks; teleports 15
 - unhandled commands met: 1655
 - threads on one command for 3000+ ticks: 0
-- step: mean 0.0877 ms, p99 0.1600 ms, max 0.7441 ms
-- invariant breaks: 0
-
-```
-invariants: 30000 ticks checked, 0 breaks
-ticks 30000
-kills 3
-player_kills 0
-run_over 1
-fire_kills 2
-suicides 0
-explosions 2
-pickups 4
-rounds 0
-shots 6
-shot_hits 2
-ped_deaths 22
-car_wrecks 2
-boardings 11
-exits 8
-contacts 648308
-impacts 1575
-wall_hits 17374
-driven 1014
-walked 34
-ticks_in_cars 29194
-score_total 840458
-max_kills 0
-max_deaths 3
-final_cars 194
-final_peds 43
-```
-
-## wil.gmp
-
-- scripts: main plus 23 mission sub-scripts; up to 1 threads live
-- ran 30000 ticks
-- missions: 0 started, 0 passed, 0 failed; phones rang 0 times
-- player: wasted 1, busted 0; arrow shown 1 ticks; teleports 15
-- unhandled commands met: 30375
-- threads on one command for 3000+ ticks: 1
-  - thread 1 at command 795 (type 77), noticed at tick 3005
-- step: mean 0.0720 ms, p99 0.0986 ms, max 0.2097 ms
+- step: mean 0.0859 ms, p99 0.1562 ms, max 0.2835 ms
 - invariant breaks: 0
 
 ```
@@ -473,25 +437,69 @@ player_kills 0
 run_over 0
 fire_kills 1
 suicides 0
-explosions 1
-pickups 2
+explosions 0
+pickups 3
+rounds 0
+shots 6
+shot_hits 2
+ped_deaths 23
+car_wrecks 3
+boardings 222
+exits 11
+contacts 588105
+impacts 3169
+wall_hits 15922
+driven 690
+walked 154
+ticks_in_cars 21492
+score_total 841694
+max_kills 0
+max_deaths 1
+final_cars 198
+final_peds 43
+```
+
+## wil.gmp
+
+- scripts: main plus 23 mission sub-scripts; up to 1 threads live
+- ran 30000 ticks
+- missions: 0 started, 0 passed, 0 failed; phones rang 0 times
+- player: wasted 2, busted 0; arrow shown 1 ticks; teleports 15
+- unhandled commands met: 30375
+- threads on one command for 3000+ ticks: 1
+  - thread 1 at command 795 (type 77), noticed at tick 3005
+- step: mean 0.0635 ms, p99 0.0969 ms, max 0.1986 ms
+- invariant breaks: 1
+
+```
+invariants: 30000 ticks checked, 1 breaks
+  riding: 1
+  first: riding tick 14202 id 00061058 at (0.00, 0.00, 0.00)
+ticks 30000
+kills 2
+player_kills 0
+run_over 0
+fire_kills 2
+suicides 0
+explosions 2
+pickups 5
 rounds 0
 shots 0
 shot_hits 0
-ped_deaths 43
-car_wrecks 1
-boardings 10
-exits 8
-contacts 19194
-impacts 1982
-wall_hits 13737
-driven 970
-walked 103
-ticks_in_cars 25864
-score_total 530
+ped_deaths 29
+car_wrecks 2
+boardings 21
+exits 18
+contacts 21882
+impacts 1973
+wall_hits 20211
+driven 965
+walked 74
+ticks_in_cars 25121
+score_total 551
 max_kills 0
-max_deaths 1
-final_cars 82
-final_peds 71
+max_deaths 2
+final_cars 81
+final_peds 70
 ```
 

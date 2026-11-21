@@ -5,115 +5,115 @@ Written by `tools/level` (workstream Q). 20000 ticks per map, autopilot in slot 
 ## bil-multi.gmp
 
 - road cells: 15538
-- autopilot trips: 13 (3 reached on foot, 1 by car, 9 teleported after 1800 ticks); mean 1498 ticks a trip
+- autopilot trips: 13 (3 reached on foot, 2 by car, 8 teleported after 1800 ticks); mean 1417 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0274 ms, p99 0.0500 ms, max 0.1116 ms
+- step: mean 0.0291 ms, p99 0.0470 ms, max 0.1587 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 5
-player_kills 0
-run_over 1
+kills 6
+player_kills 2
+run_over 2
 fire_kills 4
 suicides 3
-explosions 15
-pickups 15
+explosions 26
+pickups 12
 rounds 0
-shots 498
-shot_hits 26
-ped_deaths 40
-car_wrecks 4
-boardings 97
-exits 91
-contacts 6066
-impacts 114
-wall_hits 25678
-driven 5155
-walked 1972
-ticks_in_cars 71209
-score_total 3208
-max_kills 0
-max_deaths 3
-final_cars 24
-final_peds 117
+shots 808
+shot_hits 27
+ped_deaths 23
+car_wrecks 6
+boardings 90
+exits 85
+contacts 26961
+impacts 344
+wall_hits 25051
+driven 5190
+walked 2563
+ticks_in_cars 67436
+score_total 5174
+max_kills 1
+max_deaths 2
+final_cars 23
+final_peds 112
 ```
 
 ## bil.gmp
 
 - road cells: 15554
-- autopilot trips: 20 (0 reached on foot, 12 by car, 8 teleported after 1800 ticks); mean 945 ticks a trip
+- autopilot trips: 16 (1 reached on foot, 7 by car, 8 teleported after 1800 ticks); mean 1204 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0272 ms, p99 0.0464 ms, max 2.3322 ms
+- step: mean 0.0289 ms, p99 0.0468 ms, max 0.1038 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
 kills 4
-player_kills 1
-run_over 0
-fire_kills 3
-suicides 2
-explosions 12
-pickups 5
+player_kills 2
+run_over 2
+fire_kills 2
+suicides 1
+explosions 13
+pickups 11
 rounds 0
-shots 416
-shot_hits 11
-ped_deaths 28
+shots 504
+shot_hits 19
+ped_deaths 31
 car_wrecks 4
-boardings 75
-exits 67
-contacts 8495
-impacts 191
-wall_hits 21645
-driven 5091
-walked 1593
-ticks_in_cars 78111
-score_total 3610
+boardings 119
+exits 111
+contacts 3648
+impacts 77
+wall_hits 40880
+driven 4866
+walked 1773
+ticks_in_cars 90505
+score_total 4595
 max_kills 1
 max_deaths 1
-final_cars 23
-final_peds 116
+final_cars 24
+final_peds 115
 ```
 
 ## lorne2e.gmp
 
 - road cells: 1082
-- autopilot trips: 19 (0 reached on foot, 13 by car, 6 teleported after 1800 ticks); mean 968 ticks a trip
+- autopilot trips: 17 (0 reached on foot, 7 by car, 10 teleported after 1800 ticks); mean 1167 ticks a trip
 - autopilot deaths: 4; ticks with no ped: 280
-- step: mean 0.0242 ms, p99 0.0397 ms, max 0.0816 ms
+- step: mean 0.0257 ms, p99 0.0430 ms, max 0.1130 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 10
-player_kills 0
-run_over 1
-fire_kills 9
+kills 13
+player_kills 3
+run_over 5
+fire_kills 8
 suicides 1
-explosions 29
-pickups 36
+explosions 20
+pickups 33
 rounds 0
-shots 3315
-shot_hits 96
-ped_deaths 50
-car_wrecks 2
-boardings 26
-exits 23
-contacts 5052
-impacts 533
-wall_hits 11365
-driven 2478
-walked 7664
-ticks_in_cars 31036
-score_total 1573
-max_kills 0
-max_deaths 4
-final_cars 16
-final_peds 112
+shots 3109
+shot_hits 95
+ped_deaths 51
+car_wrecks 1
+boardings 39
+exits 36
+contacts 4948
+impacts 432
+wall_hits 14907
+driven 2916
+walked 7214
+ticks_in_cars 38682
+score_total 5342
+max_kills 2
+max_deaths 5
+final_cars 17
+final_peds 110
 ```
 
 ## lorne2h.gmp
@@ -121,7 +121,7 @@ final_peds 112
 - road cells: 940
 - autopilot trips: 14 (2 reached on foot, 2 by car, 10 teleported after 1800 ticks); mean 1382 ticks a trip
 - autopilot deaths: 10; ticks with no ped: 700
-- step: mean 0.0218 ms, p99 0.0371 ms, max 0.1239 ms
+- step: mean 0.0231 ms, p99 0.0398 ms, max 0.0980 ms
 - invariant breaks: 0
 
 ```
@@ -157,39 +157,39 @@ final_peds 108
 ## lorne2m.gmp
 
 - road cells: 848
-- autopilot trips: 21 (0 reached on foot, 11 by car, 10 teleported after 1800 ticks); mean 947 ticks a trip
-- autopilot deaths: 2; ticks with no ped: 140
-- step: mean 0.0223 ms, p99 0.0391 ms, max 0.0882 ms
+- autopilot trips: 22 (0 reached on foot, 12 by car, 10 teleported after 1800 ticks); mean 905 ticks a trip
+- autopilot deaths: 1; ticks with no ped: 70
+- step: mean 0.0237 ms, p99 0.0407 ms, max 0.1490 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 2
+kills 1
 player_kills 0
-run_over 2
+run_over 1
 fire_kills 0
 suicides 0
 explosions 4
-pickups 20
+pickups 18
 rounds 0
-shots 3510
-shot_hits 83
+shots 3619
+shot_hits 72
 ped_deaths 18
-car_wrecks 2
+car_wrecks 1
 boardings 2
 exits 0
-contacts 2352
-impacts 263
-wall_hits 8077
-driven 597
-walked 8790
-ticks_in_cars 12365
-score_total 490
+contacts 2151
+impacts 133
+wall_hits 10120
+driven 778
+walked 8730
+ticks_in_cars 16376
+score_total 318
 max_kills 0
-max_deaths 2
-final_cars 12
-final_peds 109
+max_deaths 1
+final_cars 13
+final_peds 108
 ```
 
 ## mike1e.gmp
@@ -197,7 +197,7 @@ final_peds 109
 - road cells: 303
 - autopilot trips: 19 (1 reached on foot, 8 by car, 10 teleported after 1800 ticks); mean 1039 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0199 ms, p99 0.0384 ms, max 0.3928 ms
+- step: mean 0.0195 ms, p99 0.0370 ms, max 0.0974 ms
 - invariant breaks: 0
 
 ```
@@ -235,7 +235,7 @@ final_peds 57
 - road cells: 333
 - autopilot trips: 13 (1 reached on foot, 4 by car, 8 teleported after 1800 ticks); mean 1411 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0162 ms, p99 0.0324 ms, max 1.2150 ms
+- step: mean 0.0171 ms, p99 0.0346 ms, max 0.2741 ms
 - invariant breaks: 0
 
 ```
@@ -271,39 +271,39 @@ final_peds 50
 ## mike1m.gmp
 
 - road cells: 673
-- autopilot trips: 18 (4 reached on foot, 5 by car, 9 teleported after 1800 ticks); mean 1091 ticks a trip
+- autopilot trips: 15 (1 reached on foot, 5 by car, 9 teleported after 1800 ticks); mean 1221 ticks a trip
 - autopilot deaths: 5; ticks with no ped: 350
-- step: mean 0.0234 ms, p99 0.0415 ms, max 0.1604 ms
+- step: mean 0.0240 ms, p99 0.0422 ms, max 0.1175 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 34
-player_kills 4
-run_over 4
-fire_kills 30
+kills 37
+player_kills 6
+run_over 6
+fire_kills 31
 suicides 2
-explosions 14
-pickups 54
+explosions 9
+pickups 46
 rounds 0
-shots 512
-shot_hits 19
-ped_deaths 90
-car_wrecks 52
-boardings 51
-exits 32
-contacts 86819
-impacts 235
-wall_hits 16991
-driven 1579
-walked 2050
-ticks_in_cars 34740
-score_total 5969
+shots 514
+shot_hits 17
+ped_deaths 92
+car_wrecks 53
+boardings 48
+exits 28
+contacts 85778
+impacts 247
+wall_hits 13152
+driven 1642
+walked 1657
+ticks_in_cars 33375
+score_total 8019
 max_kills 2
-max_deaths 8
-final_cars 9
-final_peds 86
+max_deaths 9
+final_cars 10
+final_peds 85
 ```
 
 ## mike2e.gmp
@@ -311,7 +311,7 @@ final_peds 86
 - road cells: 58999
 - autopilot trips: 17 (11 reached on foot, 0 by car, 6 teleported after 1800 ticks); mean 1171 ticks a trip
 - autopilot deaths: 0; ticks with no ped: 0
-- step: mean 0.0198 ms, p99 0.0345 ms, max 0.8475 ms
+- step: mean 0.0204 ms, p99 0.0367 ms, max 0.2058 ms
 - invariant breaks: 0
 
 ```
@@ -349,7 +349,7 @@ final_peds 108
 - road cells: 61271
 - autopilot trips: 25 (24 reached on foot, 0 by car, 1 teleported after 1800 ticks); mean 781 ticks a trip
 - autopilot deaths: 5; ticks with no ped: 350
-- step: mean 0.0201 ms, p99 0.0345 ms, max 2.1113 ms
+- step: mean 0.0204 ms, p99 0.0364 ms, max 0.0968 ms
 - invariant breaks: 0
 
 ```
@@ -387,7 +387,7 @@ final_peds 108
 - road cells: 65536
 - autopilot trips: 24 (23 reached on foot, 0 by car, 1 teleported after 1800 ticks); mean 825 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0198 ms, p99 0.0343 ms, max 1.3455 ms
+- step: mean 0.0203 ms, p99 0.0366 ms, max 0.1695 ms
 - invariant breaks: 0
 
 ```
@@ -423,226 +423,226 @@ final_peds 108
 ## mp1-comp.gmp
 
 - road cells: 833
-- autopilot trips: 13 (1 reached on foot, 4 by car, 8 teleported after 1800 ticks); mean 1523 ticks a trip
+- autopilot trips: 13 (0 reached on foot, 5 by car, 8 teleported after 1800 ticks); mean 1465 ticks a trip
 - autopilot deaths: 2; ticks with no ped: 140
-- step: mean 0.0205 ms, p99 0.0367 ms, max 0.0884 ms
+- step: mean 0.0215 ms, p99 0.0394 ms, max 0.1072 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 58
-player_kills 15
-run_over 19
-fire_kills 37
-suicides 3
+kills 59
+player_kills 10
+run_over 14
+fire_kills 43
+suicides 4
 explosions 46
-pickups 80
+pickups 71
 rounds 0
-shots 699
-shot_hits 57
-ped_deaths 158
-car_wrecks 29
-boardings 124
-exits 92
-contacts 20994
-impacts 973
-wall_hits 38483
-driven 4618
-walked 2289
-ticks_in_cars 81945
-score_total 25195
+shots 888
+shot_hits 61
+ped_deaths 175
+car_wrecks 44
+boardings 132
+exits 84
+contacts 7579
+impacts 968
+wall_hits 26032
+driven 4814
+walked 2943
+ticks_in_cars 82643
+score_total 20053
 max_kills 2
-max_deaths 14
+max_deaths 12
 final_cars 19
-final_peds 68
+final_peds 70
 ```
 
 ## mp2-comp.gmp
 
 - road cells: 890
-- autopilot trips: 17 (0 reached on foot, 11 by car, 6 teleported after 1800 ticks); mean 1085 ticks a trip
-- autopilot deaths: 2; ticks with no ped: 140
-- step: mean 0.0261 ms, p99 0.0448 ms, max 0.1878 ms
+- autopilot trips: 16 (0 reached on foot, 8 by car, 8 teleported after 1800 ticks); mean 1140 ticks a trip
+- autopilot deaths: 12; ticks with no ped: 840
+- step: mean 0.0270 ms, p99 0.0461 ms, max 0.2008 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 34
-player_kills 9
-run_over 8
-fire_kills 23
+kills 41
+player_kills 2
+run_over 5
+fire_kills 36
 suicides 1
-explosions 38
-pickups 39
+explosions 4
+pickups 21
 rounds 0
-shots 616
-shot_hits 61
-ped_deaths 155
-car_wrecks 41
-boardings 122
-exits 100
-contacts 36374
-impacts 1117
-wall_hits 41260
-driven 5070
-walked 2132
-ticks_in_cars 93256
-score_total 22800
-max_kills 4
-max_deaths 7
-final_cars 19
-final_peds 101
+shots 536
+shot_hits 39
+ped_deaths 113
+car_wrecks 38
+boardings 89
+exits 62
+contacts 11246
+impacts 589
+wall_hits 20234
+driven 4389
+walked 1945
+ticks_in_cars 59802
+score_total 6023
+max_kills 2
+max_deaths 12
+final_cars 18
+final_peds 104
 ```
 
 ## mp5-comp.gmp
 
 - road cells: 1610
-- autopilot trips: 15 (3 reached on foot, 2 by car, 10 teleported after 1800 ticks); mean 1316 ticks a trip
+- autopilot trips: 13 (2 reached on foot, 1 by car, 10 teleported after 1800 ticks); mean 1448 ticks a trip
 - autopilot deaths: 6; ticks with no ped: 420
-- step: mean 0.0297 ms, p99 0.0511 ms, max 1.6423 ms
+- step: mean 0.0291 ms, p99 0.0470 ms, max 0.1639 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 25
+kills 29
 player_kills 5
-run_over 7
-fire_kills 18
-suicides 2
-explosions 23
-pickups 35
+run_over 6
+fire_kills 23
+suicides 4
+explosions 26
+pickups 40
 rounds 0
-shots 560
-shot_hits 44
-ped_deaths 105
-car_wrecks 25
-boardings 104
-exits 84
-contacts 11448
-impacts 1547
-wall_hits 17940
-driven 4627
-walked 2291
-ticks_in_cars 64793
-score_total 11834
+shots 973
+shot_hits 62
+ped_deaths 158
+car_wrecks 21
+boardings 120
+exits 105
+contacts 10563
+impacts 715
+wall_hits 22077
+driven 5434
+walked 2860
+ticks_in_cars 83472
+score_total 11350
 max_kills 2
 max_deaths 6
 final_cars 20
-final_peds 120
+final_peds 121
 ```
 
 ## ste.gmp
 
 - road cells: 17122
-- autopilot trips: 14 (1 reached on foot, 3 by car, 10 teleported after 1800 ticks); mean 1392 ticks a trip
-- autopilot deaths: 0; ticks with no ped: 0
-- step: mean 0.0276 ms, p99 0.0453 ms, max 0.1851 ms
+- autopilot trips: 14 (1 reached on foot, 3 by car, 10 teleported after 1800 ticks); mean 1397 ticks a trip
+- autopilot deaths: 1; ticks with no ped: 70
+- step: mean 0.0293 ms, p99 0.0471 ms, max 0.2606 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 5
-player_kills 1
-run_over 2
-fire_kills 3
-suicides 0
-explosions 21
-pickups 13
+kills 11
+player_kills 0
+run_over 0
+fire_kills 11
+suicides 4
+explosions 11
+pickups 17
 rounds 0
-shots 695
-shot_hits 11
-ped_deaths 33
-car_wrecks 5
-boardings 47
-exits 41
-contacts 12015
-impacts 194
-wall_hits 17888
-driven 2407
-walked 1961
-ticks_in_cars 45421
-score_total 2147
-max_kills 1
-max_deaths 1
+shots 1213
+shot_hits 21
+ped_deaths 40
+car_wrecks 9
+boardings 64
+exits 54
+contacts 20831
+impacts 221
+wall_hits 17273
+driven 3299
+walked 2858
+ticks_in_cars 52155
+score_total 2039
+max_kills 0
+max_deaths 3
 final_cars 24
-final_peds 116
+final_peds 120
 ```
 
 ## wil-multi.gmp
 
 - road cells: 16285
-- autopilot trips: 12 (0 reached on foot, 2 by car, 10 teleported after 1800 ticks); mean 1571 ticks a trip
+- autopilot trips: 11 (0 reached on foot, 1 by car, 10 teleported after 1800 ticks); mean 1670 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0275 ms, p99 0.0450 ms, max 0.0707 ms
+- step: mean 0.0299 ms, p99 0.0479 ms, max 1.6628 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 4
-player_kills 0
-run_over 1
-fire_kills 3
-suicides 1
-explosions 29
+kills 7
+player_kills 2
+run_over 2
+fire_kills 4
+suicides 3
+explosions 22
 pickups 16
 rounds 0
-shots 943
-shot_hits 11
-ped_deaths 23
-car_wrecks 5
-boardings 49
-exits 44
-contacts 24113
-impacts 345
-wall_hits 17344
-driven 3362
-walked 2422
-ticks_in_cars 48848
-score_total 1870
-max_kills 0
-max_deaths 1
+shots 641
+shot_hits 14
+ped_deaths 33
+car_wrecks 6
+boardings 96
+exits 87
+contacts 11739
+impacts 174
+wall_hits 28900
+driven 4784
+walked 1949
+ticks_in_cars 76108
+score_total 5367
+max_kills 1
+max_deaths 2
 final_cars 24
-final_peds 115
+final_peds 116
 ```
 
 ## wil.gmp
 
 - road cells: 16285
-- autopilot trips: 12 (0 reached on foot, 2 by car, 10 teleported after 1800 ticks); mean 1571 ticks a trip
+- autopilot trips: 11 (0 reached on foot, 1 by car, 10 teleported after 1800 ticks); mean 1670 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0281 ms, p99 0.0474 ms, max 0.1028 ms
+- step: mean 0.0299 ms, p99 0.0481 ms, max 0.2531 ms
 - invariant breaks: 0
 
 ```
 invariants: 20000 ticks checked, 0 breaks
 ticks 20000
-kills 4
-player_kills 0
-run_over 0
+kills 7
+player_kills 2
+run_over 2
 fire_kills 4
-suicides 2
-explosions 33
-pickups 15
+suicides 3
+explosions 22
+pickups 16
 rounds 0
-shots 786
-shot_hits 12
-ped_deaths 23
-car_wrecks 5
-boardings 53
-exits 49
-contacts 24522
-impacts 338
-wall_hits 17830
-driven 3496
-walked 2041
-ticks_in_cars 51154
-score_total 2130
-max_kills 0
+shots 641
+shot_hits 14
+ped_deaths 33
+car_wrecks 6
+boardings 96
+exits 87
+contacts 11739
+impacts 174
+wall_hits 28900
+driven 4784
+walked 1949
+ticks_in_cars 76108
+score_total 5367
+max_kills 1
 max_deaths 2
 final_cars 24
 final_peds 116
