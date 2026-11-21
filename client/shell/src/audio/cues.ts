@@ -210,8 +210,6 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
   horn: [17],
   car_door: [25, 27, 26, 28],
   car_crash: [37, 38, 39, 40, 33],
-  car_bump: [44],
-  tyre_screech: [146],
   siren: [14, 147],
   pickup: [319],
   say_pistol: ["pistolp"],
@@ -273,8 +271,16 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
   race_over: ["raceover"],
 };
 
+/**
+ * Default gains other than 1. A light car bump borrows the crash samples
+ * (nothing in the banks sounds like a bump), so it plays them quieter. No
+ * sample sounds like a tyre screech either, so that cue uses its built-in sound.
+ */
+const DEFAULT_GAIN: Partial<Record<Cue, number>> = { car_bump: 0.45 };
+
 export function defaultMapping(): SoundMapping {
   const m = emptyMapping();
+  for (const [c, g] of Object.entries(DEFAULT_GAIN)) m.cues[c as Cue].gain = g;
   for (const c of CUES)
     m.cues[c].samples = (DEFAULT_SAMPLES[c] ?? []).map((x): SampleRef => (typeof x === "string" ? { bank: "vocals", index: 0, name: x } : { bank: "map", index: x }));
   return m;
@@ -311,10 +317,29 @@ export function normalizeMapping(input: unknown, base: SoundMapping = defaultMap
   return out;
 }
 
+/**
+ * Picks that once shipped as the default and turned out wrong. A saved mapping
+ * still holding exactly one of these gets today's default for that cue, so a
+ * player who never changed it isn't stuck with the mistake.
+ */
+const RETIRED: Partial<Record<Cue, number[][]>> = {
+  car_bump: [[44]],
+  tyre_screech: [[24], [146]],
+};
+
+function retire(m: SoundMapping): SoundMapping {
+  const d = defaultMapping();
+  for (const [c, olds] of Object.entries(RETIRED) as [Cue, number[][]][]) {
+    const cur = m.cues[c].samples;
+    if (olds.some((o) => o.length === cur.length && cur.every((r, i) => r.bank === "map" && r.index === o[i]))) m.cues[c] = d.cues[c];
+  }
+  return m;
+}
+
 export function loadMapping(storage: Pick<Storage, "getItem"> | null = safeStorage()): SoundMapping {
   try {
     const s = storage?.getItem(STORE_KEY);
-    return s ? normalizeMapping(JSON.parse(s)) : defaultMapping();
+    return s ? retire(normalizeMapping(JSON.parse(s))) : defaultMapping();
   } catch {
     return defaultMapping();
   }

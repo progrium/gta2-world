@@ -100,6 +100,19 @@ test("mapping: cues missing from a saved or imported file keep the default", () 
   assert.ok(CUES.every((c) => cleared.cues[c].samples.length === 0), "a cleared mapping round-trips as cleared");
 });
 
+test("mapping: a saved pick that shipped by mistake gets today's default", () => {
+  const mem = new Map<string, string>();
+  const st = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v) };
+  const m = defaultMapping();
+  m.cues.car_bump = { samples: [{ bank: "map", index: 44 }], gain: 1 };
+  m.cues.tyre_screech = { samples: [{ bank: "map", index: 146 }, { bank: "map", index: 2 }], gain: 1 };
+  saveMapping(m, st);
+  const back = loadMapping(st);
+  assert.deepEqual(back.cues.car_bump, defaultMapping().cues.car_bump);
+  assert.equal(back.cues.car_bump.samples.length, 0, "borrows the crash samples");
+  assert.equal(back.cues.tyre_screech.samples.length, 2, "a pick the player changed is kept");
+});
+
 test("cue fallbacks end, and point at real cues", () => {
   for (const c of CUES) {
     const ch = fallbackChain(c);
