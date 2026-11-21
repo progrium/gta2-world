@@ -26,6 +26,7 @@ import { SpHudView } from "./spHud.ts";
 import { textChoice } from "./importScreen.ts";
 import { deathKey } from "../game/text.ts";
 import { demoHud } from "./spDemo.ts";
+import { PlayerArrows, type ArrowTarget, playerColour } from "./playerArrows.ts";
 
 export interface GameScreenOpts {
   input: InputSystem;
@@ -69,6 +70,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const banner = h("div", { class: "banner hidden" });
   const scores = h("div", { class: "scores hidden" });
   let showScores = false;
+  // Deathmatch: edge arrows toward the other players.
+  const arrows = new PlayerArrows();
   // Single player: a story level offline (the SP sim, its script and text).
   const sp = !!o.map.story && !remote;
   const hudDemo = new URLSearchParams(location.search).has("hudtest");
@@ -352,7 +355,9 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
     if (spHud) spHud.update(hudDemo ? demoHud(game.tick) : game.spInfo(), t.found ? { x: t.x, y: t.y } : null);
     const list = game.renderList(paused ? 1 : alpha, now);
-    renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
+    const view = camera.view();
+    renderer.draw(view, list.bytes, list.count, now / 1000);
+    if (!sp) drawArrows(view, paused ? 1 : alpha, t.found ? { x: t.x, y: t.y } : null);
     for (const c of game.takeCues()) playCue(c);
     if (bannerUntil && now > bannerUntil) {
       bannerUntil = 0;
@@ -641,6 +646,19 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     else if (c.kind === 4) audio.play("weapon_switch");
   }
 
+  function drawArrows(view: ReturnType<ChaseCamera["view"]>, alpha: number, me: { x: number; y: number } | null): void {
+    const g = game!;
+    const targets: ArrowTarget[] = [];
+    for (let s = 0; s < MAX_PLAYERS; s++) {
+      if (s === ownSlot) continue;
+      const p = g.player(s);
+      if (!p.active || p.respawnTimer > 0) continue;
+      const c = g.camera(alpha, s);
+      if (c.found) targets.push({ slot: s, name: nameOf(s), x: c.x, y: c.y, z: c.z });
+    }
+    arrows.update(view, me, targets, canvas.clientWidth, canvas.clientHeight);
+  }
+
   let scoresKey = "";
   function renderScores(): void {
     const g = game;
@@ -662,13 +680,13 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         "table",
         {},
         h("tr", {}, h("th", {}, "Player"), h("th", {}, "Frags"), h("th", {}, "Points"), h("th", {}, "Deaths")),
-        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, nameOf(r.slot)), h("td", {}, String(r.kills)), h("td", {}, r.score.toLocaleString("en-US")), h("td", {}, String(r.deaths)))),
+        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, h("span", { class: "pdot", style: `background:${playerColour(r.slot)}` }), nameOf(r.slot)), h("td", {}, String(r.kills)), h("td", {}, r.score.toLocaleString("en-US")), h("td", {}, String(r.deaths)))),
       ),
       h("div", { class: "muted small" }, "First to 10 frags wins the round. Points: 2,000 a player shot, 1,000 run over, 5,000 electrocuted; civilians, car hits, hijacks and wrecks score too. Hold Tab for scores."),
     );
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores), hud);
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, sp ? null : arrows.el, status, weaponLine, feed, banner, scores), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();
