@@ -17,6 +17,10 @@ step "interfaces, formats, net, client tests"
 (cd interfaces/zig && zig build test)
 (cd formats && zig build test)
 (cd net && zig build test)
+step "police room (dmp16): net build, host soak"
+(cd net && zig build -Dsim=police)
+(cd host && zig build -Doptimize=ReleaseSmall)
+node host/soak/run.mjs node --seconds 5 --wasm host/zig-out/web/host-police.wasm > /tmp/qa-police.out 2>&1 || { cat /tmp/qa-police.out; exit 1; }
 (cd client/wasm && zig build test)
 (cd client/render && zig build test)
 step "shell check and tests"

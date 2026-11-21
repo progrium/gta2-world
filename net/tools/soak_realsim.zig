@@ -1,4 +1,4 @@
-//! The soak's world: workstream A's sim/ (dm16) on the synthetic test map,
+//! The soak's world: workstream A's sim/ (dm16, or dmp16 with police) on the synthetic test map,
 //! or on a real .gmp given with --map (`-Dsim=real`).
 const std = @import("std");
 const abi = @import("interfaces").abi;
@@ -6,8 +6,10 @@ const input = @import("interfaces").input;
 const sim = @import("sim");
 const formats = @import("formats");
 
-pub const name = "sim/ dm16";
-pub const cfg = sim.config_16;
+/// `-Dsim=police`: deathmatch with police (dmp16, the living city).
+const police = @import("soak_opts").police;
+pub const name = if (police) "sim/ dmp16" else "sim/ dm16";
+pub const cfg = if (police) sim.config_16_police else sim.config_16;
 pub const S = sim.Sim(cfg);
 pub const car_r = sim.tuning.default_car_models[0].radius;
 pub const atan2 = sim.fx.atan2;

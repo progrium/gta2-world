@@ -23,6 +23,7 @@ export type ToHost =
       maxPlayers: number;
       seed: number;
       record: boolean;
+      police?: boolean;
       /** The .sty and optional .gci for the car models; without a style, the sim's one default model. */
       cars?: { style: ArrayBuffer; gci: ArrayBuffer | null };
     }

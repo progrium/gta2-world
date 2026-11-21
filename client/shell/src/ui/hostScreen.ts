@@ -17,6 +17,15 @@ export interface HostScreenOpts {
 }
 
 const SHARE_KEY = "gta2.host.share";
+const POLICE_KEY = "gta2.host.police";
+
+function savedPolice(): boolean {
+  try {
+    return localStorage.getItem(POLICE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 function savedShare(): boolean {
   try {
@@ -86,7 +95,7 @@ export function hostPanel(s: HostSession, compact: boolean): { el: HTMLElement; 
     : h(
         "div",
         { class: "hostpanel" },
-        h("h2", {}, `Hosting ${s.map.description}`),
+        h("h2", {}, `Hosting ${s.map.description}${s.police ? ", police on" : ""}`),
         h("div", { class: "row" }, linkInput, copyBtn),
         local,
         h("label", { class: "row" }, shareBox, " Share my game files (the map's .gmp and .sty) with players who don't have them"),
@@ -117,6 +126,7 @@ export function hostScreen(root: HTMLElement, o: HostScreenOpts): () => void {
     }
     const sel = h("select", { class: "mapsel" }, ...maps.map((m, i) => h("option", { value: i }, `${m.description} (${m.gmp})`))) as HTMLSelectElement;
     const share = h("input", { type: "checkbox", class: "share", checked: savedShare() }) as HTMLInputElement;
+    const police = h("input", { type: "checkbox", class: "police", checked: savedPolice() }) as HTMLInputElement;
     const startBtn = h("button", {
       class: "primary start",
       onclick: async () => {
@@ -125,11 +135,12 @@ export function hostScreen(root: HTMLElement, o: HostScreenOpts): () => void {
         const map: MapChoice = maps[Number(sel.value)]!;
         try {
           localStorage.setItem(SHARE_KEY, share.checked ? "1" : "0");
+          localStorage.setItem(POLICE_KEY, police.checked ? "1" : "0");
         } catch {
           /* ignore */
         }
         try {
-          const s = await HostSession.start(o.store, map, share.checked);
+          const s = await HostSession.start(o.store, map, share.checked, undefined, police.checked);
           setSession(s);
           render();
         } catch (e) {
@@ -141,6 +152,7 @@ export function hostScreen(root: HTMLElement, o: HostScreenOpts): () => void {
     section.append(
       h("p", {}, "Your browser runs the game; other players join with a link. Keep this tab open while you host."),
       h("div", { class: "row" }, h("label", {}, "Map "), sel),
+      h("label", { class: "row" }, police, " Police: crimes get you a wanted level, and cops, SWAT, FBI and the army come after you"),
       h("label", { class: "row" }, share, " Share my game files with players who don't have them"),
       h("p", { class: "muted small" }, "Shared files go straight from this browser to the joining player's, and are kept in their browser for next time."),
       h("div", { class: "row" }, startBtn, h("button", { onclick: () => o.onBack() }, "Back")),

@@ -14,6 +14,7 @@ test {
     _ = @import("test/gangs_groups.zig");
     _ = @import("test/bodies_void.zig");
     _ = @import("test/police_wanted.zig");
+    _ = @import("test/dm_police.zig");
     _ = @import("test/career.zig");
     _ = @import("test/script_world_cmds.zig");
     _ = @import("test/objects_furniture.zig");

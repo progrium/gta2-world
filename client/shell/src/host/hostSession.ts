@@ -16,21 +16,24 @@ export class HostSession {
   readonly map: MapChoice;
   /** SHA-256 of the .gci the cars are built from (null: style only). Every player uses the same one. */
   gciHash: string | null = null;
+  /** The room has police on (the dmp16 sim); fixed for the game. */
+  readonly police: boolean;
   room: string;
   peers: HostPeers | null = null;
   ready: Ready | null = null;
   error = "";
   private listeners = new Set<() => void>();
 
-  private constructor(map: MapChoice, share: boolean, room: string) {
+  private constructor(map: MapChoice, share: boolean, room: string, police: boolean) {
     this.map = map;
+    this.police = police;
     this.share = share;
     this.room = room;
   }
 
   /** Opens the room and starts the host Worker on `map`. */
-  static async start(store: AssetStore, map: MapChoice, share: boolean, worker?: HostWorkerLike): Promise<HostSession> {
-    const s = new HostSession(map, share, newRoom());
+  static async start(store: AssetStore, map: MapChoice, share: boolean, worker?: HostWorkerLike, police = false): Promise<HostSession> {
+    const s = new HostSession(map, share, newRoom(), police);
     const gciRec = carInfoRecord(store);
     s.gciHash = gciRec?.hash ?? null;
     const opened = await openSignaller("host", s.room);
@@ -54,7 +57,7 @@ export class HostSession {
     try {
       const [gmp, style, gci] = await Promise.all([store.read(map.gmpRecord.hash), store.read(map.styRecord.hash), gciRec ? store.read(gciRec.hash) : null]);
       s.ready = await withTimeout(
-        peers.start({ session: s.room, map: gmp, maxPlayers: HOST_MAX_PLAYERS, seed: (Math.random() * 0x7fffffff) >>> 0, record: false, cars: { style, gci } }),
+        peers.start({ session: s.room, map: gmp, maxPlayers: HOST_MAX_PLAYERS, seed: (Math.random() * 0x7fffffff) >>> 0, record: false, police, cars: { style, gci } }),
         15000,
         "the host worker did not start (is dist/host-worker.js built?)",
       );
@@ -69,7 +72,7 @@ export class HostSession {
 
   /** The link to send to other players. Keeps the page's query (e.g. ?signal=). */
   link(): string {
-    return `${location.origin}${location.pathname}${location.search}${joinHash(this.room, this.map.gmpRecord.hash)}`;
+    return `${location.origin}${location.pathname}${location.search}${joinHash(this.room, this.map.gmpRecord.hash, this.police)}`;
   }
 
   list(): PeerView[] {

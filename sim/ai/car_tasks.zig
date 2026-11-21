@@ -129,7 +129,7 @@ pub fn Sys(comptime Self: type) type {
         /// How the traffic AI should drive `car` this tick, or null for
         /// ordinary traffic (no task, wander, or a patrol on its beat).
         pub fn driveOf(self: *Self, car: EntityId, t: *const c.Transform) ?Drive {
-            if (comptime !Self.single_player) return null;
+            if (comptime !Self.city) return null;
             const ct = self.state.world.get(car, c.CarTask) orelse return null;
             const task: Task = @enumFromInt(ct.task);
             switch (task) {
@@ -205,7 +205,7 @@ pub fn Sys(comptime Self: type) type {
         /// Car tasks, once a tick, after the traffic AI: targets, arrival,
         /// route plans (bounded), and the off-road snap.
         pub fn sysCarTasks(self: *Self) void {
-            if (comptime !Self.single_player) return;
+            if (comptime !Self.city) return;
             if (self.predicting()) return;
             const Ctx = struct { sim: *Self, plans: u32 = 0 };
             var ctx = Ctx{ .sim = self };

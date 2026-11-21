@@ -3,6 +3,7 @@
 //! built for wasm32-freestanding so a player's tab can run a game for others.
 //!
 //!   zig build                 zig-out/web/host.wasm (ReleaseFast by default)
+//!                             and host-police.wasm (deathmatch with police)
 //!   zig build -Dsim=stub      against the I1 conformance stub instead of sim/
 //!
 //! Only the wasm target: server/src/util.zig needs libc (module "c") on any
@@ -15,13 +16,19 @@ pub fn build(b: *std.Build) void {
     const sim_choice = b.option([]const u8, "sim", "real (../sim, default) or stub (abi.Stub)") orelse "real";
 
     const wasm_target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
-    const wasm = b.addExecutable(.{ .name = "host", .root_module = hostModule(b, wasm_target, optimize, sim_choice) });
+    addHost(b, wasm_target, optimize, sim_choice, "host");
+    // A room with police on runs the dmp16 sim (the host's room setting).
+    if (!std.mem.eql(u8, sim_choice, "stub")) addHost(b, wasm_target, optimize, "police", "host-police");
+}
+
+fn addHost(b: *std.Build, wasm_target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize, sim_choice: []const u8, name: []const u8) void {
+    const wasm = b.addExecutable(.{ .name = name, .root_module = hostModule(b, wasm_target, optimize, sim_choice) });
     wasm.entry = .disabled;
     wasm.rdynamic = true;
     // The sim's state and a 1 MiB grid live in linear memory; let it grow.
     wasm.initial_memory = 32 << 20;
     wasm.max_memory = 1 << 30;
-    b.getInstallStep().dependOn(&b.addInstallFileWithDir(wasm.getEmittedBin(), .{ .custom = "web" }, "host.wasm").step);
+    b.getInstallStep().dependOn(&b.addInstallFileWithDir(wasm.getEmittedBin(), .{ .custom = "web" }, b.fmt("{s}.wasm", .{name})).step);
 }
 
 fn serverModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.Optimize) *std.Build.Module {
@@ -47,7 +54,7 @@ fn hostModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bui
         .optimize = optimize,
         .imports = &.{.{ .name = "interfaces", .module = interfaces }},
     }) else b.createModule(.{
-        .root_source_file = b.path("../server/src/sim_real.zig"),
+        .root_source_file = b.path(if (std.mem.eql(u8, sim_choice, "police")) "../server/src/sim_police.zig" else "../server/src/sim_real.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{

@@ -70,7 +70,7 @@ function playHosted(s: HostSession): void {
     input,
     store,
     sessionId: s.room,
-    net: { transport: "loopback", loopback: s.loopback(), label: `hosting ${s.room}`, gciHash: s.gciHash },
+    net: { transport: "loopback", loopback: s.loopback(), label: `hosting ${s.room}`, police: s.police, gciHash: s.gciHash },
     extraHud: panel.el,
     map: s.map,
     onBack: showHost,
@@ -86,7 +86,7 @@ function leaveJoin(): void {
   void boot(false);
 }
 
-function showJoin(room: string, mapHash12: string): void {
+function showJoin(room: string, mapHash12: string, police = false): void {
   teardown?.();
   teardown = joinScreen(root, {
     store,
@@ -95,7 +95,7 @@ function showJoin(room: string, mapHash12: string): void {
     onCancel: leaveJoin,
     onPlay: (map: MapChoice, rtc: RtcPeer, gciHash: string | null) => {
       teardown?.();
-      teardown = gameScreen(root, { input, store, sessionId: room, net: { transport: "webrtc", rtc, label: `room ${room}`, gciHash }, map, onBack: leaveJoin });
+      teardown = gameScreen(root, { input, store, sessionId: room, net: { transport: "webrtc", rtc, label: `room ${room}`, police, gciHash }, map, onBack: leaveJoin });
     },
   });
 }
@@ -107,7 +107,7 @@ async function boot(autoStart = true): Promise<void> {
     console.warn("asset cache unavailable", e);
   }
   const join = parseJoinHash(location.hash);
-  if (join) return showJoin(join.room, join.mapHash12);
+  if (join) return showJoin(join.room, join.mapHash12, join.police);
   const maps = [...store.levels(), ...store.maps()];
   const want = lastMap();
   const m = maps.find((x) => levelKey(x) === want);
@@ -117,7 +117,7 @@ async function boot(autoStart = true): Promise<void> {
 
 addEventListener("hashchange", () => {
   const join = parseJoinHash(location.hash);
-  if (join) showJoin(join.room, join.mapHash12);
+  if (join) showJoin(join.room, join.mapHash12, join.police);
 });
 
 void boot();

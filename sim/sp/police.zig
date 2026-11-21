@@ -72,7 +72,7 @@ pub fn targetsFor(tier: u8, crews: u8) Targets {
 pub fn Sys(comptime Self: type) type {
     return struct {
         const cfg = Self.config;
-        const sp = Self.single_player;
+        const sp = Self.city;
         pub const crew = crew_mod.Sys(Self);
         pub const roadblock = roadblock_mod.Sys(Self);
 

@@ -41,7 +41,7 @@ comptime {
 
 pub fn Sys(comptime Self: type) type {
     return struct {
-        const sp = Self.single_player;
+        const sp = Self.city;
         const objects = Self.objects;
 
         /// Type 40: a crusher centred at (x, y) on the floor at `z` (or the
