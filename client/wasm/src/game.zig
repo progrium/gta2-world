@@ -800,6 +800,15 @@ const spr = struct {
     const ped_fall: u16 = 81;
     const ped_down: u16 = 89;
     const ped_shocked: u16 = 152;
+
+    /// Ped remaps (within the style's ped remap group) that read as
+    /// everyday clothes, picked by eye from the player's own styles; the
+    /// bright ones are left for gangs and scripts. Used for peds the sim
+    /// gives no remap, spread by entity index.
+    const civilian_remaps = [_]u8{ 0, 1, 2, 3, 4, 5, 9, 10, 11, 12, 13, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 35, 36, 37, 38, 39, 40, 41, 42, 43, 47, 48, 49, 51 };
+    fn civilianRemap(index: u32) u32 {
+        return civilian_remaps[(index *% 7 +% 3) % civilian_remaps.len];
+    }
     const ped_shocked_frames: u16 = 4;
     const ped_cycle: u16 = 8;
 };
@@ -955,6 +964,11 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 const p = readAt(sim.c.Pedestrian, state, ped_col orelse continue, in.index) orelse continue;
                 const wp = if (wpn_col) |wc| readAt(sim.c.Weapon, state, wc, in.index) else null;
                 in.sprite +%= pedFrame(p, wp, frame16 +% in.index *% 3);
+                // A ped sprite's own palette leaves the arms in a marker
+                // green: peds are only meant to be drawn through a ped
+                // remap. Peds the sim gives no remap get an everyday one.
+                if (in.palette == list.Instance.own_palette)
+                    in.palette = @intCast(s.palette_base.base(.ped_remap) + spr.civilianRemap(in.index));
                 if (p.burn > 0 and n < instances.len) {
                     instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
                     n += 1;
