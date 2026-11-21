@@ -104,9 +104,9 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [script-objects](coverage/script-objects.md) | 7 | 0 | 0 | 6 | 0 | 1 |  |
 | [script-player](coverage/script-player.md) | 5 | 1 | 0 | 0 | 0 | 4 |  |
 | [shape-and-map-collision](coverage/shape-and-map-collision.md) | 5 | 4 | 1 | 0 | 0 | 0 |  |
-| [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 1 | 0 | 0 | 0 | 6 |  |
+| [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 4 | 3 | 0 | 0 | 0 |  |
 | [wanted-level](coverage/wanted-level.md) | 6 | 2 | 2 | 1 | 0 | 1 |  |
 | [weapons](coverage/weapons.md) | 8 | 0 | 2 | 0 | 0 | 6 |  |
-| **all notes** | **197** | **62** | **39** | **15** | **7** | **74** | |
+| **all notes** | **197** | **65** | **42** | **15** | **7** | **68** | |
 
 <!-- coverage:end -->

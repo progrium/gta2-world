@@ -18,4 +18,6 @@ test {
     _ = @import("test/ped_ai_threat.zig");
     _ = @import("test/ped_ai_combat.zig");
     _ = @import("test/script_vm.zig");
+    _ = @import("test/traffic_rules.zig");
+    _ = @import("test/traffic_spawn.zig");
 }
