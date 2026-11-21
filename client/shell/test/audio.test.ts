@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseAsset } from "../src/assets/kinds.ts";
-import { CUES, emptyMapping, engineRate, loadMapping, normalizeMapping, saveMapping, STORE_KEY } from "../src/audio/cues.ts";
+import { CUE_INFO, CUES, defaultMapping, emptyMapping, engineRate, fallbackChain, loadMapping, normalizeMapping, saveMapping, STORE_KEY } from "../src/audio/cues.ts";
 import { spatial, upsample } from "../src/audio/engine.ts";
 import { procedural, RATE } from "../src/audio/procedural.ts";
 import { SDT_ENTRY, SoundBank, checkSdt, decodeSample, guessFormat, parseSdt } from "../src/audio/sdt.ts";
@@ -85,7 +85,29 @@ test("mapping: defaults, junk dropped, saved and loaded", () => {
   assert.ok(mem.has(STORE_KEY));
   assert.deepEqual(loadMapping(st), n);
   mem.set(STORE_KEY, "{not json");
-  assert.deepEqual(loadMapping(st), emptyMapping());
+  assert.deepEqual(loadMapping(st), defaultMapping());
+  mem.clear();
+  assert.deepEqual(loadMapping(st), defaultMapping(), "nothing saved: the shipped mapping");
+});
+
+test("mapping: cues missing from a saved or imported file keep the default", () => {
+  const old = normalizeMapping({ cues: { pistol: { samples: [{ bank: "map", index: 1 }], gain: 1 }, horn: { samples: [], gain: 1 } } });
+  assert.deepEqual(old.cues.pistol.samples, [{ bank: "map", index: 1 }]);
+  assert.deepEqual(old.cues.horn.samples, [], "an emptied cue stays empty");
+  assert.deepEqual(old.cues.explosion, defaultMapping().cues.explosion);
+  const cleared = normalizeMapping(JSON.parse(JSON.stringify(emptyMapping())));
+  assert.ok(CUES.every((c) => cleared.cues[c].samples.length === 0), "a cleared mapping round-trips as cleared");
+});
+
+test("cue fallbacks end, and point at real cues", () => {
+  for (const c of CUES) {
+    const ch = fallbackChain(c);
+    assert.equal(ch[0], c);
+    assert.equal(new Set(ch).size, ch.length, c);
+    for (const f of ch) assert.ok(CUE_INFO[f], `${c} → ${f}`);
+  }
+  assert.deepEqual(fallbackChain("dual_pistol"), ["dual_pistol", "pistol"]);
+  assert.deepEqual(fallbackChain("game_over"), ["game_over", "mission_fail"]);
 });
 
 test("engine pitch follows speed and saturates", () => {

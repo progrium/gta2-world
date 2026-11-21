@@ -79,6 +79,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   let lastInCar = false;
   let lastSpeed = 0;
   let lastButtons = 0;
+  let lastScreech = 0;
   let disposed = false;
   // Online state
   let conn: Connection | null = null;
@@ -275,7 +276,15 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       if (p.inCar && lastInCar && dv > 0.12) {
         input.rumble(0, Effects.collisionHeavy);
         audio.play("car_crash");
-      } else if (p.inCar && lastInCar && dv > 0.05) input.rumble(0, Effects.collisionLight);
+      } else if (p.inCar && lastInCar && dv > 0.05) {
+        input.rumble(0, Effects.collisionLight);
+        audio.play("car_bump");
+      }
+      // Hard steering at speed; at most once every half second.
+      if (p.inCar && p.speed > 0.2 && Math.abs(f.steer) > 100 && performance.now() - lastScreech > 500) {
+        lastScreech = performance.now();
+        audio.play("tyre_screech");
+      }
       if (p.inCar) audio.setEngine(slot, p.speed);
       if (f.buttons & Button.special && p.inCar && !(lastButtons & Button.special)) audio.play("horn");
       lastButtons = f.buttons;
@@ -432,7 +441,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const weaponWord = (c: number): string => (c === 0x80 ? "a car" : c === 0x81 ? "fire" : (WEAPON_NAMES[c] ?? "?").toLowerCase());
   // Shot sounds by weapon; none for the silenced gun, the streams (one cue
   // a tick would be noise) and throws.
-  const SHOT_CUES: (CueName | null)[] = ["pistol", "machine_gun", "shotgun", "rocket_launch", "pistol", null, null, null, null, null];
+  // By weapon id (WEAPON_NAMES order).
+  const SHOT_CUES: CueName[] = ["pistol", "machine_gun", "shotgun", "rocket_launch", "dual_pistol", "silenced_mg", "flamethrower", "electro_gun", "grenade_throw", "molotov_throw"];
   const secs = (ticks: number): number => Math.ceil(ticks / 30);
   // Debug: each press drops the next kind of pickup, weapons then power-ups.
   let nextPickup = 1;
@@ -479,7 +489,10 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         break;
       }
       case 2:
-        if (e.a !== ownSlot) feedLine(`${nameOf(e.a)} joined`);
+        if (e.a !== ownSlot) {
+          feedLine(`${nameOf(e.a)} joined`);
+          audio.play("player_joined");
+        }
         break;
       case 3:
         feedLine(`${nameOf(e.a)} left`);
@@ -498,12 +511,22 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         banner.classList.remove("hidden");
         bannerUntil = now + 6000;
         feedLine(`Round over: ${nameOf(e.a)} won. Scores reset.`, e.a === ownSlot);
+        audio.play("round_end");
         break;
       case 6:
         if (e.a === ownSlot) {
-          audio.play("pickup", e.x, e.y, e.z);
+          const extra = e.b - WEAPON_NAMES.length;
+          audio.play(extra < 0 ? "pickup" : extra === 0 ? "pickup_health" : extra === 1 ? "pickup_armour" : "pickup_powerup", e.x, e.y, e.z);
           feedLine(e.b < WEAPON_NAMES.length ? WEAPON_NAMES[e.b]! : (PICKUP_NAMES[e.b - WEAPON_NAMES.length] ?? "Power-up"), true);
         }
+        break;
+      case 15:
+        // a phone; a = 1 while ringing
+        if (e.a === 1) audio.play("phone_ring", e.x, e.y, e.z);
+        break;
+      case 16:
+        // a vehicle's siren; a = 1 switched on
+        if (e.a === 1) audio.play("siren", e.x, e.y, e.z);
         break;
       default:
         if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
@@ -519,43 +542,54 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       holdUntil = tick + 70;
     };
     switch (e.kind) {
+      case 8:
+        audio.play("pager");
+        break;
       case 9:
-        if (e.b > e.c) input.rumble(0, Effects.collisionLight);
+        if (e.b > e.c) {
+          input.rumble(0, Effects.collisionLight);
+          audio.play("wanted_up");
+        } else if (e.b < e.c) audio.play("wanted_down");
         break;
       case 10:
         hold();
         spHud!.showCentre(spHud!.keyText(deathKey(e.b)), tick, 70, "wasted");
-        audio.play("ped_death");
+        audio.play("wasted");
         input.rumble(0, Effects.collisionHeavy);
         break;
       case 11:
         hold();
         spHud!.showCentre(spHud!.keyText("nicked"), tick, 70, "busted");
+        audio.play("busted");
         break;
       case 12:
         feedLine("Job started", true);
+        audio.play("mission_start");
         break;
       case 13:
         feedLine("Job passed", true);
+        audio.play("mission_pass");
         break;
       case 14:
         feedLine("Job failed", true);
+        audio.play("mission_fail");
         break;
       case 17:
         // On the last life this comes instead of wasted, at the body.
         if (e.x || e.y) hold();
         spHud!.showCentre(spHud!.keyText("g_over"), tick, 1 << 30, "over");
+        audio.play("game_over");
         break;
       case 18:
         spHud!.showCentre(spHud!.keyText("gam_cmp"), tick, 1 << 30, "done");
+        audio.play("level_complete");
         break;
     }
   }
 
   function playCue(c: Cue): void {
     if (c.kind === 1) {
-      const name = c.a < SHOT_CUES.length ? SHOT_CUES[c.a] : "pistol";
-      if (name) audio.play(name, c.x, c.y, c.z);
+      audio.play(SHOT_CUES[c.a] ?? "pistol", c.x, c.y, c.z);
     }
     else if (c.kind === 2) audio.play("ped_hurt", c.x, c.y, c.z);
     else if (c.kind === 3) audio.play("bullet_hit", c.x, c.y, c.z);

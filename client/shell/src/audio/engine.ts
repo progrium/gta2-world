@@ -5,7 +5,7 @@
 // The camera looks straight down, so a sound to the right of the listener
 // pans right and distance in blocks sets the level; nothing is behind you.
 
-import { type Cue, type SampleRef, type SoundMapping, engineRate, loadMapping, saveMapping } from "./cues.ts";
+import { type Cue, type SampleRef, type SoundMapping, engineRate, fallbackChain, loadMapping, saveMapping } from "./cues.ts";
 import { RATE as PROC_RATE, procedural } from "./procedural.ts";
 import type { SampleFormat, SoundBank } from "./sdt.ts";
 
@@ -361,7 +361,12 @@ export class AudioEngine {
   }
 
   private bufferForCue(cue: Cue): { buf: AudioBuffer; loopStart: number } | null {
-    const refs = this.mapping.cues[cue].samples.filter((r) => this.banks[r.bank]?.entries[r.index]);
+    // A cue with no usable samples borrows from its fallbacks (dual pistol → pistol).
+    let refs: SampleRef[] = [];
+    for (const c of fallbackChain(cue)) {
+      refs = this.mapping.cues[c].samples.filter((r) => this.banks[r.bank]?.entries[r.index]);
+      if (refs.length) break;
+    }
     // The engine always uses its first sample so the loop doesn't change under you.
     const ref = refs.length ? (cue === "engine" ? refs[0]! : refs[Math.floor(Math.random() * refs.length)]!) : null;
     if (ref) {
