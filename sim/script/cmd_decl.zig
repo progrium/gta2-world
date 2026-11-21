@@ -31,6 +31,8 @@
 //!            Elvis, gang ratios @10-@16, police peds @18, gang cars @20
 //!            (the order is ours: the levels' values fit it)
 //!   223      gang name key @0 (the rest waits on D2)
+//!   6, 9, 14 empty car, character and object variables (no parameters
+//!            used; the data shows them all zero)
 //!   435-437  u16 unused, u32 message base @4;  422  id @0
 
 const std = @import("std");
@@ -47,7 +49,7 @@ const Outcome = W.Outcome;
 /// One unit of a conveyor's push, blocks per tick (ours).
 pub const conveyor_unit: Fx = fx.one >> 6;
 
-pub const done = [_]u16{ 102, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 23, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437 };
+pub const done = [_]u16{ 102, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 6, 9, 14, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437 };
 /// Decoded, waiting on another workstream's API: zone densities (F),
 /// cranes (cranes note), conveyors, generators, destructors and doors
 /// (B), triggers (A1), gang info (D2), lights (B), trains and radio,
@@ -97,7 +99,10 @@ pub fn Sys(comptime Self: type) type {
                 10, 11, 12, 13 => _ = Cars.create(self, ctx, cmd, cmd.num, false),
                 425, 426, 427, 428 => if (Cars.create(self, ctx, cmd, cmd.num, false)) |id| H.tag(self, id, cmd.num, W.tag_parked),
                 15, 16, 17, 18, 19, 20 => _ = Objs.create(self, ctx, cmd, cmd.num, cmd.kind >= 17, false),
-                23 => ctx.setHandle(cmd.num, .none),
+                // Empty car (6), character (9) and object (14) variables:
+                // no note covers them; every use in the levels has all-zero
+                // parameters and a later creation fills the slot (ours).
+                6, 9, 14 => ctx.setHandle(cmd.num, .none),
                 40 => {
                     const pos = H.place(self, .{ .x = p.fx_(4), .y = p.fx_(8), .z = 0, .ground = true }, prelude.T.car_step);
                     if (Self.objects.addCrusher(self, pos.x, pos.y, pos.z)) |id| {
