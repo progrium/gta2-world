@@ -83,7 +83,10 @@ async function mintIce(env: Env, fetchImpl: typeof fetch = fetch): Promise<IceCo
         signal: AbortSignal.timeout(3000),
       },
     );
-    if (!res.ok) return stunOnly;
+    if (!res.ok) {
+      console.warn(`TURN credentials: HTTP ${res.status} ${(await res.text()).slice(0, 200)}`);
+      return stunOnly;
+    }
     const body = (await res.json()) as { iceServers?: RTCIceServerLike | RTCIceServerLike[] };
     const list = Array.isArray(body.iceServers) ? body.iceServers : body.iceServers ? [body.iceServers] : [];
     const turn: RTCIceServerLike[] = [];
@@ -95,8 +98,10 @@ async function mintIce(env: Env, fetchImpl: typeof fetch = fetch): Promise<IceCo
       );
       if (urls.length) turn.push({ urls, username: s.username, credential: s.credential });
     }
+    if (!turn.length) console.warn(`TURN credentials: no usable TURN entries in ${list.length} ice servers`);
     return { iceServers: [STUN_SERVERS, ...turn] };
-  } catch {
+  } catch (e) {
+    console.warn(`TURN credentials: ${(e as Error).message}`);
     return stunOnly;
   }
 }
