@@ -21,6 +21,10 @@
 //!   304      u16 unused, stars @2
 //!   343      i32 @0;  344, 345, 386-388  count @2
 //!   346-349, 389, 390  counter @0;  353  19 model bytes @0
+//!   102      zone named by its own string key; u16 car density @0, ordinary,
+//!            bad, police car ratios @2-@6, ped density @8, mugger, thief,
+//!            Elvis, gang ratios @10-@16, police peds @18, gang cars @20
+//!            (the order is ours: the levels' values fit it)
 //!   223      gang name key @0 (the rest waits on D2)
 //!   435-437  u16 unused, u32 message base @4;  422  id @0
 
@@ -165,7 +169,20 @@ pub fn Sys(comptime Self: type) type {
                     }
                     return .stubbed;
                 },
-                102, 37, 38, 39, 375, 376, 378, 379, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 => return .stubbed,
+                102 => {
+                    if (comptime !@hasDecl(Self.spawn, "setZoneDensity")) return .stubbed;
+                    // The zone is named by this command's own string key;
+                    // 11 u16: car density, ordinary, bad, police car
+                    // ratios, ped density, mugger, car thief, Elvis, gang
+                    // member, police ped (no slot in F's mix), gang car.
+                    _ = Self.spawn.setZoneDensity(self, ctx.string(cmd.num), .{
+                        .car_density = p.u16_(0),
+                        .car_ratio = .{ p.u16_(2), p.u16_(4), p.u16_(6), p.u16_(20) },
+                        .ped_density = p.u16_(8),
+                        .ped_ratio = .{ p.u16_(10), p.u16_(12), p.u16_(14), p.u16_(16) },
+                    });
+                },
+                37, 38, 39, 375, 376, 378, 379, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 => return .stubbed,
                 else => return .unhandled,
             }
             return .done;

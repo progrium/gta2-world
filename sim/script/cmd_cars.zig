@@ -62,6 +62,8 @@ pub fn Sys(comptime Self: type) type {
                 ctx.addCleanup(id);
             }
             H.tag(self, id, handle, flags);
+            // F's traffic never gives up on a script car off-road.
+            if (comptime @hasDecl(c.Vehicle, "ai_script")) self.state.world.get(id, c.Vehicle).?.ai_flags |= c.Vehicle.ai_script;
             ctx.setHandle(handle, id);
             return id;
         }
@@ -103,7 +105,7 @@ pub fn Sys(comptime Self: type) type {
                     const car = ctx.handle(p.u16_(0));
                     if (!w.isAlive(car)) return .done;
                     if (cmd.kind != 175) ensureDriver(self, car);
-                    Self.car_tasks.setCarTask(self, car, if (cmd.kind == 170) .stop else .wander, .none, 0, 0);
+                    Self.car_tasks.setCarTask(self, car, if (cmd.kind == 170) .stop else .none, .none, 0, 0);
                 },
                 169 => {
                     const car = ctx.handle(p.u16_(0));
