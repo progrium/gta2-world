@@ -194,3 +194,27 @@ test "the map edge is a wall at the top level only" {
     try std.testing.expectEqual(fx.fromInt(7), t.z);
     try std.testing.expect(t.x - T.carModel(0).half_len >= fx.one - fx.ratio(1, 10));
 }
+
+test "a body shoved off a roof edge drops clear of the wall below, not into it" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    // A two-level building at x 10..14, y 10..13 on the field: roof at z 3,
+    // its south face the line y = 14.
+    for (1..3) |z| for (10..14) |y| for (10..15) |x| {
+        map.set(h.grid, @intCast(x), @intCast(y), @intCast(z), map.makeCell(map.Shape.solid, 0, map.Ground.pavement, 0));
+    };
+    h.join(0, 12, 13);
+    const id = h.sim.pedOf(0).?;
+    const t = h.ped(0);
+    try std.testing.expectEqual(fx.fromInt(3), t.z);
+    // Knocked down, shoved until its centre is just over the edge (the D1
+    // soak case).
+    h.sim.knock(id, c.Pedestrian.state_down, 0, fx.one, 0, 0, .none);
+    t.y = fx.fromInt(14) + fx.ratio(1, 100);
+    for (0..120) |_| {
+        h.run(1);
+        try std.testing.expect(!h.sim.circleBlocked(t.x, t.y, t.z, T.ped_radius, T.ped_step) or t.z > fx.fromInt(2));
+    }
+    try std.testing.expectEqual(fx.one, t.z);
+    try std.testing.expect(t.y - T.ped_radius >= fx.fromInt(14));
+}

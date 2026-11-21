@@ -62,7 +62,9 @@ pub fn Sys(comptime Self: type) type {
                         col.flags |= c.Collider.flag_grounded;
                         return;
                     }
+                    const z0 = t.z;
                     sim.settle(t, vel, col, T.ped_step, T.ped_gravity, T.ped_max_fall);
+                    if (t.z < z0) sim.pushOutCircle(t, T.ped_radius, T.ped_step);
                     // Stepped off an edge (3.5): he falls, keeping his
                     // horizontal speed, and takes no control until he lands.
                     if (col.flags & c.Collider.flag_grounded == 0) {
@@ -102,7 +104,9 @@ pub fn Sys(comptime Self: type) type {
             if (ped.fall % per == 0 and frame >= anim.frames.fall_hurt_first and frame < anim.frames.fall_lethal) {
                 if (self.state.world.get(id, c.Health)) |h| self.hurt(id, T.fall_damage, h.last_hit_by);
             }
+            const z0 = t.z;
             self.settle(t, vel, col, T.ped_step, T.ped_gravity, T.ped_max_fall);
+            if (t.z < z0) self.pushOutCircle(t, T.ped_radius, T.ped_step);
             if (col.flags & c.Collider.flag_grounded == 0) return;
             // Landed.
             const lethal = frame >= anim.frames.fall_lethal;
@@ -144,7 +148,9 @@ pub fn Sys(comptime Self: type) type {
                 }
             }
             const in_air = col.flags & c.Collider.flag_grounded == 0 or vel.vz > 0;
+            const z0 = t.z;
             self.settle(t, vel, col, T.ped_step, T.thrown_gravity, T.max_fall);
+            if (t.z < z0) self.pushOutCircle(t, T.ped_radius, T.ped_step);
             if (in_air) return;
             // Sliding on the ground.
             const sp = fx.length(vel.vx, vel.vy);
