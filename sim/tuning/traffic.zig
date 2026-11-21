@@ -125,3 +125,21 @@ pub const task_nose = fx.ratio(8, 10);
 /// throttle (ours, so a car resting against another doesn't ram it).
 pub const wiggle_wait: u8 = 5;
 pub const wiggle_throttle: i32 = 60;
+
+// ---------------------------------------------------------------------------
+// Spawning by zone (script-declarations.md 2.5; the spawning note is not
+// written, so all of this is ours).
+
+/// The zone spawner looks every this many ticks (one car and one ped at
+/// most each time).
+pub const zone_spawn_period: u32 = 8;
+/// Above the target by more than this, one out-of-sight car or ped is
+/// removed per look.
+pub const zone_slack: u32 = 4;
+// The zone spawner fills at most three quarters of the car and ped
+// capacity, leaving room for scripts, police and players.
+/// Seek road looks up to this many blocks out (ours; the note says one).
+pub const seek_road_blocks: i32 = 3;
+/// Stopped behind a stopped car in the same lane this long, back out
+/// anyway (ours: breaks a jam behind a car turned the wrong way).
+pub const queue_stuck_ticks: u16 = 150;

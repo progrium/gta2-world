@@ -333,3 +333,67 @@ test "traffic is deterministic: two runs of a busy city hash the same" {
     }
     try std.testing.expectEqual(hashes[0], hashes[1]);
 }
+
+/// Traffic soak counts (for the test below and for reports).
+const debug_soak = false;
+
+pub const SoakCounts = struct { abandoned: u32 = 0, stuck: u32 = 0, impacts: u64 = 0, damaged: u32 = 0, hash: u64 = 0 };
+
+/// Run `ticks` of a traffic-only city (48 AI cars, a few peds, one idle
+/// player) and count abandoned cars, cars that ended stuck (stopped for
+/// the last 300 ticks while not halted), car impacts and damaged cars.
+pub fn trafficSoak(ticks: u32, seed: u64) !SoakCounts {
+    const S = simmod.Sim(.{ .name = "sp_soak", .max_players = 1, .car_capacity = 64, .ped_capacity = 32, .projectile_capacity = 8, .pickup_capacity = 4, .map_object_capacity = 8, .ambient_cars = 48, .ambient_peds = 16 });
+    const g = try std.testing.allocator.create(map.Grid);
+    defer std.testing.allocator.destroy(g);
+    testmap.build(g);
+    const s = try std.testing.allocator.create(S);
+    defer std.testing.allocator.destroy(s);
+    s.init(g, .{ .seed = seed, .mode = .authoritative });
+    // Every ambient car drives.
+    s.state.world.each(.{c.Vehicle}, s, struct {
+        fn f(_: *S, _: EntityId, v: *c.Vehicle) void {
+            v.flags |= c.Vehicle.flag_ai;
+        }
+    }.f);
+    var frames = [1]Frame{Frame.neutral(0)};
+    s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = simmod.spawnHint(100, 100) }});
+    var still: [64]u32 = @splat(0);
+    for (0..ticks) |_| {
+        s.step(&frames, &.{});
+        const Ctx = struct { still: *[64]u32 };
+        var ctx = Ctx{ .still = &still };
+        s.state.world.each(.{ c.Vehicle, c.Velocity }, &ctx, struct {
+            fn f(cx: *Ctx, id: EntityId, v: *c.Vehicle, vel: *c.Velocity) void {
+                const i = id.index();
+                const held = v.halt > 0 or v.ai_yield > 0 or v.ai_flags & (c.Vehicle.ai_halted | c.Vehicle.ai_abandoned) != 0;
+                if (v.flags & c.Vehicle.flag_ai != 0 and !held and fx.length(vel.vx, vel.vy) < fx.ratio(1, 100)) cx.still[i] += 1 else cx.still[i] = 0;
+            }
+        }.f);
+    }
+    var out: SoakCounts = .{ .impacts = s.scratch.stats.impacts, .hash = s.hash() };
+    const Ctx = struct { out: *SoakCounts, still: *[64]u32 };
+    var ctx = Ctx{ .out = &out, .still = &still };
+    s.state.world.each(.{ c.Vehicle, c.Health, c.Transform }, &ctx, struct {
+        fn f(cx: *Ctx, id: EntityId, v: *c.Vehicle, hp: *c.Health, t: *c.Transform) void {
+            if (v.ai_flags & c.Vehicle.ai_abandoned != 0) cx.out.abandoned += 1;
+            if (cx.still[id.index()] >= 300) cx.out.stuck += 1;
+            if (debug_soak and (v.ai_flags & c.Vehicle.ai_abandoned != 0 or cx.still[id.index()] >= 300)) std.debug.print("car {d} at {d},{d},{d} h {d}: flags {x} ai {x} dir {d} timer {d} wig {d} touch {d}\n", .{ id.index(), @as(f32, @floatFromInt(t.x)) / 65536, @as(f32, @floatFromInt(t.y)) / 65536, @as(f32, @floatFromInt(t.z)) / 65536, t.heading, v.flags, v.ai_flags, v.ai_dir, v.timer, v.ai_wiggle, v.ai_touch });
+            if (hp.hp < T.car_damage_max) cx.out.damaged += 1;
+        }
+    }.f);
+    return out;
+}
+
+test "traffic soak: 10,000 ticks of 48 cars, run twice" {
+    const a = try trafficSoak(10_000, 21);
+    const b = try trafficSoak(10_000, 21);
+    try std.testing.expectEqual(a.hash, b.hash);
+    if (debug_soak) std.debug.print("\ntraffic soak 10000 ticks: abandoned {d}, stuck {d}, impacts {d}, damaged {d}\n", .{ a.abandoned, a.stuck, a.impacts, a.damaged });
+    // On the test map every car starts on a road. Before workstream F the
+    // same run ended with 10 cars stuck, 723 impacts and 45 cars damaged;
+    // with it, 1 abandoned, 0 stuck, about 700 impacts, 15 damaged.
+    try std.testing.expect(a.abandoned <= 2);
+    try std.testing.expect(a.stuck <= 2);
+    try std.testing.expect(a.impacts < 1000);
+}

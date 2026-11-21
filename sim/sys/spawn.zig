@@ -23,8 +23,52 @@ const salt_near_y = prelude.salt_near_y;
 const salt_spawn_x = prelude.salt_spawn_x;
 const salt_spawn_y = prelude.salt_spawn_y;
 
+const ids = @import("../ids.zig");
+const TF = @import("../tuning/traffic.zig");
+
+// Salts from workstream F's range (ids.salts.traffic).
+const salt_zone_car_kind: u32 = 0x1600;
+const salt_zone_ped_kind: u32 = 0x1601;
+const salt_zone_driving: u32 = 0x1602;
+const salt_zone_pick: u32 = 0x1603;
+
+/// One zone's spawn settings, from the script's map-zone declaration
+/// (script-declarations.md 2.5, type 102).
+pub const ZoneDensity = extern struct {
+    /// Overall car density, per mille of the configuration's ambient car
+    /// count (ours: the note gives no unit).
+    car_density: u16 = 0,
+    /// Car mix weights: ordinary, "bad", police, gang.
+    car_ratio: [4]u16 = .{ 0, 0, 0, 0 },
+    /// Overall ped density, per mille of the ambient ped count (ours).
+    ped_density: u16 = 0,
+    /// Ped mix, per mille of the zone's peds (the rest are civilians; ours):
+    /// mugger, car thief, Elvis, gang member.
+    ped_ratio: [4]u16 = .{ 0, 0, 0, 0 },
+};
+
+/// A zone with settings: `zone` is the index in `Level.zones` plus one.
+pub const ZoneSetting = extern struct {
+    zone: u16 = 0,
+    density: ZoneDensity = .{},
+    _pad: u16 = 0,
+};
+
+pub const max_zone_settings = 64;
+
+/// Workstream F's part of the SP state block (`state.sp.traffic`).
+pub const State = extern struct {
+    zones: [max_zone_settings]ZoneSetting = @splat(.{}),
+    count: u16 = 0,
+    _pad: u16 = 0,
+};
+
+/// What a zone's car mix picked (`ZoneDensity.car_ratio` order).
+pub const CarKind = enum(u8) { ordinary, bad, police, gang };
+
 pub fn Sys(comptime Self: type) type {
     return struct {
+        const Api = @This();
         const Car = Self.Car;
         const Ped = Self.Ped;
         const Spot = Self.Spot;
@@ -213,10 +257,188 @@ pub fn Sys(comptime Self: type) type {
             return null;
         }
 
-        /// Spawning by zone density (script-declarations.md 2.5, 2.13): owner F.
-        /// W0 stub.
+        // ------------------------------------------------------------------
+        // Spawning by zone (script-declarations.md 2.5; owner F). The
+        // spawning note is not written: the units, the mix and the pace
+        // are ours (tuning/traffic.zig).
+
+        /// Set the spawn settings of the map zone called `name` (the first
+        /// zone of that name in the level). False if there is no level, no
+        /// such zone, or no room. A zone set twice keeps the last settings.
+        pub fn setZoneDensity(self: *Self, name: []const u8, d: ZoneDensity) bool {
+            if (comptime !Self.single_player) return false;
+            const l = self.level orelse return false;
+            for (l.zones, 0..) |z, i| {
+                if (std.mem.eql(u8, z.name, name)) return Api.setZoneDensityIndex(self, @intCast(i), d);
+            }
+            return false;
+        }
+
+        /// As `setZoneDensity`, by index into `Level.zones`.
+        pub fn setZoneDensityIndex(self: *Self, zone: u16, d: ZoneDensity) bool {
+            if (comptime !Self.single_player) return false;
+            const st = &self.state.sp.traffic;
+            for (st.zones[0..st.count]) |*e| {
+                if (e.zone == zone + 1) {
+                    e.density = d;
+                    return true;
+                }
+            }
+            if (st.count >= max_zone_settings) return false;
+            st.zones[st.count] = .{ .zone = zone + 1, .density = d };
+            st.count += 1;
+            return true;
+        }
+
+        /// The settings of the first configured zone (in declaration order)
+        /// containing block (bx, by), if any.
+        pub fn zoneDensityAt(self: *const Self, bx: i32, by: i32) ?ZoneDensity {
+            if (comptime !Self.single_player) return null;
+            const l = self.level orelse return null;
+            const st = &self.state.sp.traffic;
+            for (st.zones[0..st.count]) |e| {
+                const i = e.zone - 1;
+                if (i < l.zones.len and l.zones[i].contains(bx, by)) return e.density;
+            }
+            return null;
+        }
+
+        /// Weighted pick among four weights (0 when they are all zero).
+        pub fn pickWeighted(self: *Self, key: EntityId, salt: u32, w: [4]u16) u8 {
+            var total: u32 = 0;
+            for (w) |x| total += x;
+            if (total == 0) return 0;
+            var k = self.randBelow(key, salt, total);
+            for (w, 0..) |x, i| {
+                if (k < x) return @intCast(i);
+                k -= x;
+            }
+            return 0;
+        }
+
+        /// Keep the population near the player at the density of the zone
+        /// the player is in: every `zone_spawn_period` ticks, spawn one car
+        /// and one ped off screen near the player if below the zone's
+        /// target, or remove one out of sight if well above it. Zones with
+        /// no settings, and levels with none, leave the population to the
+        /// ambient system as before. Single player only.
         pub fn sysZoneSpawn(self: *Self) void {
-            _ = self;
+            if (comptime !Self.single_player) return;
+            if (self.predicting()) return;
+            if (self.state.sp.traffic.count == 0) return;
+            if (self.state.tick % TF.zone_spawn_period != 0) return;
+            const w = &self.state.world;
+            for (self.state.players) |row| {
+                if (row.flags & abi.PlayerRow.flag_active == 0) continue;
+                const pt = w.get(row.car, c.Transform) orelse w.get(row.ped, c.Transform) orelse continue;
+                const bx = fx.toInt(pt.x);
+                const by = fx.toInt(pt.y);
+                const d = Api.zoneDensityAt(self, bx, by) orelse continue;
+                Api.zoneCars(self, bx, by, d);
+                Api.zonePeds(self, bx, by, d);
+            }
+        }
+
+        fn zoneCars(self: *Self, bx: i32, by: i32, d: ZoneDensity) void {
+            const w = &self.state.world;
+            const target: u32 = @min(@as(u32, Self.config.ambient_cars) * d.car_density / 1000, @as(u32, Car.capacity) * 3 / 4);
+            const Ctx = struct { sim: *Self, bx: i32, by: i32, n: u32 = 0, spare: EntityId = .none };
+            var ctx = Ctx{ .sim = self, .bx = bx, .by = by };
+            w.each(.{ c.Vehicle, c.Transform }, &ctx, struct {
+                fn f(cx: *Ctx, id: EntityId, v: *c.Vehicle, t: *c.Transform) void {
+                    if (!Api.ambientCar(cx.sim, id, v)) return;
+                    const dist = @max(@abs(fx.toInt(t.x) - cx.bx), @abs(fx.toInt(t.y) - cx.by));
+                    if (dist >= T.ambient_far) return;
+                    cx.n += 1;
+                    if (dist > TF.offscreen_blocks and cx.spare.isNone()) cx.spare = id;
+                }
+            }.f);
+            if (ctx.n < target) {
+                const key = EntityId.none;
+                const driving = self.randBelow(key, salt_zone_driving, 8) < T.traffic_8ths;
+                const id = Api.spawnAmbientCar(self, driving, .{ .x = bx, .y = by }) orelse return;
+                const kind: CarKind = @enumFromInt(Api.pickWeighted(self, id, salt_zone_car_kind, d.car_ratio));
+                Api.dressCar(self, id, kind);
+                self.scratch.stats.ambient_moved += 1;
+            } else if (ctx.n > target + TF.zone_slack and !ctx.spare.isNone()) {
+                w.despawn(ctx.spare);
+            }
+        }
+
+        fn zonePeds(self: *Self, bx: i32, by: i32, d: ZoneDensity) void {
+            const w = &self.state.world;
+            const target: u32 = @min(@as(u32, Self.config.ambient_peds) * d.ped_density / 1000, @as(u32, Ped.capacity) * 3 / 4);
+            const Ctx = struct { sim: *Self, bx: i32, by: i32, n: u32 = 0, spare: EntityId = .none };
+            var ctx = Ctx{ .sim = self, .bx = bx, .by = by };
+            w.each(.{ c.Pedestrian, c.Controller, c.Transform, c.Riding }, &ctx, struct {
+                fn f(cx: *Ctx, id: EntityId, _: *c.Pedestrian, ctl: *c.Controller, t: *c.Transform, r: *c.Riding) void {
+                    if (ctl.player != c.Controller.no_player or !r.vehicle.isNone()) return;
+                    if (cx.sim.state.world.get(id, c.ScriptTag)) |tag| if (!Api.untagged(tag)) return;
+                    const dist = @max(@abs(fx.toInt(t.x) - cx.bx), @abs(fx.toInt(t.y) - cx.by));
+                    if (dist >= T.ambient_far) return;
+                    cx.n += 1;
+                    if (dist > TF.offscreen_blocks and cx.spare.isNone()) cx.spare = id;
+                }
+            }.f);
+            if (ctx.n < target) {
+                const id = Api.spawnPedNear(self, bx, by) orelse return;
+                // Ped mix: per mille of the zone's peds, the rest civilians.
+                var k = self.randBelow(id, salt_zone_ped_kind, @max(1000, sum4(d.ped_ratio)));
+                const occs = [4]ids.Occupation{ .mugger, .car_thief, .elvis, .gang_member };
+                for (d.ped_ratio, 0..) |x, i| {
+                    if (k < x) {
+                        Self.objectives.setOccupation(self, id, occs[i]);
+                        if (occs[i] == .gang_member) {
+                            if (w.get(id, c.Group)) |g| g.gang = Self.gangs.gangOfArea(self, bx, by);
+                        }
+                        break;
+                    }
+                    k -= x;
+                }
+                self.scratch.stats.ambient_moved += 1;
+            } else if (ctx.n > target + TF.zone_slack and !ctx.spare.isNone()) {
+                w.despawn(ctx.spare);
+            }
+        }
+
+        fn sum4(a: [4]u16) u32 {
+            return @as(u32, a[0]) + a[1] + a[2] + a[3];
+        }
+
+        /// Is this car part of the ambient population (not a player's, a
+        /// script's, a task's or a wreck)?
+        pub fn ambientCar(self: *Self, id: EntityId, v: *const c.Vehicle) bool {
+            if (!v.driver.isNone() or v.flags & c.Vehicle.flag_wrecked != 0) return false;
+            if (v.ai_flags & c.Vehicle.ai_script != 0) return false;
+            const w = &self.state.world;
+            if (w.get(id, c.CarTask)) |ct| if (ct.task != 0) return false;
+            if (w.get(id, c.ScriptTag)) |tag| if (!Api.untagged(tag)) return false;
+            return true;
+        }
+
+        fn untagged(tag: *const c.ScriptTag) bool {
+            return tag.handle == 0;
+        }
+
+        /// The zone's car kinds (ours until E and D2 give police and gang
+        /// models): every kind spawns an ordinary model; police cars are
+        /// marked emergency (they always honk).
+        fn dressCar(self: *Self, id: EntityId, kind: CarKind) void {
+            const v = self.state.world.get(id, c.Vehicle) orelse return;
+            if (kind == .police) v.ai_flags |= c.Vehicle.ai_emergency;
+        }
+
+        /// An ambient ped on the pavement near block (bx, by), off screen.
+        pub fn spawnPedNear(self: *Self, bx: i32, by: i32) ?EntityId {
+            const w = &self.state.world;
+            const id = Api.spawnPed(self, c.Controller.no_player, 0) orelse return null;
+            const spot = Api.findSpotNear(self, id, map.Ground.pavement, T.ped_radius, bx, by, T.ambient_near_radius, T.ambient_near_min) orelse {
+                w.despawn(id);
+                return null;
+            };
+            w.get(id, c.Transform).?.* = .{ .x = spot.x, .y = spot.y, .z = spot.z, .heading = spot.heading };
+            w.get(id, c.Pedestrian).?.ai_heading = spot.heading;
+            return id;
         }
     };
 }

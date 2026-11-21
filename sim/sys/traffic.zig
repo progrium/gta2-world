@@ -194,6 +194,7 @@ pub fn Sys(comptime Self: type) type {
             var honk = false;
             var handbrake_stop = false;
             var face_off = false;
+            var blocked_by: u16 = 0;
             const reversing = v.timer >= c.Vehicle.reverse_base;
             const into: i32 = if (want_diff >= 0) 1 else -1;
             const probe_h: u16 = if (turning) t.heading +% @as(u16, @bitCast(@as(i16, @intCast(into * TF.traffic_turn_probe_angle)))) else want;
@@ -215,6 +216,12 @@ pub fn Sys(comptime Self: type) type {
                             } else {
                                 obstacle = true;
                                 if (h.speed < TF.overtake_crawl and task == null) Api.tryOvertake(self, id, v, t, arrows);
+                                // Stopped behind a stopped car: a crossing or
+                                // facing car soon backs out, one in our own
+                                // lane only after a long wait (ours).
+                                if (h.speed < fx.ratio(1, 100)) {
+                                    blocked_by = if (@abs(@as(i32, rel)) > 8192) T.traffic_stuck_ticks else TF.queue_stuck_ticks;
+                                }
                             }
                         }
                     },
@@ -273,7 +280,12 @@ pub fn Sys(comptime Self: type) type {
             var buttons: u16 = 0;
             if (obstacle) {
                 if (vf > T.traffic_handbrake_speed or (handbrake_stop and vf > fx.ratio(1, 100))) buttons = Button.handbrake_jump;
-                if (v.timer < c.Vehicle.reverse_base) v.timer = 0;
+                if (v.timer < c.Vehicle.reverse_base) {
+                    if (blocked_by > 0 and fx.abs(vf) < fx.ratio(1, 100)) {
+                        v.timer += 1;
+                        if (v.timer >= blocked_by) v.timer = c.Vehicle.reverse_base + T.traffic_reverse_ticks;
+                    } else v.timer = 0;
+                }
             }
             if (wiggle) {
                 throttle = TF.wiggle_throttle;
@@ -336,15 +348,17 @@ pub fn Sys(comptime Self: type) type {
                 else => -1,
             };
             const hd: i16 = @bitCast(want -% t.heading);
-            if (v.ai_flags & c.Vehicle.ai_settling != 0) {
-                if (fx.abs(off) <= TF.settle_band and @abs(@as(i32, hd)) <= TF.settle_heading) {
-                    v.ai_flags &= ~c.Vehicle.ai_settling;
-                } else if (fx.abs(off) > TF.settle_band) {
-                    // The gap check: half a block toward the centre.
-                    const gx = if (d & 1 == 0) t.x else t.x - (if (off > 0) fx.half else -fx.half);
-                    const gy = if (d & 1 == 0) t.y - (if (off > 0) fx.half else -fx.half) else t.y;
-                    if (Api.bodyNear(self, id, gx, gy, t.z, TF.settle_gap_radius)) return want;
-                }
+            if (v.ai_flags & c.Vehicle.ai_settling != 0 and fx.abs(off) <= TF.settle_band and @abs(@as(i32, hd)) <= TF.settle_heading) {
+                v.ai_flags &= ~c.Vehicle.ai_settling;
+            }
+            if (fx.abs(off) > TF.settle_band) {
+                // The gap check: half a block toward the centre; hold the
+                // line while it's taken. (The note does this while settling
+                // after a turn; ours does it for the continuous nudge too,
+                // so two cars squeezed into one lane don't grind together.)
+                const gx = if (d & 1 == 0) t.x else t.x - (if (off > 0) fx.half else -fx.half);
+                const gy = if (d & 1 == 0) t.y - (if (off > 0) fx.half else -fx.half) else t.y;
+                if (Api.bodyNear(self, id, gx, gy, t.z, TF.settle_gap_radius)) return want;
             }
             const corr = std.math.clamp(@divTrunc(off * 6000 * sign, fx.one), -3000, 3000);
             return want +% @as(u16, @truncate(@as(u32, @bitCast(corr))));
@@ -354,15 +368,21 @@ pub fn Sys(comptime Self: type) type {
         /// block over at the car's level or one below.
         pub fn seekRoad(self: *Self, t: *const c.Transform, dir: u8) ?u8 {
             const order = [4]u8{ 0, 3, 1, 2 };
-            for (order) |o| {
-                const d = (dir + o) & 3;
-                const h = dir_heading[d];
-                const px = t.x + fx.mul(fx.cos(h), fx.one);
-                const py = t.y + fx.mul(fx.sin(h), fx.one);
-                const cell = map.floorCell(self.grid, px, py, t.z, T.car_step);
-                if (map.groundOf(cell) == map.Ground.road) return d;
-                const below = map.floorCell(self.grid, px, py, t.z - fx.one, T.car_step);
-                if (map.groundOf(below) == map.Ground.road) return d;
+            // Ours: the note probes one block; we look up to three out, so
+            // a car that ran wide onto a two-block pavement still finds
+            // the road beside it.
+            var k: i32 = 1;
+            while (k <= TF.seek_road_blocks) : (k += 1) {
+                for (order) |o| {
+                    const d = (dir + o) & 3;
+                    const h = dir_heading[d];
+                    const px = t.x + fx.cos(h) * k;
+                    const py = t.y + fx.sin(h) * k;
+                    const cell = map.floorCell(self.grid, px, py, t.z, T.car_step);
+                    if (map.groundOf(cell) == map.Ground.road) return d;
+                    const below = map.floorCell(self.grid, px, py, t.z - fx.one, T.car_step);
+                    if (map.groundOf(below) == map.Ground.road) return d;
+                }
             }
             return null;
         }
@@ -650,7 +670,9 @@ pub fn Sys(comptime Self: type) type {
         pub fn roadAhead(self: *Self, t: *const c.Transform, dir: u8, dist: Fx) bool {
             const h = dir_heading[dir & 3];
             const cell = map.floorCell(self.grid, t.x + fx.mul(fx.cos(h), dist), t.y + fx.mul(fx.sin(h), dist), t.z, T.car_step);
-            return map.groundOf(cell) == map.Ground.road and map.arrowsOf(cell) & dir_arrow[dir & 3] != 0;
+            // A junction cell drawn without arrows lets traffic go any way.
+            const a = map.arrowsOf(cell);
+            return map.groundOf(cell) == map.Ground.road and (a == 0 or a & dir_arrow[dir & 3] != 0);
         }
 
         /// Is there a body in the box ahead of a car? (Kept for callers;

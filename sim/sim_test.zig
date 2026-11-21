@@ -10,4 +10,5 @@ test {
     _ = @import("test/surfaces.zig");
     _ = @import("test/sp.zig");
     _ = @import("test/traffic_rules.zig");
+    _ = @import("test/traffic_spawn.zig");
 }
