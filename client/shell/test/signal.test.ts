@@ -10,8 +10,16 @@ test("room names fit the join link", () => {
   for (let i = 0; i < 50; i++) {
     const room = newRoom();
     const h = joinHash(room, "ab".repeat(32));
-    assert.deepEqual(parseJoinHash(h), { room, mapHash12: "abababababab" });
+    assert.deepEqual(parseJoinHash(h), { room, mapHash12: "abababababab", police: false });
   }
+});
+
+test("a room with police on says so in the join link", () => {
+  const room = newRoom();
+  const h = joinHash(room, "ab".repeat(32), true);
+  assert.ok(h.endsWith(".p"));
+  assert.deepEqual(parseJoinHash(h), { room, mapHash12: "abababababab", police: true });
+  assert.equal(parseJoinHash(`${h}x`), null);
 });
 
 test("?signal= picks the signaller; bc means BroadcastChannel, nothing means SIGNAL_URL", () => {

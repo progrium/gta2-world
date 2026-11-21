@@ -102,7 +102,7 @@ pub fn isEmergency(o: u8) bool {
 pub fn Sys(comptime Self: type) type {
     return struct {
         const cfg = Self.config;
-        const sp = Self.single_player;
+        const sp = Self.city;
 
         fn st(self: *Self, slot: u8) ?*State {
             if (comptime !sp) return null;

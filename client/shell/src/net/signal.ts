@@ -40,9 +40,9 @@ export interface Signaller {
   close(): void;
 }
 
-/** Join link fragment: `#join/<room>.<maphash12>`. */
-export const parseJoinHash = (hash: string): { room: string; mapHash12: string } | null => {
-  const m = /^#join\/([a-z2-7]{8})\.([0-9a-f]{12})$/.exec(hash);
-  return m ? { room: m[1], mapHash12: m[2] } : null;
+/** Join link fragment: `#join/<room>.<maphash12>`, with `.p` when the room has police on. */
+export const parseJoinHash = (hash: string): { room: string; mapHash12: string; police: boolean } | null => {
+  const m = /^#join\/([a-z2-7]{8})\.([0-9a-f]{12})(\.p)?$/.exec(hash);
+  return m ? { room: m[1], mapHash12: m[2], police: m[3] === ".p" } : null;
 };
-export const joinHash = (room: string, mapHashHex: string): string => `#join/${room}.${mapHashHex.slice(0, 12)}`;
+export const joinHash = (room: string, mapHashHex: string, police = false): string => `#join/${room}.${mapHashHex.slice(0, 12)}${police ? ".p" : ""}`;

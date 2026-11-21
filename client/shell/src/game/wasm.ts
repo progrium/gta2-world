@@ -222,6 +222,11 @@ export class GameModule {
     return n;
   }
 
+  /** Hash of the installed car models (hex); a client and its host must agree. */
+  carModelsHash(): string {
+    return this.w.carModelsHash ? this.w.carModelsHash().toString(16).padStart(16, "0") : "";
+  }
+
   /** One default car model for every car (online, to match the server). */
   useDefaultCars(): void {
     this.w.useDefaultCars!();
@@ -492,6 +497,12 @@ export class GameModule {
   }
 
   // -------------------------------------------------------------- online
+
+  /** Before `layoutHash` and `netStart`: the room has police on (dmp16). */
+  netPolice(on: boolean): void {
+    if (this.w.netPolice) this.w.netPolice(on ? 1 : 0);
+    else if (on) throw new Error("this game.wasm has no police rooms; reload the page");
+  }
 
   get layoutHash(): bigint {
     const h = new Uint32Array(this.buf, this.w.layoutHashPtr!(), 2);

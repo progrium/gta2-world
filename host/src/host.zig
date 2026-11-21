@@ -28,6 +28,8 @@ const replay = server.replay;
 const manager = server.manager;
 const abi = ifc.abi;
 const wire = ifc.wire;
+const formats = @import("formats");
+const sim = @import("sim");
 
 pub const Sim = @import("sim_impl").Sim;
 const Mgr = manager.Manager(Sim);
@@ -237,6 +239,34 @@ export fn start(map_ptr: [*]const u8, map_len: usize, name_ptr: [*]const u8, nam
     var hx: [64]u8 = undefined;
     setText("{{\"mapHash\":\"{s}\",\"layoutHash\":\"{x:0>16}\",\"maxPlayers\":{d},\"simMaxPlayers\":{d},\"config\":\"{s}\"}}", .{ util.hex(&hx, &m.hash), Sim.layout_hash, cap, S.max_players, Sim.config.name });
     return 0;
+}
+
+/// Installs the car models for the game: the style's car info (a .sty's
+/// bytes) plus a .gci's handling text (`gci_len` 0 for none), built the same
+/// way as the offline game's loadCarInfo (client/wasm). Every player's client
+/// installs the same list from the same two files, so prediction and the
+/// host agree. Call before `start`; without it the sim uses its one default
+/// model. On success `text` holds {"cars": N, "hash": carModelsHash hex}.
+export fn loadCars(sty_ptr: [*]const u8, sty_len: usize, gci_ptr: [*]const u8, gci_len: usize) i32 {
+    if (mgr != null) return fail("cars", error.AlreadyStarted);
+    var style = formats.sty.parse(gpa, sty_ptr[0..sty_len]) catch |e| return fail("style", e);
+    defer style.deinit();
+    const recs = if (gci_len == 0) &[_]formats.gci.Record{} else formats.gci.parse(gpa, gci_ptr[0..gci_len]) catch |e| return fail("gci", e);
+    defer if (gci_len != 0) gpa.free(recs);
+    const specs = formats.cars.build(gpa, &style, recs, copyFields(formats.cars.Spec, sim.tuning.default_spec)) catch |e| return fail("cars", e);
+    defer gpa.free(specs);
+    var models: [sim.tuning.max_car_models]sim.tuning.CarModel = undefined;
+    const count = @min(specs.len, models.len);
+    for (specs[0..count], models[0..count]) |sp, *m| m.* = sim.tuning.deriveModel(copyFields(sim.tuning.CarSpec, sp));
+    sim.tuning.setCarModels(models[0..count]);
+    setText("{{\"cars\":{d},\"hash\":\"{x:0>16}\"}}", .{ count, sim.tuning.carModelsHash() });
+    return 0;
+}
+
+fn copyFields(comptime To: type, from: anytype) To {
+    var r: To = undefined;
+    inline for (@typeInfo(To).@"struct".field_names) |name| @field(r, name) = @field(from, name);
+    return r;
 }
 
 /// The synthetic test city (server/src/maps.zig synthCity) as .gmp bytes in

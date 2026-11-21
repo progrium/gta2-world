@@ -13,6 +13,7 @@ import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
 import { type Cue, type GameEvent, GameModule, type SoundSource, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
+import { carInfoRecord } from "../lobby/assets.ts";
 import { type ConnectOptions, Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
 import { Effects, rumbleSettings, rumbleSupport } from "../input/rumble.ts";
@@ -36,7 +37,11 @@ export interface GameScreenOpts {
   /** Game server base URL (ws:// or http://); offline when absent. */
   server?: string | null;
   /** A browser-hosted game: the link to use, and a label for the HUD. */
-  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string };
+  /**
+   * A browser-hosted game. `gciHash` is the .gci the host built its car
+   * models from (null: style only); this client builds the same ones.
+   */
+  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string; police?: boolean; gciHash: string | null };
   /** Extra HUD content, e.g. the host's join link and player list. */
   extraHud?: HTMLElement;
   map: MapChoice;
@@ -77,6 +82,14 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const sp = !!o.map.story && !remote;
   const hudDemo = new URLSearchParams(location.search).has("hudtest");
   const spHud = sp ? new SpHudView({ text: (id) => game?.text(id) ?? null, textKey: (k) => game?.textKey(k) ?? null }) : null;
+  // Online with police on: the own wanted level, from wanted events (kind 9).
+  const mpStars = remote && o.net?.police ? h("div", { class: "sp-stars hidden", title: "Wanted level" }) : null;
+  const setMpStars = (n: number): void => {
+    if (!mpStars) return;
+    clear(mpStars);
+    for (let i = 0; i < 6; i++) mpStars.append(h("span", { class: i < n ? "on" : "" }, "★"));
+    mpStars.classList.toggle("hidden", n === 0);
+  };
   /** The camera holds on the body (wasted or busted) until this tick. */
   let holdUntil = 0;
   let holdAt: { x: number; y: number; z: number } | null = null;
@@ -397,14 +410,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       if (disposed) return;
       renderer = new Renderer(canvas);
       renderer.setStyle(g.loadStyle(new Uint8Array(sty)));
-      // Car handling from the player's .gci (nyc.gci), if imported. Online
-      // games use the one default model until the server loads car info.
-      if (remote) g.useDefaultCars();
+      // Car handling from the style and a .gci (nyc.gci). Offline: the
+      // player's own, if imported. A browser-hosted game: the host's (it
+      // came with the match files), so prediction matches the host. The
+      // native server doesn't load car info yet, so its games keep the one
+      // default model.
+      if (o.server && !o.net) g.useDefaultCars();
       else {
-        const gciRec = o.store.manifest.files.find((f) => f.kind === "gci");
-        const gci = gciRec ? new Uint8Array(await o.store.read(gciRec.hash)) : null;
+        const gciHash = o.net ? o.net.gciHash : (carInfoRecord(o.store)?.hash ?? null);
+        const gci = gciHash ? new Uint8Array(await o.store.read(gciHash)) : null;
         const cars = g.loadCarInfo(gci);
-        if (!gci) console.info(`[cars] ${cars} models from the style; no .gci imported, default handling`);
+        console.info(`[cars] ${cars} models (hash ${g.carModelsHash()}) from the style${gci ? " and .gci" : "; no .gci, default handling"}`);
       }
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
       if (sp) await loadLevelFiles(g);
@@ -447,6 +463,9 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   function connect(g: GameModule): Promise<void> {
     status.textContent = `Connecting to ${o.net?.label ?? o.server}…`;
     status.classList.remove("hidden");
+    // A room with police on runs the dmp16 sim: hello's layout hash and the
+    // prediction client follow it.
+    g.netPolice(!!o.net?.police);
     return new Promise((resolve) => {
       conn = new Connection(
         { server: o.server ?? undefined, transport: o.net?.transport ?? transportParam(), rtc: o.net?.rtc, loopback: o.net?.loopback, session: o.sessionId, layoutHash: g.layoutHash, mapHash: o.map.gmpRecord.hash, name: playerName() },
@@ -599,6 +618,15 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       case 19:
         // police voice: a = 0 a cop shouts ("Freeze!"), 1 radio chatter
         audio.play(e.a === 0 ? "cop_shout" : "police_radio", e.x, e.y, e.z);
+        break;
+      case 9:
+        // wanted level: a slot, b now, c before
+        if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
+        else if (mpStars && e.a === ownSlot) {
+          setMpStars(e.b);
+          if (e.b > e.c) audio.play("wanted_up");
+          else if (e.b < e.c) audio.play("wanted_down");
+        }
         break;
       default:
         if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
@@ -757,7 +785,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     );
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el), hud);
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();

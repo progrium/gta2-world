@@ -32,6 +32,9 @@ const list = render.list;
 const Sim = sim.Sim16;
 /// Single player (story levels): one player, the SP state block and systems.
 const SimSp = sim.Sim(sim.config_sp);
+/// Online deathmatch with police on (the host's room setting): dm16's
+/// players with the living city (`sim.config_16_police`).
+const SimP = sim.Sim16Police;
 const max_players = Sim.config.max_players;
 
 var style: ?formats.sty.Style = null;
@@ -54,16 +57,17 @@ var pending: [max_players]abi.Command = undefined;
 var pending_len: usize = 0;
 var layout: list.Layout = list.Layout.init(Sim.views());
 var layout_sp: list.Layout = list.Layout.init(SimSp.views());
+var layout_p: list.Layout = list.Layout.init(SimP.views());
 
 /// The views, layout and state of whatever is drawn now.
 fn isSp() bool {
-    return client == null and offline == .sp;
+    return !online() and offline == .sp;
 }
 fn curViews() []const abi.ColumnDesc {
-    return if (isSp()) SimSp.views() else Sim.views();
+    return if (isSp()) SimSp.views() else if (client_p != null) SimP.views() else Sim.views();
 }
 fn curLayout() *const list.Layout {
-    return if (isSp()) &layout_sp else &layout;
+    return if (isSp()) &layout_sp else if (client_p != null) &layout_p else &layout;
 }
 fn curState() []const u8 {
     return if (offline == .sp) game_sp.stateBytes() else game.stateBytes();
@@ -126,6 +130,8 @@ export fn loadCarInfo(p: [*]const u8, n: usize) i32 {
     const count = @min(specs.len, models.len);
     for (specs[0..count], models[0..count]) |sp, *m| m.* = sim.tuning.deriveModel(copyFields(sim.tuning.CarSpec, sp));
     sim.tuning.setCarModels(models[0..count]);
+    // Police, emergency and army models by the standard numbering.
+    sim.tuning_career.setStandardRoles(count);
     loaded_models = models;
     loaded_count = count;
     return @intCast(count);
@@ -133,8 +139,15 @@ export fn loadCarInfo(p: [*]const u8, n: usize) i32 {
 
 /// Back to the one default model (online: the server does not load car
 /// info yet, and both sides must agree).
+/// Hash of the installed car models (sim.tuning.carModelsHash): a client and
+/// the host it joins must agree, or prediction drifts.
+export fn carModelsHash() u64 {
+    return sim.tuning.carModelsHash();
+}
+
 export fn useDefaultCars() void {
     sim.tuning.setCarModels(&.{});
+    sim.tuning_career.setStandardRoles(0);
     loaded_count = 0;
 }
 
@@ -444,7 +457,7 @@ export fn textPtr() [*]const u8 {
 var sp_buf: [32]i32 = undefined;
 export fn spInfo() [*]const i32 {
     sp_buf = @splat(0);
-    if (!running or offline != .sp or client != null) return &sp_buf;
+    if (!running or offline != .sp or online()) return &sp_buf;
     const g = &game_sp;
     const cs = g.state.sp.career[0];
     const ws = g.state.sp.wanted[0];
@@ -497,7 +510,7 @@ export fn spInfo() [*]const i32 {
 ///   4 counter (a which, b value)    5 arrow at block (a, b)   6 lives += a
 ///   7 score += a (flat)   8 wanted points += a   9 multiplier = a
 export fn spDebug(op: u32, a: i32, b: i32) bool {
-    if (!running or offline != .sp or client != null) return false;
+    if (!running or offline != .sp or online()) return false;
     const g = &game_sp;
     switch (op) {
         1 => SimSp.hud.postBanner(g, 0, @bitCast(a), @intCast(std.math.clamp(b, 0, 0xFFFF))),
@@ -656,6 +669,7 @@ export fn simEventsPtr() [*]const u8 {
 
 export fn gameTick() u32 {
     if (client) |cl| return cl.sim.tick();
+    if (client_p) |cl| return cl.sim.tick();
     if (!running) return 0;
     return if (offline == .sp) game_sp.tick() else game.tick();
 }
@@ -675,6 +689,7 @@ export fn playerInfo(slot: u32) [*]const i32 {
     player_buf = @splat(0);
     if (slot >= max_players) return &player_buf;
     if (client) |cl| return playerInfoFor(Sim, cl.sim, slot);
+    if (client_p) |cl| return playerInfoFor(SimP, cl.sim, slot);
     if (!running) return &player_buf;
     return if (offline == .sp) playerInfoFor(SimSp, &game_sp, slot) else playerInfoFor(Sim, &game, slot);
 }
@@ -744,17 +759,20 @@ fn bases() list.Bases {
 /// Builds the render list between the last two steps at `alpha`. Returns
 /// the instance count.
 export fn buildList(alpha: f32, now_ms: f64) usize {
-    if (client) |cl| {
-        if (!cl.started) return 0;
-        const st = cl.renderState(net_now);
-        const n = list.build(&layout, null, st, 1, bases(), &instances);
-        soundSources(st);
-        return decorate(st, n, now_ms, cl.own_slot);
-    }
+    if (client) |cl| return buildOnline(cl, &layout, now_ms);
+    if (client_p) |cl| return buildOnline(cl, &layout_p, now_ms);
     if (!running) return 0;
     const n = list.build(curLayout(), prevState(), curState(), alpha, bases(), &instances);
     soundSources(curState());
     return decorate(curState(), n, now_ms, 0);
+}
+
+fn buildOnline(cl: anytype, lay: *const list.Layout, now_ms: f64) usize {
+    if (!cl.started) return 0;
+    const st = cl.renderState(net_now);
+    const n = list.build(lay, null, st, 1, bases(), &instances);
+    soundSources(st);
+    return decorate(st, n, now_ms, cl.own_slot);
 }
 
 // ------------------------------------------------------------------ effects
@@ -1485,6 +1503,10 @@ export fn cameraTarget(alpha: f32, slot: u32) [*]const u8 {
         target_buf = if (cl.started) list.target(&layout, cl.render, slot) else std.mem.zeroes(list.Target);
         return @ptrCast(&target_buf);
     }
+    if (client_p) |cl| {
+        target_buf = if (cl.started) list.target(&layout_p, cl.render, slot) else std.mem.zeroes(list.Target);
+        return @ptrCast(&target_buf);
+    }
     if (!running) {
         target_buf = std.mem.zeroes(list.Target);
         return @ptrCast(&target_buf);
@@ -1504,6 +1526,19 @@ export fn cameraTarget(alpha: f32, slot: u32) [*]const u8 {
 
 const NetClient = net.client.Client(Sim);
 var client: ?*NetClient = null;
+const NetClientP = net.client.Client(SimP);
+var client_p: ?*NetClientP = null;
+/// The room has police on: `layoutHashPtr` and `netStart` use `SimP`.
+var net_police = false;
+fn online() bool {
+    return client != null or client_p != null;
+}
+
+/// Before `layoutHashPtr` and `netStart`: whether the room has police on
+/// (the host's room setting, from the join link).
+export fn netPolice(on: bool) void {
+    net_police = on;
+}
 var net_now: f64 = 0;
 var input_buf: [1100]u8 = undefined;
 var input_len: usize = 0;
@@ -1515,13 +1550,21 @@ export fn netStart(slot: u32, buffer_ticks: u32) i32 {
     const g = grid orelse return setError("net", error.NoMap);
     running = false;
     tuneReset();
-    const cl = gpa.create(NetClient) catch |e| return setError("net", e);
-    cl.* = NetClient.init(gpa, g, @intCast(slot), .{ .buffer_ticks = @floatFromInt(buffer_ticks) }) catch |e| {
-        gpa.destroy(cl);
-        return setError("net", e);
-    };
-    client = cl;
+    if (net_police) {
+        client_p = newClient(NetClientP, g, slot, buffer_ticks) catch |e| return setError("net", e);
+    } else {
+        client = newClient(NetClient, g, slot, buffer_ticks) catch |e| return setError("net", e);
+    }
     return 0;
+}
+
+fn newClient(comptime C: type, g: *abi.Grid, slot: u32, buffer_ticks: u32) !*C {
+    const cl = try gpa.create(C);
+    cl.* = C.init(gpa, g, @intCast(slot), .{ .buffer_ticks = @floatFromInt(buffer_ticks) }) catch |e| {
+        gpa.destroy(cl);
+        return e;
+    };
+    return cl;
 }
 
 export fn netStop() void {
@@ -1530,19 +1573,30 @@ export fn netStop() void {
         gpa.destroy(cl);
     }
     client = null;
+    if (client_p) |cl| {
+        cl.deinit();
+        gpa.destroy(cl);
+    }
+    client_p = null;
 }
 
 /// `Sim.layout_hash` as (low, high) u32 halves, for I3 `hello`.
-var layout_buf: [2]u32 = .{ @truncate(Sim.layout_hash), @truncate(Sim.layout_hash >> 32) };
+var layout_buf: [2]u32 = undefined;
 export fn layoutHashPtr() [*]const u32 {
+    const h = if (net_police) SimP.layout_hash else Sim.layout_hash;
+    layout_buf = .{ @truncate(h), @truncate(h >> 32) };
     return &layout_buf;
 }
 
 /// A snapshot (datagram) or baseline (stream) body, starting at its type byte.
 export fn netSnapshot(p: [*]const u8, n: usize, now_ms: f64) i32 {
-    const cl = client orelse return setError("net", error.NotStarted);
     net_now = now_ms;
-    cl.onSnapshot(p[0..n], now_ms) catch |e| return setError("snapshot", e);
+    if (client) |cl| return onSnapshot(cl, p[0..n], now_ms);
+    if (client_p) |cl| return onSnapshot(cl, p[0..n], now_ms);
+    return setError("net", error.NotStarted);
+}
+fn onSnapshot(cl: anytype, body: []const u8, now_ms: f64) i32 {
+    cl.onSnapshot(body, now_ms) catch |e| return setError("snapshot", e);
     return 0;
 }
 
@@ -1550,15 +1604,20 @@ export fn netSnapshot(p: [*]const u8, n: usize, now_ms: f64) i32 {
 /// frame in `framesPtr()[0]`. Returns the number of ticks run; send one
 /// `netInput` datagram per tick run.
 export fn netUpdate(now_ms: f64) u32 {
-    const cl = client orelse return 0;
     net_now = now_ms;
-    return cl.update(now_ms, frames[0].sanitize());
+    if (client) |cl| return cl.update(now_ms, frames[0].sanitize());
+    if (client_p) |cl| return cl.update(now_ms, frames[0].sanitize());
+    return 0;
 }
 
 /// Encodes the input datagram for the newest tick. Returns its length; the
 /// bytes are at `netInputPtr()`.
 export fn netInput(now_ms: f64) usize {
-    const cl = client orelse return 0;
+    if (client) |cl| return writeInput(cl, now_ms);
+    if (client_p) |cl| return writeInput(cl, now_ms);
+    return 0;
+}
+fn writeInput(cl: anytype, now_ms: f64) usize {
     if (!cl.started) return 0;
     const out = cl.writeInput(&input_buf, now_ms) catch return 0;
     input_len = out.len;
@@ -1572,7 +1631,11 @@ export fn netInputPtr() [*]const u8 {
 var net_stats: [8]u32 = undefined;
 export fn netStats() [*]const u32 {
     net_stats = @splat(0);
-    const cl = client orelse return &net_stats;
+    if (client) |cl| statsOf(cl);
+    if (client_p) |cl| statsOf(cl);
+    return &net_stats;
+}
+fn statsOf(cl: anytype) void {
     net_stats = .{
         @intFromBool(cl.started),
         @intFromFloat(@max(cl.rtt_ms, 0)),
@@ -1583,7 +1646,6 @@ export fn netStats() [*]const u32 {
         @truncate(cl.stats.hitches),
         cl.input_ack,
     };
-    return &net_stats;
 }
 
 // ------------------------------------------------------------------ tuning
@@ -1663,6 +1725,7 @@ export fn tuneSet(i: u32, v: i32) void {
 
 export fn tuneReset() void {
     T.setCarModels(loaded_models[0..loaded_count]);
+    sim.tuning_career.setStandardRoles(loaded_count);
     if (!defaults_saved) return;
     inline for (ped_vars, 0..) |n, k| @field(T, n) = @intCast(ped_defaults[k]);
 }

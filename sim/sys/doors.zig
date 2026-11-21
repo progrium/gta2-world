@@ -33,7 +33,7 @@ const flag_wants_close: u8 = 16;
 
 pub fn Sys(comptime Self: type) type {
     return struct {
-        const sp = Self.single_player;
+        const sp = Self.city;
         const objects = Self.objects;
 
         pub const DoorDecl = struct {
