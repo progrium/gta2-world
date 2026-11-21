@@ -22,11 +22,9 @@ const W = @import("world.zig");
 const Cmd = W.Cmd;
 const Outcome = W.Outcome;
 
-pub const done = [_]u16{ 15, 16, 17, 18, 19, 20, 47, 48, 49, 50, 51, 52, 140, 444, 362, 177, 178, 179, 168, 227, 229 };
-/// Waiting on B: generator counts and models, the by-model power-up,
-/// manual doors and door targets, ring timeouts, dead phones, and the
-/// camera's view test (H) for 160 and 356.
-pub const stubbed = [_]u16{ 268, 269, 351, 352, 354, 160, 356, 180, 265, 228, 245 };
+pub const done = [_]u16{ 15, 16, 17, 18, 19, 20, 47, 48, 49, 50, 51, 52, 140, 444, 362, 177, 178, 179, 180, 265, 168, 227, 228, 229, 245, 268, 269, 351, 352, 354 };
+/// Waiting on the camera's view test (H) for 160 and 356.
+pub const stubbed = [_]u16{ 160, 356 };
 
 /// Object models treated as pickups (4): a generator of one spawns one at
 /// a time, and a mission does not clean one up.
@@ -61,7 +59,7 @@ pub fn Sys(comptime Self: type) type {
             const id = Self.objects.spawnObject(self, kind, @truncate(model), pos.x, pos.y, pos.z, W.heading(p.u16_(18))) orelse return null;
             const has_value = p.b.len >= 24;
             if ((valued and has_value) or (runtime and appliesValue(cmd.kind, has_value))) {
-                if (self.state.world.get(id, c.Object)) |o| o.value = @truncate(p.u32_(20));
+                Self.objects.setObjectValue(self, id, @truncate(p.u32_(20)));
             }
             var flags: u16 = c.ScriptTag.flag_keep;
             if (runtime and !ctx.declaring() and !isPickupModel(model)) {
@@ -98,16 +96,18 @@ pub fn Sys(comptime Self: type) type {
                     ctx.addCleanup(id);
                 },
                 // 2.3 Generators: on; the count and pattern wait on B.
-                268, 269, 351, 352 => {
-                    Self.objects.setGenerator(self, id, true);
-                    return .stubbed;
+                // -1 is "no limit", the same value as B's unlimited.
+                268, 269 => Self.objects.startGenerator(self, id, p.u16_(2), null),
+                351, 352 => Self.objects.startGenerator(self, id, p.u16_(2), @truncate(p.u16_(4))),
+                354 => {
+                    const v = w.get(id, c.Vehicle) orelse return .done;
+                    Self.objects.decidePowerUp(self, ctx.handle(p.u16_(2)), v.model);
                 },
-                354 => return .stubbed,
                 // 2.4 Queries.
                 362 => {
-                    const o = w.get(id, c.Object) orelse return cond(ctx, false);
+                    const have = Self.objects.objectModel(self, id) orelse return cond(ctx, false);
                     const m = p.u16_(4);
-                    ctx.setCond(m < 256 and o.model == m);
+                    ctx.setCond(m < 256 and have == m);
                 },
                 160, 356 => {
                     ctx.setCond(false);
@@ -118,22 +118,17 @@ pub fn Sys(comptime Self: type) type {
                 177 => Self.objects.setDoor(self, id, .open),
                 178 => Self.objects.setDoor(self, id, .closed),
                 179 => Self.objects.setDoor(self, id, .auto),
-                180, 265 => return .stubbed,
+                180 => Self.objects.setDoor(self, id, .manual),
+                265 => Self.objects.setDoorTarget(self, id, ctx.handle(p.u16_(2))),
                 // 2.6 Phones.
                 168 => {
-                    Self.objects.ringPhone(self, id, true);
+                    Self.objects.ringPhoneFor(self, id, ctx.handle(p.u16_(2)), p.u16_(4));
                     ctx.setCond(false);
                 },
-                227 => ctx.setCond(Self.objects.phoneAnswered(self, id)),
-                228 => {
-                    ctx.setCond(false);
-                    return .stubbed;
-                },
+                227 => ctx.setCond(Self.objects.consumeAnswer(self, id)),
+                228 => ctx.setCond(Self.objects.phoneTimedOut(self, id)),
                 229 => Self.objects.ringPhone(self, id, false),
-                245 => {
-                    Self.objects.ringPhone(self, id, false);
-                    return .stubbed;
-                },
+                245 => Self.objects.killPhone(self, id),
                 else => return .unhandled,
             }
             return .done;

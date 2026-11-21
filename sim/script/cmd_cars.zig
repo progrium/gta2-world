@@ -32,12 +32,12 @@ const W = @import("world.zig");
 const Cmd = W.Cmd;
 const Outcome = W.Outcome;
 
-pub const done = [_]u16{ 43, 44, 45, 46, 394, 395, 396, 397, 100, 175, 170, 169, 368, 167, 171, 166, 330, 254, 253, 155, 144, 398, 403, 404, 405, 142, 399, 406, 129, 157, 158, 159, 139, 270, 189, 208, 206, 207, 209, 250, 130, 154, 190, 191, 128 };
+pub const done = [_]u16{ 43, 44, 45, 46, 394, 395, 396, 397, 100, 175, 170, 169, 368, 167, 171, 166, 330, 254, 253, 155, 144, 398, 403, 404, 405, 142, 399, 406, 129, 157, 158, 159, 139, 270, 189, 208, 206, 207, 209, 250, 130, 154, 190, 191, 128, 267, 358, 366, 305 };
 /// Waiting on: trailers and cranes (C, cranes note), car flags that no
 /// component holds yet (jammed throttle, roof number, alarm, proofs,
 /// siren, door locks beyond the script tag), car bombs and vehicle
 /// weapons (G), crushing (B), hit records (A1), dents (C).
-pub const stubbed = [_]u16{ 188, 374, 316, 246, 247, 303, 310, 278, 311, 312, 313, 361, 305, 200, 241, 267, 417, 358, 366 };
+pub const stubbed = [_]u16{ 188, 374, 316, 246, 247, 303, 310, 278, 311, 312, 313, 361, 200, 241, 417 };
 
 /// The explosion kinds `explodeAt` takes (0 small, 1 car).
 const explosion_small: u8 = 0;
@@ -232,7 +232,9 @@ pub fn Sys(comptime Self: type) type {
                     ctx.setCond(H.hitOnce(self, ctx.handle(p.u16_(0)), if (cmd.kind == 358) @truncate(p.u32_(4)) else null));
                     return if (@hasDecl(Self.script, "hitBy")) .done else .stubbed;
                 },
-                188, 246, 247, 305, 200, 241, 267, 417 => return condStub(ctx, false),
+                267 => ctx.setCond(Self.objects.beingCrushed(self, ctx.handle(p.u16_(0)))),
+                305 => ctx.setCond(Self.car_weapons.bombArmed(self, ctx.handle(p.u16_(0)))),
+                188, 246, 247, 200, 241, 417 => return condStub(ctx, false),
                 374, 316, 303, 310, 278, 311, 312, 313, 361 => return .stubbed,
                 else => return .unhandled,
             }

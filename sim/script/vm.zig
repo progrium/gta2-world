@@ -475,7 +475,7 @@ pub fn Sys(comptime Self: type) type {
             }
             /// A2's trigger declarations (211-214, 434).
             pub fn addTrigger(x: Ctx, t: anytype) void {
-                const kind: u8 = switch (@intFromEnum(t.kind)) {
+                const kind: u8 = switch (@backingInt(t.kind)) {
                     0 => trig_car,
                     1 => trig_phone,
                     2 => trig_block,

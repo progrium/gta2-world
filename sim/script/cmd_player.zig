@@ -66,12 +66,9 @@ pub fn Sys(comptime Self: type) type {
                 163 => if (slot) |s| Self.wanted.clear(self, s),
                 164, 421 => {
                     const n = p.u16_(2);
-                    if (n > 6) return .done;
+                    if (n > 6) return .done; // out of range: ignored (2.3)
                     const s = slot orelse return .done;
-                    const now = Self.wanted.stars(self, s);
-                    if (cmd.kind == 421 and now >= n) return .done;
-                    Self.wanted.clear(self, s);
-                    if (n > 0) Self.wanted.addPoints(self, s, star_points[n]);
+                    if (cmd.kind == 164) Self.wanted.setStars(self, s, @intCast(n)) else Self.wanted.raiseToStars(self, s, @intCast(n));
                 },
                 418 => setMaxWanted(self, p.u16_(2)),
                 // 2.4 Locks on the local player's own controls (the

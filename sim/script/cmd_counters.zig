@@ -60,7 +60,7 @@ pub fn Sys(comptime Self: type) type {
                 // (dest, a, b): counter op counter (108-112), counter op
                 // literal (79-83).
                 108...112, 79...83 => {
-                    const op: Op = @enumFromInt(if (cmd.kind >= 108) cmd.kind - 108 else cmd.kind - 79);
+                    const op: Op = @fromBackingInt(@intCast(if (cmd.kind >= 108) cmd.kind - 108 else cmd.kind - 79));
                     const b: i32 = if (cmd.kind >= 108) val(self, p.u(2)) else p.s(2);
                     if (arith(op, val(self, p.u(1)), b)) |r| {
                         if (V.slotPtr(self, p.u(0))) |q| q.* = r;
@@ -70,7 +70,7 @@ pub fn Sys(comptime Self: type) type {
                 // Comparisons: even = counter vs literal, odd = counter vs
                 // counter (86-95).
                 86...95 => {
-                    const op: Cmp = @enumFromInt((cmd.kind - 86) / 2);
+                    const op: Cmp = @fromBackingInt(@intCast((cmd.kind - 86) / 2));
                     const b: i32 = if ((cmd.kind - 86) % 2 == 1) val(self, p.u(1)) else p.s(1);
                     t.cond = @intFromBool(compare(op, val(self, p.u(0)), b));
                     return .advance;
