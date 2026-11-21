@@ -48,11 +48,8 @@ pub fn Sys(comptime Self: type) type {
                 powerUpTick(self, slot, cs);
                 if (cs.phase == CS.phase_playing or cs.phase == CS.phase_game_over) continue;
                 if (cs.countdown > 0) cs.countdown -= 1;
-                if (cs.phase == CS.phase_busted and cs.countdown == TC.police_take_double) {
-                    // The double is ordered to call a police car and is
-                    // driven off (3.3 step 3): the police API (E) has no
-                    // call for it yet; E can read `career.bodyDouble`.
-                }
+                // 2 ticks before the end of an arrest the police (E's
+                // sysPolice) seat the double in a police car (3.3 step 3).
                 if (cs.countdown == 0) finish(self, slot);
             }
         }
@@ -145,9 +142,9 @@ pub fn Sys(comptime Self: type) type {
                     r.vehicle = .none;
                 }
             }
-            // 1: no life lost; the message, the countdown, the double (the
-            // one the police take). Breaking up the player's gang is D2's
-            // group code, which has no API yet.
+            // 1: no life lost; the message, the countdown, the player's
+            // gang broken up, the double (the one the police take).
+            Self.gangs.breakUpGang(self, slot);
             cs.flags |= CS.flag_was_out;
             cs.cause = Event.weapon_car; // unused for an arrest
             cs.death_car = pl.car;
@@ -246,7 +243,10 @@ pub fn Sys(comptime Self: type) type {
             const pl = &self.state.players[slot];
             const wasted = cs.phase == CS.phase_wasted;
             cs.countdown = 0;
-            if (!cs.double.isNone()) w.despawn(cs.double);
+            // A double the police have seated in their car is theirs now
+            // (E removes it once the car has driven off).
+            const seated = if (w.get(cs.double, c.Riding)) |r| !r.vehicle.isNone() else false;
+            if (!cs.double.isNone() and !seated) w.despawn(cs.double);
             cs.double = .none;
             const game_over = if (wasted) pl.ped.isNone() else cs.lives == 0 or cs.flags & CS.flag_bonus_stage != 0;
             if (game_over) {
