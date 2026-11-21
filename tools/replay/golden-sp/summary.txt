@@ -10,4 +10,4 @@ stage 3
 unhandled 0
 max_threads 3
 first_start 82
-invariant_breaks 3
+invariant_breaks 0
