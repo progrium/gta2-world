@@ -151,6 +151,10 @@ pub fn Sys(comptime Self: type) type {
             w.get(id, c.Controller).?.* = .{ .player = c.Controller.no_player, .prev_buttons = 0, .in = Frame.neutral(0) };
             w.get(id, c.Vehicle).?.* = .{ .driver = .none, .model = model, .pedal = 0, .steer = 0, .flags = 0, .timer = 0, .ai_dir = 0, .ai_plan = 0, .halt = 0, .ai_speed = 0, .brake = 0, .handbrake_n = 0, .drive = 0 };
             w.get(id, c.Appearance).?.* = .{ .sprite = @intCast(T.carModel(model).sprite), .remap = c.Appearance.no_remap };
+            // Single player: the spawn zeroes components, so set the SP
+            // ones to their defaults (no target, no route).
+            if (comptime Car.has(c.CarTask)) w.get(id, c.CarTask).?.* = .{};
+            if (comptime Car.has(c.ScriptTag)) w.get(id, c.ScriptTag).?.* = .{};
         }
 
         /// Spawn a ped for `player` (or an ambient ped for no_player).

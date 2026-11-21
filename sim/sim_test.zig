@@ -17,4 +17,5 @@ test {
     _ = @import("test/ped_ai_objectives.zig");
     _ = @import("test/ped_ai_threat.zig");
     _ = @import("test/ped_ai_combat.zig");
+    _ = @import("test/traffic_rules.zig");
 }

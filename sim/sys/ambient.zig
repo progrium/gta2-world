@@ -42,6 +42,9 @@ pub fn Sys(comptime Self: type) type {
                     if (cx.moved >= T.ambient_moves_per_tick) return;
                     if ((id.index() ^ cx.sim.state.tick) & 7 != 0) return;
                     if (!v.driver.isNone() or v.flags & c.Vehicle.flag_wrecked != 0) return;
+                    // Script and task cars stay where they are.
+                    if (v.ai_flags & c.Vehicle.ai_script != 0) return;
+                    if (cx.sim.state.world.get(id, c.CarTask)) |ct| if (ct.task != 0) return;
                     if (!farFromAll(cx.pos, t)) return;
                     const sim = cx.sim;
                     const o = sim.randomPlayerBlock(id) orelse return;
