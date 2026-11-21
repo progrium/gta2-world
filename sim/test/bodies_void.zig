@@ -100,3 +100,97 @@ test "a car driven up a ramp under a low ceiling stops before its roof hits it" 
     }
     try std.testing.expect(!h.sim.boxBlocked(t.x, t.y, t.z, t.heading, T.carModel(0)));
 }
+
+/// A tower of `levels` solid blocks at x 10..12, y 19..21 on the field
+/// outside the city; a ped joined on it walks off its +x edge. Returns the
+/// hit points lost and whether he died, once he has landed.
+fn walkOffTower(levels: u32, invulnerable: bool) !struct { lost: i32, dead: bool, ticks: u32 } {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    for (1..levels + 1) |z| for (19..22) |y| for (10..13) |x| {
+        map.set(h.grid, @intCast(x), @intCast(y), @intCast(z), map.makeCell(map.Shape.solid, 0, map.Ground.pavement, 0));
+    };
+    h.join(0, 12, 20);
+    const id = h.sim.pedOf(0).?;
+    const t = h.ped(0);
+    try std.testing.expectEqual(fx.fromInt(@intCast(levels + 1)), t.z);
+    const ped = h.sim.state.world.get(id, c.Pedestrian).?;
+    if (invulnerable) ped.invulnerable = 1000;
+    const hp = h.sim.state.world.get(id, c.Health).?;
+    const hp0 = hp.hp;
+    t.heading = 0;
+    h.frames[0].throttle = 127;
+    var fell = false;
+    var ticks: u32 = 0;
+    while (ticks < 200) : (ticks += 1) {
+        h.run(1);
+        if (ped.state == c.Pedestrian.state_falling) {
+            fell = true;
+            try std.testing.expectEqual(c.Pedestrian.anim_fall, ped.anim);
+        }
+        if (hp.hp <= 0) return .{ .lost = hp0 - hp.hp, .dead = true, .ticks = ticks };
+        if (fell and ped.state == c.Pedestrian.state_up) break;
+    }
+    try std.testing.expect(fell);
+    try std.testing.expectEqual(fx.one, t.z);
+    return .{ .lost = hp0 - hp.hp, .dead = false, .ticks = ticks };
+}
+
+test "falls: one level is harmless, two levels hurt, four are lethal unless invulnerable" {
+    const one = try walkOffTower(1, false);
+    try std.testing.expect(!one.dead);
+    try std.testing.expectEqual(@as(i32, 0), one.lost);
+    const two = try walkOffTower(2, false);
+    try std.testing.expect(!two.dead);
+    try std.testing.expect(two.lost == T.fall_damage or two.lost == 2 * T.fall_damage);
+    const four = try walkOffTower(4, false);
+    try std.testing.expect(four.dead);
+    const safe = try walkOffTower(4, true);
+    try std.testing.expect(!safe.dead);
+    try std.testing.expectEqual(@as(i32, 0), safe.lost);
+}
+
+test "partial blocks are floors that never wall a body; three-sided diagonal blocks are flat on top with a diagonal wall" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    const g = h.grid;
+    const z = fx.one;
+    // A left partial block (53) at (20, 10) level 1: walked into from the
+    // side it does not block, and its strip's top is a floor at 2.
+    map.set(g, 20, 10, 1, map.makeCell(map.Shape.partial, map.Code.partial(0), map.Ground.pavement, 0));
+    try std.testing.expect(!map.blocks(g, fx.fromInt(20) + fx.ratio(1, 8), blk(10), z, T.ped_step));
+    try std.testing.expectEqual(fx.fromInt(2), map.floorAt(g, fx.fromInt(20) + fx.ratio(1, 8), blk(10), fx.fromInt(2), T.ped_step));
+    // A three-sided diagonal block 49 (open up-left) at (22, 10) level 1:
+    // the top is a floor at 2 over the whole block; from the side, the
+    // closed half blocks and the open half does not.
+    map.set(g, 22, 10, 1, map.makeCell(map.Shape.slope, 49, map.Ground.pavement, 0));
+    const open_u = fx.fromInt(22) + fx.ratio(1, 8);
+    const open_v = fx.fromInt(10) + fx.ratio(1, 8);
+    const closed_u = fx.fromInt(22) + fx.ratio(7, 8);
+    const closed_v = fx.fromInt(10) + fx.ratio(7, 8);
+    try std.testing.expect(!map.blocks(g, open_u, open_v, z, T.ped_step));
+    try std.testing.expect(map.blocks(g, closed_u, closed_v, z, T.ped_step));
+    try std.testing.expectEqual(fx.fromInt(2), map.floorAt(g, open_u, open_v, fx.fromInt(2), T.ped_step));
+    try std.testing.expectEqual(fx.fromInt(2), map.floorAt(g, closed_u, closed_v, fx.fromInt(2), T.ped_step));
+}
+
+test "the map edge is a wall at the top level only" {
+    try std.testing.expect(map.pastTopEdge(fx.ratio(9, 10), blk(100), fx.fromInt(7)));
+    try std.testing.expect(map.pastTopEdge(blk(100), fx.fromInt(255) + fx.ratio(1, 10), fx.fromInt(7) + fx.half));
+    try std.testing.expect(!map.pastTopEdge(fx.ratio(11, 10), blk(100), fx.fromInt(7)));
+    try std.testing.expect(!map.pastTopEdge(fx.ratio(9, 10), blk(100), fx.fromInt(6)));
+    // A car on a top-level deck along the west edge stops a block short.
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    for (6..15) |y| for (0..8) |x| map.set(h.grid, @intCast(x), @intCast(y), 6, map.makeCell(map.Shape.slab, 0, map.Ground.road, 0));
+    const car = h.sim.spawnCarAt(blk(6), blk(10), 32768, 0).?;
+    const t = h.sim.transformOf(car).?;
+    t.z = fx.fromInt(7);
+    const vel = h.sim.state.world.get(car, c.Velocity).?;
+    for (0..80) |_| {
+        vel.vx = -fx.ratio(15, 100);
+        h.run(1);
+    }
+    try std.testing.expectEqual(fx.fromInt(7), t.z);
+    try std.testing.expect(t.x - T.carModel(0).half_len >= fx.one - fx.ratio(1, 10));
+}
