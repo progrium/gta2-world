@@ -102,6 +102,8 @@ test "career: a player starts with lives and a multiplier of 1" {
     try std.testing.expectEqual(TC.start_lives, Sp.career.lives(h.sim, 0));
     try std.testing.expectEqual(@as(u8, 1), Sp.career.multiplier(h.sim, 0));
     try std.testing.expect(!Sp.career.isOut(h.sim, 0));
+    // Unarmed: no deathmatch pistol.
+    for (h.weapon().rounds()) |r| try std.testing.expectEqual(@as(u16, 0), r);
     // Lives and multiplier clamp (script-player.md 2.1-2.2).
     Sp.career.addLives(h.sim, 0, -50);
     try std.testing.expectEqual(@as(u8, 0), Sp.career.lives(h.sim, 0));
@@ -544,6 +546,7 @@ test "accuracy: the player's projectile hits are counted by weapon (scoring.md 3
     w.get(victim, c.Pedestrian).?.ai_timer = 1000;
     w.get(h.me(), c.Transform).?.heading = 0;
     h.weapon().kind = T.weapon_pistol;
+    h.weapon().rounds()[T.weapon_pistol] = 100;
     h.frames[0].buttons = Button.fire;
     h.run(1);
     h.frames[0].buttons = 0;

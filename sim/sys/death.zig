@@ -35,6 +35,14 @@ pub fn Sys(comptime Self: type) type {
             for (&self.state.players, 0..) |*pl, i| {
                 if (pl.flags & abi.PlayerRow.flag_active == 0) continue;
                 const slot: u8 = @intCast(i);
+                if (self.state.sp.career[slot].flags & CS.flag_started == 0) {
+                    // A single-player career starts unarmed: the joining
+                    // ped's infinite pistol is a deathmatch rule.
+                    if (self.state.world.get(pl.ped, c.Weapon)) |wpn| {
+                        for (wpn.rounds()) |*r| r.* = 0;
+                        wpn.kind = T.weapon_pistol;
+                    }
+                }
                 Self.career.start(self, slot);
                 const cs = &self.state.sp.career[slot];
                 powerUpTick(self, slot, cs);
