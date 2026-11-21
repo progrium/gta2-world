@@ -570,3 +570,36 @@ test "police: voice lines (radio on a rise and a dispatch, a shout on foot), spa
     try std.testing.expect(shout);
     if (min_gap != std.math.maxInt(u32)) try std.testing.expect(min_gap >= TP.voice_gap);
 }
+
+test "police: an FBI car reskinned from traffic gets a tougher, armed crew that joins the pursuit" {
+    const TC = @import("../tuning/career.zig");
+    TC.model_roles[84] = .fbi;
+    defer TC.model_roles[84] = .ordinary;
+    const s = try crewSim();
+    defer freeCrewSim(s);
+    Spc.wanted.setStars(s, 0, 5);
+    runC(s, 2);
+    try std.testing.expectEqual(@as(u8, @intFromEnum(ids.Occupation.fbi)), s.state.sp.wanted[0].top_kind);
+    // F's spawner: a passing car turned into an FBI unit, driverless.
+    const pt = s.state.world.get(s.pedOf(0).?, c.Transform).?.*;
+    const car = s.spawnCarAt(pt.x + h_.blk(8), pt.y, 0, 84).?;
+    const v = s.state.world.get(car, c.Vehicle).?;
+    v.flags = c.Vehicle.flag_ai;
+    v.ai_flags |= c.Vehicle.ai_emergency;
+    runC(s, 1);
+    const cr = Spc.police.crew.crewOfCar(s, car) orelse return error.NotAdopted;
+    try std.testing.expectEqual(@as(u8, @intFromEnum(ids.Occupation.fbi)), cr.kind);
+    try std.testing.expectEqual(@as(u8, 0), cr.slot);
+    for (cr.members[0..TP.fbi_crew_size]) |m| {
+        try std.testing.expectEqual(ids.Occupation.fbi, Spc.objectives.occupationOf(s, m));
+        try std.testing.expect(s.state.world.get(m, c.Health).?.hp > TP.swat_hp);
+        try std.testing.expect(h_.eql(s.state.world.get(m, c.Riding).?.vehicle, car));
+    }
+    try std.testing.expect(!s.state.world.get(car, c.Vehicle).?.driver.isNone());
+    // The FBI tier keeps it; a level of six sends it home.
+    runC(s, 30);
+    try std.testing.expect(Spc.police.crew.crewOfCar(s, car) != null);
+    Spc.wanted.setStars(s, 0, 6);
+    runC(s, 2);
+    try std.testing.expect(Spc.police.crew.crewOfCar(s, car) == null);
+}

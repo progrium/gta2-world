@@ -319,6 +319,86 @@ pub fn Sys(comptime Self: type) type {
             return true;
         }
 
+        /// The FBI and army units F's traffic spawner reskins from passing
+        /// cars during their pursuits (police-ai.md 3.6) come driverless:
+        /// seat a tougher, better-armed crew in each and send it after the
+        /// nearest player with that crew kind on their pursuit. Run from
+        /// `sysPolice` (spawning peds is not safe inside the spawner's car
+        /// loop). A car with no free crew stays plain traffic.
+        pub fn adoptReskins(self: *Self) void {
+            const fbi: u8 = @intFromEnum(ids.Occupation.fbi);
+            const army: u8 = @intFromEnum(ids.Occupation.army);
+            var any = false;
+            for (self.state.sp.wanted) |ws| {
+                if (ws.top_kind == fbi or ws.top_kind == army) any = true;
+            }
+            if (!any) return;
+            const Found = struct { car: EntityId, kind: u8 };
+            const Ctx = struct { found: [4]Found = undefined, n: u32 = 0 };
+            var ctx = Ctx{};
+            self.state.world.each(.{ c.Vehicle, c.Transform }, &ctx, struct {
+                fn f(cx: *Ctx, id: EntityId, v: *c.Vehicle, _: *c.Transform) void {
+                    if (cx.n >= cx.found.len) return;
+                    if (v.ai_flags & c.Vehicle.ai_emergency == 0 or !v.driver.isNone()) return;
+                    if (v.flags & c.Vehicle.flag_wrecked != 0) return;
+                    const kind: u8 = switch (TC.roleOf(v.model)) {
+                        .fbi => @intFromEnum(ids.Occupation.fbi),
+                        .tank => @intFromEnum(ids.Occupation.army),
+                        else => return,
+                    };
+                    cx.found[cx.n] = .{ .car = id, .kind = kind };
+                    cx.n += 1;
+                }
+            }.f);
+            for (ctx.found[0..ctx.n]) |fd| {
+                if (crewOfCar(self, fd.car) != null or Self.police.roadblock.ownsCar(self, fd.car)) continue;
+                _ = adopt(self, fd.car, fd.kind);
+            }
+        }
+
+        fn adopt(self: *Self, car: EntityId, kind: u8) bool {
+            const w = &self.state.world;
+            const ct = w.get(car, c.Transform).?.*;
+            // The nearest player whose pursuit has reached this kind.
+            var slot: ?u8 = null;
+            var best: Fx = std.math.maxInt(i32);
+            for (self.state.sp.wanted, 0..) |ws, i| {
+                if (ws.top_kind != kind or ws.pursuit == @intFromEnum(Pursuit.idle)) continue;
+                const pt = self.transformOf(self.state.players[i].ped) orelse continue;
+                const d = fx.length(pt.x - ct.x, pt.y - ct.y);
+                if (d < best) {
+                    best = d;
+                    slot = @intCast(i);
+                }
+            }
+            const sl = slot orelse return false;
+            const cr = for (crews(self)) |*cr| {
+                if (cr.phase == @intFromEnum(Phase.free)) break cr;
+            } else return false;
+            const is_army = kind == @intFromEnum(ids.Occupation.army);
+            const size: u8 = if (is_army) TP.army_crew_size else TP.fbi_crew_size;
+            const hp: i32 = if (is_army) TP.army_hp else TP.fbi_hp;
+            const weapon: u8 = if (is_army) TP.army_weapon else TP.fbi_weapon;
+            cr.* = .{ .phase = @intFromEnum(Phase.driving), .slot = sl, .kind = kind, .car = car };
+            for (0..size) |i| {
+                const m = spawnOfficer(self, kind, hp, weapon, &ct) orelse break;
+                cr.members[i] = m;
+                seat(self, m, car);
+            }
+            if (cr.members[0].isNone()) {
+                cr.* = .{};
+                return false;
+            }
+            // Off the traffic AI's beat and onto the pursuit.
+            w.get(car, c.Vehicle).?.flags &= ~c.Vehicle.flag_ai;
+            if (comptime Self.Car.has(c.CarTask)) w.get(car, c.CarTask).?.* = .{};
+            Self.car_tasks.setCarTaskOpts(self, car, .{ .fast_snap = true });
+            const s = &self.state.sp.wanted[sl];
+            driveTo(self, cr, s.last_x, s.last_y);
+            siren(self, car, true);
+            return true;
+        }
+
         /// Car task toward (x, y), re-set only when the goal moves by a
         /// quarter block or more (a new task plans a new route).
         fn goTo(self: *Self, car: EntityId, x: Fx, y: Fx) void {

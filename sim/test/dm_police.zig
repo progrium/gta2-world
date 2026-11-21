@@ -55,7 +55,7 @@ fn crewsFor(s: *Dmp, slot: u8) u32 {
     return n;
 }
 
-test "dm police: a wanted player gets a crew, and an arrest or a shooting counts as a death" {
+test "dm police: a wanted player gets a crew; the other player does not" {
     const s = try dmpSim(2);
     defer freeDmp(s);
     Dmp.wanted.setStars(s, 1, 1);
@@ -68,19 +68,36 @@ test "dm police: a wanted player gets a crew, and an arrest or a shooting counts
     try std.testing.expectEqual(@as(u32, 1), crewsFor(s, 1));
     try std.testing.expectEqual(@as(u32, 0), crewsFor(s, 0));
     try std.testing.expect(siren);
-    // The crew runs the target down. Deathmatch has no lives or arrest
-    // sequence: busted or shot, the player dies and respawns.
-    const deaths0 = s.state.players[1].deaths;
-    n = 0;
-    while (n < 4000 and s.state.players[1].deaths == deaths0) : (n += 1) {
-        run(s, 1);
-        if (Dmp.wanted.stars(s, 1) == 0) Dmp.wanted.setStars(s, 1, 1);
-    }
-    try std.testing.expect(s.state.players[1].deaths > deaths0);
     // Respawned with a clean slate; the other player was never wanted.
+    try std.testing.expectEqual(@as(u8, 0), Dmp.wanted.stars(s, 0));
+}
+
+test "dm police: an arrest counts as a death (no lives or arrest sequence in deathmatch)" {
+    const s = try dmpSim(2);
+    defer freeDmp(s);
+    Dmp.police.setDispatch(s, false);
+    Dmp.wanted.setStars(s, 1, 1);
+    const target = s.pedOf(1).?;
+    const pt = s.state.world.get(target, c.Transform).?.*;
+    const bx: u8 = @intCast(simmod.fx.toInt(pt.x));
+    const by: u8 = @intCast(simmod.fx.toInt(pt.y));
+    const cop = s.spawnPed(c.Controller.no_player, simmod.spawnHint(bx, by)).?;
+    s.state.world.applyPending();
+    s.state.world.get(cop, c.Transform).?.* = .{ .x = pt.x + simmod.fx.ratio(1, 2), .y = pt.y, .z = pt.z, .heading = 32768 };
+    Dmp.objectives.setOccupation(s, cop, .police);
+    for (s.state.world.get(cop, c.Weapon).?.rounds()) |*r| r.* = 0;
+    Dmp.objectives.attack(s, cop, target);
+    // Weak enough that the next punch is the knock-down: the bust.
+    s.state.world.get(target, c.Health).?.hp = 15;
+    const deaths0 = s.state.players[1].deaths;
+    var n: u32 = 0;
+    while (n < 300 and s.state.players[1].deaths == deaths0) : (n += 1) run(s, 1);
+    try std.testing.expectEqual(deaths0 + 1, s.state.players[1].deaths);
+    // The player respawns and the level is gone with the old ped.
     run(s, 400);
     try std.testing.expect(s.state.players[1].flags & abi.PlayerRow.flag_active != 0);
-    try std.testing.expectEqual(@as(u8, 0), Dmp.wanted.stars(s, 0));
+    try std.testing.expect(!s.state.players[1].ped.isNone());
+    try std.testing.expectEqual(@as(u8, 0), Dmp.wanted.stars(s, 1));
 }
 
 test "dm police: a full room with police on runs clean (crews, roadblocks, traffic)" {
