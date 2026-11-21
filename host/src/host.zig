@@ -91,6 +91,10 @@ var peers: std.AutoHashMapUnmanaged(u32, *Peer) = .empty;
 var out: std.ArrayList(u8) = .empty;
 var text: std.ArrayList(u8) = .empty;
 var replay_bytes: []u8 = &.{};
+/// The map's main script (`loadScript`), attached as the level so the sim
+/// finds the car shops; nothing else of it runs online.
+var level_script: ?formats.scr.Parsed = null;
+var host_level: sim.level.Level = .{};
 
 // stats window
 var samples_step: std.ArrayList(u32) = .empty;
@@ -231,13 +235,18 @@ export fn start(map_ptr: [*]const u8, map_len: usize, name_ptr: [*]const u8, nam
             .started = util.wallSeconds(),
         }) catch |e| return fail("replay", e);
     }
+    if (level_script) |p| {
+        host_level = .{ .script = p.script };
+        s.sim.attachLevel(&host_level);
+    }
+    const shop_count = s.sim.shop_count;
     mgr = mg;
     sess = s;
     cap = if (max_players == 0) S.max_players else @min(max_players, S.max_players);
     stats_t0 = util.embedded.now_ns;
 
     var hx: [64]u8 = undefined;
-    setText("{{\"mapHash\":\"{s}\",\"layoutHash\":\"{x:0>16}\",\"maxPlayers\":{d},\"simMaxPlayers\":{d},\"config\":\"{s}\"}}", .{ util.hex(&hx, &m.hash), Sim.layout_hash, cap, S.max_players, Sim.config.name });
+    setText("{{\"mapHash\":\"{s}\",\"layoutHash\":\"{x:0>16}\",\"maxPlayers\":{d},\"simMaxPlayers\":{d},\"config\":\"{s}\",\"shops\":{d}}}", .{ util.hex(&hx, &m.hash), Sim.layout_hash, cap, S.max_players, Sim.config.name, shop_count });
     return 0;
 }
 
@@ -260,6 +269,16 @@ export fn loadCars(sty_ptr: [*]const u8, sty_len: usize, gci_ptr: [*]const u8, g
     for (specs[0..count], models[0..count]) |sp, *m| m.* = sim.tuning.deriveModel(copyFields(sim.tuning.CarSpec, sp));
     sim.tuning.setCarModels(models[0..count]);
     setText("{{\"cars\":{d},\"hash\":\"{x:0>16}\"}}", .{ count, sim.tuning.carModelsHash() });
+    return 0;
+}
+
+/// Gives the game the map's main script (a .scr's bytes), for its car
+/// shops: the sim reads their places from the declarations. Online the
+/// script does not run. Call before `start`; without it there are no shops.
+export fn loadScript(ptr: [*]const u8, len: usize) i32 {
+    if (mgr != null) return fail("script", error.AlreadyStarted);
+    if (level_script) |*p| p.deinit();
+    level_script = formats.scr.parseMain(gpa, ptr[0..len]) catch |e| return fail("script", e);
     return 0;
 }
 

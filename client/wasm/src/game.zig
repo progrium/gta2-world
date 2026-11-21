@@ -291,6 +291,8 @@ export fn meshInfo() [*]const u32 {
 /// The level the single-player sim reads (zones, map objects and lights
 /// from the map; the script once formats/scr.zig loads it).
 var level_sp: sim.Level = .empty;
+/// Offline deathmatch's level: the main script only, for its car shops.
+var level_dm: sim.Level = .empty;
 var level_data: LevelData = .{};
 const LevelData = struct {
     inner: ?formats.level.LevelData = null,
@@ -536,6 +538,13 @@ export fn spDebug(op: u32, a: i32, b: i32) bool {
 export fn gameStart(seed: u32, hint: bool, hint_x: u32, hint_y: u32) i32 {
     const g = grid orelse return setError("start", error.NoMap);
     game.init(g, .{ .seed = seed, .mode = .authoritative });
+    // With the map's main script added (`scriptAdd`), only its car shops
+    // come into deathmatch: the script itself does not run here.
+    if (script_count > 0) {
+        loadScripts() catch |e| return setError("script", e);
+        level_dm = .{ .script = level_sp.script };
+        game.attachLevel(&level_dm);
+    }
     offline = .dm;
     frames = @splat(Frame.neutral(0));
     pending_len = 0;

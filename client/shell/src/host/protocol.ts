@@ -26,6 +26,8 @@ export type ToHost =
       police?: boolean;
       /** The .sty and optional .gci for the car models; without a style, the sim's one default model. */
       cars?: { style: ArrayBuffer; gci: ArrayBuffer | null };
+      /** The map's main .scr, for its car shops (the script does not run online). */
+      script?: ArrayBuffer | null;
     }
   /** A transport connected. Mirrors Hub.opened. `peer` is chosen by the page, unique per host. */
   | { t: "opened"; peer: PeerId; transport: TransportKind }

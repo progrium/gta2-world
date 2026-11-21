@@ -55,9 +55,14 @@ export class HostSession {
       s.emit();
     };
     try {
-      const [gmp, style, gci] = await Promise.all([store.read(map.gmpRecord.hash), store.read(map.styRecord.hash), gciRec ? store.read(gciRec.hash) : null]);
+      const [gmp, style, gci, script] = await Promise.all([
+        store.read(map.gmpRecord.hash),
+        store.read(map.styRecord.hash),
+        gciRec ? store.read(gciRec.hash) : null,
+        map.scrRecord ? store.read(map.scrRecord.hash) : null,
+      ]);
       s.ready = await withTimeout(
-        peers.start({ session: s.room, map: gmp, maxPlayers: HOST_MAX_PLAYERS, seed: (Math.random() * 0x7fffffff) >>> 0, record: false, police, cars: { style, gci } }),
+        peers.start({ session: s.room, map: gmp, maxPlayers: HOST_MAX_PLAYERS, seed: (Math.random() * 0x7fffffff) >>> 0, record: false, police, cars: { style, gci }, script }),
         15000,
         "the host worker did not start (is dist/host-worker.js built?)",
       );

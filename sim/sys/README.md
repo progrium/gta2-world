@@ -39,6 +39,7 @@ Shared names (imports, `Fx`, the `abi.rand` salts) come from `prelude.zig`. Rese
 | `sys/objects.zig` | objects API and `sysObjects`: phones, script pickups, oil, mines, conveyors, destructors, map objects | B |
 | `sys/objects_state.zig` | the `objects` sub-struct of the SP block (doors, generators, areas, dead phones) | B |
 | `sys/doors.zig`, `sys/generators.zig`, `sys/crusher.zig` | doors, generators, crushers | B |
+| `sys/shops.zig` | car shops (spray shops), every configuration | B |
 | `sys/lights.zig` | light cycle, lamps, crossing markers, `lights` state | B |
 | `sys/ambient.zig` | keeping the population near players | F |
 | `sys/traffic.zig` | traffic AI | F |

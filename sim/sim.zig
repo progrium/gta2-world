@@ -110,6 +110,7 @@ pub fn spawnHint(x: u8, y: u8) u32 {
 }
 
 const prelude = @import("prelude.zig");
+const shops_sys = @import("sys/shops.zig");
 const max_intents = prelude.max_intents;
 const max_events = prelude.max_events;
 
@@ -267,6 +268,10 @@ pub fn Sim(comptime cfg: Config) type {
                 level_complete = 18,
                 /// a = 0 shout, 1 radio; b = pursued slot (`wire.EventKind`).
                 police_voice = 19,
+                /// A player's car repainted at a spray shop: x, y, z of the
+                /// shop, a = slot, b = the remap, c = 0 no stars, 1 wanted
+                /// level cleared, 2 could not pay (`wire.EventKind`).
+                respray = 20,
             };
             pub const no_slot: u8 = 0xFF;
             pub const weapon_car: u8 = 0x80;
@@ -279,6 +284,10 @@ pub fn Sim(comptime cfg: Config) type {
         /// Static level data (script, zones, map objects), or null: see
         /// `attachLevel`. Like the grid, not part of the state.
         level: ?*const Level,
+        /// The level's car shops (`sys/shops.zig`), read from its script by
+        /// `attachLevel`. Static, like the level.
+        shop_list: [shops_sys.max_shops]shops_sys.Shop,
+        shop_count: u8,
         /// A property of the host, not of the state: a client that loads a
         /// server state stays in predict mode.
         mode: abi.Mode,
@@ -434,6 +443,7 @@ pub fn Sim(comptime cfg: Config) type {
         pub const hooks = @import("script/hooks.zig").Sys(Self); // A1
         pub const hud = @import("sp/hud.zig").Sys(Self); // A1
         pub const script = @import("script/vm.zig").Sys(Self); // A1
+        pub const shops = shops_sys.Sys(Self); // B
         pub const death = @import("sys/death.zig").Sys(Self); // G
         pub const car_weapons = @import("sys/car_weapons.zig").Sys(Self); // G
         pub const spawn = sys_spawn; // F
@@ -447,6 +457,7 @@ pub fn Sim(comptime cfg: Config) type {
             @memset(std.mem.asBytes(&self.scratch), 0);
             self.grid = grid;
             self.level = null;
+            self.shop_count = 0;
             self.mode = p.mode;
             const s = &self.state;
             s.seed_lo = @truncate(p.seed);
@@ -494,6 +505,7 @@ pub fn Sim(comptime cfg: Config) type {
             self.sysContacts();
             self.sysProjectileHits();
             objects.sysObjects(self); // B
+            shops.sysShops(self); // B
             self.sysPickups();
             surfaces.sysSurfaces(self); // C
             self.sysPedStatus();
@@ -750,6 +762,7 @@ pub fn Sim(comptime cfg: Config) type {
         /// host in a session must attach the same one.
         pub fn attachLevel(self: *Self, l: *const Level) void {
             self.level = l;
+            shops.collect(self, l);
         }
 
         pub fn pedOf(self: *Self, slot: u32) ?EntityId {

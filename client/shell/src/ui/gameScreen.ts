@@ -424,6 +424,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       }
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
       if (sp) await loadLevelFiles(g);
+      else if (!remote) await loadShopScript(g);
       void loadBanks(o.store, o.map).catch((e) => console.warn("[audio] banks", e));
       if (remote) {
         game = g;
@@ -458,6 +459,14 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     const scripts = o.store.scripts(o.map);
     for (const f of scripts) g.addScript(f.name, new Uint8Array(await o.store.read(f.hash)));
     console.info(`[level] ${o.map.description}: ${scripts.length} script file${scripts.length === 1 ? "" : "s"}, text ${gxtName ?? "none"}`);
+  }
+
+  /** Offline deathmatch: only the map's main .scr, for its car shops (the script does not run). */
+  async function loadShopScript(g: GameModule): Promise<void> {
+    if (!g.hasSinglePlayer) return;
+    g.clearScripts();
+    const scr = o.map.scrRecord;
+    if (scr) g.addScript(scr.name, new Uint8Array(await o.store.read(scr.hash)));
   }
 
   function connect(g: GameModule): Promise<void> {
@@ -614,6 +623,12 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       case 16:
         // a vehicle's siren; a = 1 switched on
         if (e.a === 1) audio.play("siren", e.x, e.y, e.z);
+        break;
+      case 20:
+        // a spray shop repainted a player's car: a slot, b remap, c 0 no
+        // stars, 1 wanted level cleared, 2 could not pay
+        audio.play("respray", e.x, e.y, e.z);
+        if (e.a === ownSlot) feedLine(e.c === 1 ? "Resprayed: the cops have lost you" : e.c === 2 ? "Resprayed, but you can't pay to lose the cops" : "Resprayed", true);
         break;
       case 19:
         // police voice: a = 0 a cop shouts ("Freeze!"), 1 radio chatter

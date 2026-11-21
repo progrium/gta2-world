@@ -317,7 +317,7 @@ pub fn Sys(comptime Self: type) type {
 
         pub const Found = struct { num: u16, kind: u16, next: u16, ret: i16, params: []const u8 };
 
-        fn findIn(s: *const lv.Script, num: u16) ?Found {
+        pub fn findIn(s: *const lv.Script, num: u16) ?Found {
             if (num < s.first) return null;
             const i = num - s.first;
             if (i >= s.pointers.len) return null;
