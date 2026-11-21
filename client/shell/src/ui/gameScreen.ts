@@ -733,7 +733,13 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     );
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores), hud);
+  // Sound needs a tap, click or key first; a gamepad button doesn't count, so
+  // someone playing on a pad (an iPad, a TV) would never hear anything.
+  const soundPrompt = h("div", { class: "sound-prompt hidden", role: "button", onclick: () => audio.unlock() }, "🔇 Tap for sound");
+  const renderSoundPrompt = (): void => void soundPrompt.classList.toggle("hidden", audio.running || audio.muted);
+  const offSound = audio.on(renderSoundPrompt);
+  renderSoundPrompt();
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores, soundPrompt), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();
@@ -746,6 +752,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     loop.stop();
     closeOverlay();
     audio.stopAll();
+    offSound();
     offInput();
     removeEventListener("focus", renderPads);
     removeEventListener("blur", renderPads);

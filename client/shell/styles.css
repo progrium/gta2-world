@@ -83,6 +83,8 @@ button.link { border: 0; background: none; padding: 0 2px; color: var(--accent);
 .banner { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); padding: 10px 22px; border-radius: 10px; background: rgba(0,0,0,.7); color: #ffd54f; font-size: 26px; font-weight: 700; text-align: center; pointer-events: none; }
 .banner.hidden, .scores.hidden { display: none; }
 .scores { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); min-width: min(360px, calc(100% - 32px)); padding: 10px 16px; border-radius: 10px; background: rgba(0,0,0,.72); color: #eee; pointer-events: none; }
+.sound-prompt { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); padding: 8px 16px; border-radius: 999px; background: rgba(0,0,0,.78); color: #fff; font-weight: 600; cursor: pointer; z-index: 5; user-select: none; -webkit-user-select: none; }
+.sound-prompt.hidden { display: none; }
 .scores table { width: 100%; border-collapse: collapse; }
 .scores th, .scores td { padding: 3px 8px; text-align: right; }
 .scores th:first-child, .scores td:first-child { text-align: left; }
