@@ -261,6 +261,7 @@ test "wanted: a cop ignores an innocent player, and anyone mid-jump" {
 test "wanted: one star wears off after 900 quiet ticks; two stars do not" {
     var h = try H.init();
     defer h.deinit();
+    Sp.police.setDispatch(h.sim, false); // no crew ever pursues
     Sp.wanted.atLeastOneStar(h.sim, 0);
     h.run(TP.one_star_timeout - 1);
     try std.testing.expectEqual(@as(u8, 1), h.stars());
@@ -344,4 +345,184 @@ test "wanted: the API does nothing outside single player" {
     S.police.sighted(h.sim, 0);
     try std.testing.expectEqual(@as(u8, 0), S.wanted.stars(h.sim, 0));
     try std.testing.expectEqual(before, h.sim.hash());
+}
+
+// --- Crews (police-ai.md) ----------------------------------------------------
+
+const crew_mod = @import("../ai/police_crew.zig");
+
+/// A city-sized single-player config for crews: room for their cars and
+/// officers, still no ambient population.
+const cfg_sp_crews: abi.Config = .{ .name = "sp_crews", .max_players = 1, .car_capacity = 16, .ped_capacity = 48, .projectile_capacity = 128, .pickup_capacity = 4, .map_object_capacity = 4 };
+const Spc = simmod.Sim(cfg_sp_crews);
+
+fn crewSim() !*Spc {
+    const g = try std.testing.allocator.create(map.Grid);
+    testmap.build(g);
+    const s = try std.testing.allocator.create(Spc);
+    s.init(g, .{ .seed = 21, .mode = .authoritative });
+    var frames = [_]Frame{Frame.neutral(0)};
+    s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = simmod.spawnHint(36, 40) }});
+    s.step(&frames, &.{});
+    return s;
+}
+fn freeCrewSim(s: *Spc) void {
+    std.testing.allocator.destroy(@constCast(s.grid));
+    std.testing.allocator.destroy(s);
+}
+fn runC(s: *Spc, n: u32) void {
+    var frames = [_]Frame{Frame.neutral(0)};
+    for (0..n) |_| s.step(&frames, &.{});
+}
+fn liveCrews(s: *Spc) u32 {
+    var n: u32 = 0;
+    for (s.state.sp.police.crews) |cr| {
+        if (cr.phase != @intFromEnum(crew_mod.Phase.free) and cr.phase != @intFromEnum(crew_mod.Phase.spawning)) n += 1;
+    }
+    return n;
+}
+
+test "police: a wanted player gets a crew after the 200-tick delay: a car with two officers, siren on" {
+    const s = try crewSim();
+    defer freeCrewSim(s);
+    Spc.wanted.setStars(s, 0, 1);
+    runC(s, 1);
+    try std.testing.expectEqual(@as(u32, 0), liveCrews(s));
+    var saw_siren = false;
+    var n: u32 = 0;
+    while (n < TP.first_crew_delay + 5 and liveCrews(s) == 0) : (n += 1) {
+        runC(s, 1);
+        if (hasEvent(s.events(), .siren)) saw_siren = true;
+    }
+    try std.testing.expectEqual(@as(u32, 1), liveCrews(s));
+    try std.testing.expect(saw_siren);
+    try std.testing.expect(n >= TP.first_crew_delay - 2);
+    const cr = s.state.sp.police.crews[0];
+    try std.testing.expect(Spc.police.ownsCar(s, cr.car));
+    try std.testing.expect(Spc.wanted.isLawCar(s, cr.car));
+    try std.testing.expect(s.state.world.get(cr.car, c.Vehicle).?.ai_flags & c.Vehicle.ai_emergency != 0);
+    for (cr.members[0..TP.police_crew_size]) |m| {
+        try std.testing.expectEqual(ids.Occupation.police, Spc.objectives.occupationOf(s, m));
+        try std.testing.expect(h_.eql(s.state.world.get(m, c.Riding).?.vehicle, cr.car));
+        try std.testing.expectEqual(TP.police_hp_low, s.state.world.get(m, c.Health).?.hp);
+    }
+    try std.testing.expect(cr.members[2].isNone());
+    // One star wants one crew: no second one.
+    runC(s, TP.backup_crew_delay * 3);
+    try std.testing.expect(liveCrews(s) <= 1);
+    // Cleared: the crew goes home and its car rejoins traffic.
+    const car = cr.car;
+    Spc.wanted.clear(s, 0);
+    runC(s, 1);
+    try std.testing.expectEqual(@as(u32, 0), liveCrews(s));
+    try std.testing.expect(!Spc.police.ownsCar(s, car));
+}
+
+test "police: two stars want two crews; five stars send police home" {
+    const s = try crewSim();
+    defer freeCrewSim(s);
+    Spc.wanted.setStars(s, 0, 2);
+    runC(s, TP.first_crew_delay + TP.backup_crew_delay + 10);
+    try std.testing.expectEqual(@as(u32, 2), liveCrews(s));
+    for (s.state.sp.police.crews[0..2]) |cr| try std.testing.expectEqual(TP.police_hp, s.state.world.get(cr.members[0], c.Health).?.hp);
+    Spc.wanted.setStars(s, 0, 5);
+    runC(s, 2);
+    try std.testing.expectEqual(@as(u32, 0), liveCrews(s));
+    runC(s, TP.first_crew_delay + 10);
+    try std.testing.expectEqual(@as(u32, 0), liveCrews(s));
+}
+
+test "police: four stars add one SWAT crew of four once the pursuit is active" {
+    const s = try crewSim();
+    defer freeCrewSim(s);
+    Spc.wanted.setStars(s, 0, 4);
+    runC(s, 1);
+    Spc.police.sighted(s, 0); // a cop has seen him
+    var n: u32 = 0;
+    var swat: ?crew_mod.Crew = null;
+    while (n < 600 and swat == null) : (n += 1) {
+        runC(s, 1);
+        Spc.police.sighted(s, 0);
+        for (s.state.sp.police.crews) |cr| {
+            if (cr.kind == @intFromEnum(ids.Occupation.swat) and !cr.car.isNone()) swat = cr;
+        }
+    }
+    const cr = swat orelse return error.NoSwat;
+    for (cr.members) |m| try std.testing.expectEqual(TP.swat_hp, s.state.world.get(m, c.Health).?.hp);
+    try std.testing.expectEqual(T.weapon_smg, s.state.world.get(cr.members[0], c.Weapon).?.kind);
+}
+
+test "police: a ram on the target's car adds 500 damage, once per cooldown" {
+    const s = try crewSim();
+    defer freeCrewSim(s);
+    const mine = s.spawnCarAt(h_.blk(30), h_.blk(44), 0, 0).?;
+    s.state.players[0].car = mine;
+    Spc.wanted.setStars(s, 0, 3);
+    runC(s, TP.first_crew_delay + 5);
+    const cr = &s.state.sp.police.crews[0];
+    try std.testing.expect(!cr.car.isNone());
+    const hp0 = s.state.world.get(mine, c.Health).?.hp;
+    Spc.police.onImpact(s, mine, cr.car); // not ramming: nothing extra
+    try std.testing.expectEqual(hp0, s.state.world.get(mine, c.Health).?.hp);
+    cr.phase = @intFromEnum(crew_mod.Phase.chasing);
+    cr.step = @intFromEnum(crew_mod.Step.ram);
+    Spc.police.onImpact(s, mine, cr.car);
+    try std.testing.expectEqual(hp0 - TP.ram_damage, s.state.world.get(mine, c.Health).?.hp);
+    Spc.police.onImpact(s, mine, cr.car);
+    try std.testing.expectEqual(hp0 - TP.ram_damage, s.state.world.get(mine, c.Health).?.hp);
+}
+
+test "police: a one-star player on foot is chased down and arrested or shot by the crew" {
+    const s = try crewSim();
+    defer freeCrewSim(s);
+    Spc.career.start(s, 0);
+    Spc.wanted.setStars(s, 0, 1);
+    var n: u32 = 0;
+    var out = false;
+    var saw_officer_out = false;
+    while (n < 3000) : (n += 1) {
+        runC(s, 1);
+        // Stay wanted: keep the timeout away.
+        if (Spc.wanted.stars(s, 0) == 0 and !Spc.career.isOut(s, 0)) Spc.wanted.setStars(s, 0, 1);
+        for (s.state.sp.police.crews) |cr| {
+            if (cr.phase == @intFromEnum(crew_mod.Phase.on_foot)) saw_officer_out = true;
+        }
+        if (Spc.career.isOut(s, 0)) {
+            out = true;
+            break;
+        }
+    }
+    try std.testing.expect(saw_officer_out);
+    try std.testing.expect(out);
+}
+
+test "police: a roadblock goes up across the road at three stars, and comes down unseen and far" {
+    const s = try crewSim();
+    defer freeCrewSim(s);
+    s.state.sp.police.flags |= @import("../sp/police.zig").State.flag_no_dispatch;
+    const route = @import("../ai/route.zig");
+    // A road block with a lane arrow near the player.
+    const n = Spc.route.nearestRoadTo(s, 36, 40, 1).?;
+    const arrows = map.arrowsOf(map.cellAt(s.grid, n.x, n.y, n.l));
+    var dir: u2 = 0;
+    while (dir < 3 and arrows & route.dir_arrow[dir] == 0) dir += 1;
+    // Below three stars: no.
+    Spc.wanted.setStars(s, 0, 2);
+    runC(s, 1);
+    try std.testing.expect(!Spc.police.tryRoadblock(s, n.x, n.y, n.l, dir));
+    Spc.wanted.setStars(s, 0, 3);
+    runC(s, 1);
+    try std.testing.expect(Spc.police.tryRoadblock(s, n.x, n.y, n.l, dir));
+    const rb = s.state.sp.police.roadblocks[0];
+    try std.testing.expectEqual(@as(u8, 1), rb.active);
+    try std.testing.expect(!rb.cars[0].isNone());
+    try std.testing.expect(Spc.police.ownsCar(s, rb.cars[0]));
+    try std.testing.expect(Spc.wanted.isLawCar(s, rb.cars[0]));
+    // The cooldown holds the next one back.
+    try std.testing.expect(!Spc.police.tryRoadblock(s, n.x, n.y, n.l, dir));
+    // The player goes far away: torn down after 200 unseen ticks.
+    const t = s.transformOf(s.pedOf(0).?).?;
+    t.x = fx.fromInt(n.x + 60);
+    runC(s, TP.roadblock_unseen_ticks + 2);
+    try std.testing.expectEqual(@as(u8, 0), s.state.sp.police.roadblocks[0].active);
 }
