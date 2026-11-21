@@ -136,6 +136,20 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
             }
         }
         frames[0] = ap.frame(S, &s, 0);
+        // The arrow on a car: the mission wants the player in it.
+        if (!h.arrow.isNone() and s.state.world.get(h.arrow, c.Vehicle) != null) if (s.pedOf(0)) |me| {
+            const w = &s.state.world;
+            if (w.get(me, c.Riding).?.vehicle.isNone()) if (w.get(h.arrow, c.Transform)) |ct| {
+                const pt = w.get(me, c.Transform).?;
+                const d = fx.length(ct.x - pt.x, ct.y - pt.y);
+                if (d < Autopilot.arrive_dist) {
+                    frames[0].buttons = sim.input.Button.direct;
+                    frames[0].aim = fx.atan2(ct.y - pt.y, ct.x - pt.x);
+                    frames[0].throttle = if (d < fx.ratio(13, 10)) 0 else 127;
+                    if (d < fx.ratio(13, 10) and ti % 2 == 0) frames[0].buttons |= sim.input.Button.enter_exit;
+                }
+            };
+        };
         // A phone visit ends once the player has stood on it a moment.
         if (phone_visit) |pv| {
             const w = &s.state.world;
@@ -144,7 +158,7 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
                 const d = fx.length(pt.x - bt.x, pt.y - bt.y);
                 if (d < Autopilot.arrive_dist) {
                     // Walk the last blocks straight onto it.
-                    if (d > fx.half) {
+                    if (d > fx.ratio(1, 4)) {
                         frames[0].buttons = sim.input.Button.direct;
                         frames[0].aim = fx.atan2(pt.y - bt.y, pt.x - bt.x);
                         frames[0].throttle = 127;
