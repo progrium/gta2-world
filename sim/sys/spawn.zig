@@ -157,6 +157,11 @@ pub fn Sys(comptime Self: type) type {
         pub fn spawnPed(self: *Self, player: u32, hint: u32) ?EntityId {
             const w = &self.state.world;
             const id = w.spawn(Ped) orelse return null;
+            // Single-player components start at their declared defaults
+            // (`ecs.spawn` zeroes them, and a zero EntityId is not `.none`).
+            inline for (.{ c.Objective, c.Group, c.ScriptTag }) |C| {
+                if (comptime Ped.has(C)) w.get(id, C).?.* = .{};
+            }
             var spot: ?Spot = null;
             if (hint != 0) {
                 const cx: i32 = @intCast(hint & 0xFF);

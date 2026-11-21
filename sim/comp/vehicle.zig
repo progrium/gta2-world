@@ -56,6 +56,9 @@ pub const Vehicle = extern struct {
     pub const flag_wrecked: u8 = 16;
     /// Fully over deep water: no engine and no brakes.
     pub const flag_in_water: u8 = 32;
+    /// Squashed flat by a crusher (crushers-and-garages.md 3.2; set by
+    /// workstream B's `sys/crusher.zig`).
+    pub const flag_crushed: u8 = 64;
 
     pub const reverse_base: u16 = 1000;
     pub const plan_in_junction: u8 = 0x80;

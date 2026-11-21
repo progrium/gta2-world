@@ -153,7 +153,12 @@ pub fn Sys(comptime Self: type) type {
                     // The killer's gang counts only if he is a gang member
                     // himself (the player is not, whatever his Group says).
                     const k_member = if (w.get(killer, c.Objective)) |o| o.occupation == @intFromEnum(ids.Occupation.gang_member) else false;
-                    const kg = if (!k_member) ids.gang_none else if (w.get(killer, c.Group)) |g| g.gang else ids.gang_none;
+                    // A killer who is not a gang member (the player) has
+                    // no gang: every gang member is someone else's, even
+                    // one with no gang assigned yet (gang_none since D1's
+                    // spawn defaults).
+                    if (!k_member) break :blk TC.points_rival_gang;
+                    const kg = if (w.get(killer, c.Group)) |g| g.gang else ids.gang_none;
                     break :blk if (vg != kg) TC.points_rival_gang else TC.points_civilian;
                 },
                 .elvis => TC.points_elvis,
