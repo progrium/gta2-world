@@ -142,13 +142,8 @@ pub fn Sys(comptime Self: type) type {
                 if (on_road and task != null and task.?.dir != null) {
                     v.ai_dir = task.?.dir.?;
                     v.ai_plan = if (lane) 0 else c.Vehicle.plan_in_junction;
-                } else if (lane) {
-                    var d: u8 = 0;
-                    while (dir_arrow[d] != arrows) : (d += 1) {}
-                    v.ai_dir = d;
-                    v.ai_plan &= ~c.Vehicle.plan_in_junction;
                 } else if (on_road) {
-                    Api.junctionTurn(self, id, v, t, arrows);
+                    direct = Api.junctionDrive(self, id, v, t, arrows);
                 } else {
                     // Seek road; give up after 200 ticks unless a script
                     // made the car or it has a task.
@@ -163,6 +158,7 @@ pub fn Sys(comptime Self: type) type {
             }
             if (v.ai_dir & 3 != old_dir) v.ai_flags |= c.Vehicle.ai_settling;
             const want = direct orelse dir_heading[v.ai_dir & 3];
+            const turning_exit = direct != null and task == null;
             var target = want;
             if (direct == null and on_road and (lane or task != null) and v.ai_pass == 0) {
                 target = Api.laneTarget(self, id, v, t, want);
@@ -185,7 +181,7 @@ pub fn Sys(comptime Self: type) type {
             const turning = @abs(@as(i32, want_diff)) > 6000;
 
             // 3. Junction right-of-way.
-            if (lane and direct == null and Api.junctionAhead(self, t, v.ai_dir & 3)) Api.sweepJunction(self, id, t);
+            if (lane and (direct == null or turning_exit) and Api.junctionAhead(self, t, v.ai_dir & 3)) Api.sweepJunction(self, id, t);
 
             // 4. Look-ahead.
             var goal: Fx = if (task) |d| d.speed else T.traffic_speed;
@@ -304,32 +300,132 @@ pub fn Sys(comptime Self: type) type {
             ctl.in = .{ .steer = @intCast(steer), .throttle = @intCast(throttle), .buttons = buttons, .aim = 0, .seq = 0 };
         }
 
-        /// The junction turn choice (3.4): straight on where the road goes
-        /// on, else left or right, picked once per junction and kept until
-        /// the turn is made.
-        pub fn junctionTurn(self: *Self, id: EntityId, v: *c.Vehicle, t: *const c.Transform, arrows: u4) void {
-            const straight = self.roadAhead(t, v.ai_dir, T.traffic_junction_probe);
-            if (v.ai_plan & c.Vehicle.plan_in_junction == 0) {
-                v.ai_plan = c.Vehicle.plan_in_junction | (if (straight) 0 else self.turnPick(id));
-            } else if (v.ai_plan & 3 == 0 and !straight) {
-                v.ai_plan = c.Vehicle.plan_in_junction | self.turnPick(id);
+        inline fn isJunction(a: u4) bool {
+            return arrowCount(a) != 1;
+        }
+
+        /// The road cell at block (bx, by) at the car's height, if road.
+        fn roadCellAt(self: *Self, t: *const c.Transform, bx: i32, by: i32) ?u4 {
+            const cell = map.floorCell(self.grid, fx.fromInt(bx) + fx.half, fx.fromInt(by) + fx.half, t.z, T.car_step);
+            if (map.groundOf(cell) != map.Ground.road) return null;
+            return map.arrowsOf(cell);
+        }
+
+        /// The exit lane block for leaving the junction ahead heading `nd`,
+        /// having approached heading `dir`: along `dir` from the car's
+        /// block (up to `junction_scan` blocks), the first block from which
+        /// heading `nd` through junction cells reaches a lane cell whose
+        /// arrow is `nd`. For `nd == dir` this is the straight-on exit.
+        pub fn exitFor(self: *Self, t: *const c.Transform, dir: u8, nd: u8) ?[2]i32 {
+            const bx = fx.toInt(t.x);
+            const by = fx.toInt(t.y);
+            const sx = [4]i32{ 1, 0, -1, 0 };
+            const sy = [4]i32{ 0, 1, 0, -1 };
+            var k: i32 = 0;
+            var inside = false;
+            while (k <= TF.junction_scan) : (k += 1) {
+                const px = bx + sx[dir] * k;
+                const py = by + sy[dir] * k;
+                const pa = Api.roadCellAt(self, t, px, py) orelse return null;
+                if (isJunction(pa)) {
+                    inside = true;
+                } else if (inside) {
+                    // Past the junction: straight on only.
+                    if (nd == dir and pa & dir_arrow[dir] != 0) return .{ px, py };
+                    return null;
+                }
+                if (nd == dir) continue;
+                var m: i32 = 1;
+                while (m <= TF.junction_scan) : (m += 1) {
+                    const ex = px + sx[nd] * m;
+                    const ey = py + sy[nd] * m;
+                    const ea = Api.roadCellAt(self, t, ex, ey) orelse break;
+                    if (isJunction(ea)) continue;
+                    if (ea == dir_arrow[nd]) return .{ ex, ey };
+                    break;
+                }
             }
-            const plan = v.ai_plan & 3;
-            if (plan == 0) return;
-            const nd: u8 = if (plan == 1) (v.ai_dir + 1) & 3 else (v.ai_dir + 3) & 3;
-            if (arrows & dir_arrow[nd] != 0) {
-                v.ai_dir = nd;
+            return null;
+        }
+
+        /// Driving through a junction (3.4) for ordinary traffic. On a lane
+        /// cell the car follows its arrow; one or two blocks before a
+        /// junction (the note's far probe) it picks, once, straight on if
+        /// the road goes on, else left or right 50/50 (the other if that
+        /// way has no exit). A turn steers at the exit lane, one block past
+        /// its first block, from the approach on (ours: the AI's turning
+        /// circle is about 1.5 blocks, so turning only once inside the
+        /// junction swung cars into the far lane); the turn is made when
+        /// the car reaches a lane running the new way. Returns the heading
+        /// to steer by while turning, else null (follow `ai_dir`).
+        pub fn junctionDrive(self: *Self, id: EntityId, v: *c.Vehicle, t: *const c.Transform, arrows: u4) ?u16 {
+            const pending = v.ai_plan & c.Vehicle.plan_in_junction != 0;
+            const turn = v.ai_plan & 3;
+            const dir = v.ai_dir & 3;
+            const nd: u8 = if (turn == 1) (dir + 1) & 3 else (dir + 3) & 3;
+            if (!isJunction(arrows)) {
+                var ld: u8 = 0;
+                while (dir_arrow[ld] != arrows) : (ld += 1) {}
+                if (pending and turn != 0 and ld == nd) {
+                    // On the exit lane: the turn is made.
+                    v.ai_dir = nd;
+                    v.ai_plan = 0;
+                    return null;
+                }
+                if (pending and turn != 0 and ld == dir) {
+                    // Still on the approach: keep steering for the exit.
+                    if (Api.exitFor(self, t, dir, nd)) |e| return aimAt(t, e, nd);
+                }
+                v.ai_dir = ld;
+                if (!Api.junctionAhead(self, t, ld)) {
+                    v.ai_plan = 0;
+                    return null;
+                }
+                if (!pending or turn == 0 and v.ai_dir != dir) Api.planJunction(self, id, v, t);
+            } else if (!pending) {
+                Api.planJunction(self, id, v, t);
+            }
+            const p = v.ai_plan & 3;
+            if (p == 0) return null;
+            const d = v.ai_dir & 3;
+            const n: u8 = if (p == 1) (d + 1) & 3 else (d + 3) & 3;
+            if (Api.exitFor(self, t, d, n)) |e| return aimAt(t, e, n);
+            // Lost the exit (pushed past it): go straight on and re-plan.
+            v.ai_plan = c.Vehicle.plan_in_junction;
+            return null;
+        }
+
+        /// Pick straight on, or a turn that has an exit, for the junction
+        /// ahead (once per approach).
+        fn planJunction(self: *Self, id: EntityId, v: *c.Vehicle, t: *const c.Transform) void {
+            const d = v.ai_dir & 3;
+            if (Api.exitFor(self, t, d, d) != null) {
                 v.ai_plan = c.Vehicle.plan_in_junction;
                 return;
             }
-            // Turn when the lane beside us runs the new way.
-            const px = t.x + fx.mul(fx.cos(dir_heading[nd]), fx.one);
-            const py = t.y + fx.mul(fx.sin(dir_heading[nd]), fx.one);
-            const side = map.floorCell(self.grid, px, py, t.z, T.car_step);
-            if (map.groundOf(side) == map.Ground.road and map.arrowsOf(side) == dir_arrow[nd]) {
-                v.ai_dir = nd;
-                v.ai_plan = c.Vehicle.plan_in_junction;
+            var p = self.turnPick(id);
+            const n1: u8 = if (p == 1) (d + 1) & 3 else (d + 3) & 3;
+            if (Api.exitFor(self, t, d, n1) == null) {
+                p = 3 - p;
+                const n2: u8 = if (p == 1) (d + 1) & 3 else (d + 3) & 3;
+                if (Api.exitFor(self, t, d, n2) == null) p = 0; // dead end: seek road later
             }
+            v.ai_plan = c.Vehicle.plan_in_junction | p;
+        }
+
+        fn aimAt(t: *const c.Transform, e: [2]i32, nd: u8) u16 {
+            const sx = [4]i32{ 1, 0, -1, 0 };
+            const sy = [4]i32{ 0, 1, 0, -1 };
+            const ax = fx.fromInt(e[0] + sx[nd]) + fx.half;
+            const ay = fx.fromInt(e[1] + sy[nd]) + fx.half;
+            return fx.atan2(ay - t.y, ax - t.x);
+        }
+
+        /// The old in-junction turn choice, kept for callers; traffic uses
+        /// `junctionDrive`.
+        pub fn junctionTurn(self: *Self, id: EntityId, v: *c.Vehicle, t: *const c.Transform, arrows: u4) void {
+            _ = arrows;
+            _ = Api.junctionDrive(self, id, v, t, 0);
         }
 
         /// Lane centring (and the settle into the lane after a turn): aim at
