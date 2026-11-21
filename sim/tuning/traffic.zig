@@ -155,3 +155,10 @@ pub const junction_scan: i32 = 6;
 pub const route_min_run: u8 = 2;
 // Route cost from the car within which turn rules apply (ours).
 pub const route_turn_horizon: u16 = 8;
+// Blocks ahead a traffic car looks for a bend in its lane (ours).
+pub const bend_scan: i32 = 2;
+// The traffic car's turning radius, where a bend's full turn starts (ours,
+// from the AI's steering lock and wheelbase).
+pub const bend_radius: Fx = fx.ratio(14, 10);
+// Traffic speed through a bend or a turn (ours).
+pub const bend_speed: Fx = fx.ratio(5, 100);

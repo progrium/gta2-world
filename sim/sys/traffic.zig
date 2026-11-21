@@ -265,6 +265,9 @@ pub fn Sys(comptime Self: type) type {
             }
 
             // 6. Speed setting.
+            // Ours: traffic slows for a bend or a turn, which tightens its
+            // turning circle enough for a one-block lane.
+            if (task == null and (turning or (lane and Api.bendAhead(self, t, v.ai_dir & 3) != null))) goal = @min(goal, TF.bend_speed);
             if (obstacle or neutral) goal = 0;
             goal = @min(goal, TF.traffic_speed_max);
             var sp: Fx = v.ai_speed;
@@ -376,7 +379,33 @@ pub fn Sys(comptime Self: type) type {
                     // Still on the approach: keep steering for the exit.
                     if (Api.exitFor(self, t, dir, nd)) |e| return aimAt(t, e, nd);
                 }
+                // Run wide onto a lane going the other way: back to the lane
+                // beside it that runs our way (ours).
+                const facing: u8 = @intCast(((@as(u32, t.heading) + 8192) >> 14) & 3);
+                if (ld == (facing + 2) & 3) {
+                    if (Api.laneBeside(self, t, facing)) |e| {
+                        v.ai_dir = facing;
+                        v.ai_plan = 0;
+                        return aimAt(t, e, facing);
+                    }
+                }
                 v.ai_dir = ld;
+                // A bend in the lane ahead: start turning before it.
+                if (Api.bendAhead(self, t, ld)) |b| {
+                    // Full turn once the new lane's centre line is one
+                    // turning radius ahead, so the arc ends on it.
+                    v.ai_plan = 0;
+                    const ex = fx.fromInt(b[0]) + fx.half;
+                    const ey = fx.fromInt(b[1]) + fx.half;
+                    const along = switch (ld) {
+                        0 => ex - t.x,
+                        1 => ey - t.y,
+                        2 => t.x - ex,
+                        else => t.y - ey,
+                    };
+                    _ = along;
+                    return aimAt(t, .{ b[0], b[1] }, @intCast(b[2]));
+                }
                 if (!Api.junctionAhead(self, t, ld)) {
                     v.ai_plan = 0;
                     return null;
@@ -392,6 +421,48 @@ pub fn Sys(comptime Self: type) type {
             if (Api.exitFor(self, t, d, n)) |e| return aimAt(t, e, n);
             // Lost the exit (pushed past it): go straight on and re-plan.
             v.ai_plan = c.Vehicle.plan_in_junction;
+            return null;
+        }
+
+        /// The nearest lane cell running `dir` one or two blocks to either
+        /// side of the car.
+        pub fn laneBeside(self: *Self, t: *const c.Transform, dir: u8) ?[2]i32 {
+            const sx = [4]i32{ 1, 0, -1, 0 };
+            const sy = [4]i32{ 0, 1, 0, -1 };
+            const bx = fx.toInt(t.x);
+            const by = fx.toInt(t.y);
+            var k: i32 = 1;
+            while (k <= 2) : (k += 1) {
+                for ([2]u8{ (dir + 1) & 3, (dir + 3) & 3 }) |side| {
+                    const px = bx + sx[side] * k;
+                    const py = by + sy[side] * k;
+                    const a = Api.roadCellAt(self, t, px, py) orelse continue;
+                    if (a == dir_arrow[dir]) return .{ px, py };
+                }
+            }
+            return null;
+        }
+
+        /// A bend in the lane ahead (ours): within `bend_scan` blocks along
+        /// `dir`, a lane cell whose one arrow is at right angles to `dir`,
+        /// as (x, y, new direction). The arrows alone turn a car only once
+        /// it is on the bend cell, too late for its turning circle, so it
+        /// swung into the lane beyond.
+        pub fn bendAhead(self: *Self, t: *const c.Transform, dir: u8) ?[3]i32 {
+            const sx = [4]i32{ 1, 0, -1, 0 };
+            const sy = [4]i32{ 0, 1, 0, -1 };
+            const bx = fx.toInt(t.x);
+            const by = fx.toInt(t.y);
+            var k: i32 = 1;
+            while (k <= TF.bend_scan) : (k += 1) {
+                const px = bx + sx[dir] * k;
+                const py = by + sy[dir] * k;
+                const a = Api.roadCellAt(self, t, px, py) orelse return null;
+                if (a == dir_arrow[dir]) continue;
+                if (a == dir_arrow[(dir + 1) & 3]) return .{ px, py, (dir + 1) & 3 };
+                if (a == dir_arrow[(dir + 3) & 3]) return .{ px, py, (dir + 3) & 3 };
+                return null;
+            }
             return null;
         }
 

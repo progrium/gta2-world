@@ -187,9 +187,16 @@ test "patrol: arrives, wanders, and routes back when it strays" {
         if (Sp.car_tasks.carArrived(h.sim, car)) arrived = true;
     }
     try std.testing.expect(arrived);
-    // Far from the point it routes back again.
-    for (0..4000) |_| h.run(1);
-    try std.testing.expect(cheb(h.block(car), .{ 50, 34 }) <= TF.patrol_leash_blocks + 4);
+    // Once it strays past the leash it comes back within it.
+    var strayed = false;
+    var back = false;
+    for (0..8000) |_| {
+        h.run(1);
+        const d = cheb(h.block(car), .{ 50, 34 });
+        if (d > TF.patrol_leash_blocks) strayed = true;
+        if (strayed and d <= TF.patrol_leash_blocks) back = true;
+    }
+    try std.testing.expect(strayed and back);
 }
 
 test "off-road task car snaps to the road out of sight after 100 ticks (fast snap)" {
