@@ -48,7 +48,8 @@ pub const State = extern struct {
     crews: u8 = 0,
     /// Cap on new police cars spawning for this pursuit.
     new_cars: u8 = 0,
-    _pad: u16 = 0,
+    /// Ticks before the police may shout or talk on the radio again.
+    voice_cool: u16 = 0,
     /// "Can still see them" clock (police-ai.md 3.3).
     sight: u16 = 0,
     /// Ticks until the next crew may spawn.
@@ -121,6 +122,8 @@ pub fn Sys(comptime Self: type) type {
             if (now != before) {
                 if (now != 1) s.quiet = 0;
                 self.pushEvent(.{ .kind = .wanted, .a = slot, .b = now, .c = before });
+                // The radio reports a rise.
+                if (now > before) voice(self, slot, self.state.players[slot].ped, 1);
             }
         }
 
@@ -354,7 +357,20 @@ pub fn Sys(comptime Self: type) type {
             s.last_z = t.z;
             atLeastOneStar(self, slot);
             Self.police.sighted(self, slot);
+            // A cop on foot who takes the player on shouts "Freeze!".
+            if (w.get(cop, c.Riding)) |r| if (r.vehicle.isNone()) voice(self, slot, cop, 0);
             return true;
+        }
+
+        /// A police voice line (`Event.Kind.police_voice`): `what` 0 a shout
+        /// by `who`, 1 radio chatter; at most one every `voice_gap` ticks
+        /// per pursuit (ours).
+        pub fn voice(self: *Self, slot: u8, who: EntityId, what: u8) void {
+            const s = st(self, slot) orelse return;
+            if (s.voice_cool > 0) return;
+            const t = self.state.world.get(who, c.Transform) orelse return;
+            s.voice_cool = TP.voice_gap;
+            self.pushEvent(.{ .kind = .police_voice, .a = what, .b = slot, .x = t.x, .y = t.y, .z = t.z });
         }
 
         /// Wanted bookkeeping, once a tick (wanted-level.md 4.1): drop old
@@ -380,6 +396,7 @@ pub fn Sys(comptime Self: type) type {
                 }
                 if (s.flags & State.flag_no_police != 0 and s.points != 0) clear(self, slot);
                 if (s.recent > 0) s.recent -= 1;
+                if (s.voice_cool > 0) s.voice_cool -= 1;
             }
         }
     };
