@@ -19,6 +19,7 @@ const eql = prelude.eql;
 
 pub fn Sys(comptime Self: type) type {
     return struct {
+        const Me = @This();
         const Entry = Self.Entry;
         const nil = Self.nil;
         const cell_shift = Self.cell_shift;
@@ -158,6 +159,7 @@ pub fn Sys(comptime Self: type) type {
             const mb = T.carModel(w.get(b.id, c.Vehicle).?.model);
             const ov = rectOverlap(ta, ma, tb, mb) orelse return;
             self.scratch.stats.contacts += 1;
+            if (Me.carLanding(self, a, b) or Me.carLanding(self, b, a)) return;
             // Contact point: a corner of one inside the other, else midway.
             var px = (ta.x + tb.x) >> 1;
             var py = (ta.y + tb.y) >> 1;
@@ -227,6 +229,7 @@ pub fn Sys(comptime Self: type) type {
             if (denom <= 0) return;
             const e8: i64 = 8 + T.car_restitution_8ths;
             const j: Fx = @intCast(@divTrunc(@as(i64, -fx.div(vn, denom)) * e8, 8));
+            if (Me.heavyCrush(self, a, b, j) or Me.heavyCrush(self, b, a, j)) return;
             const jx = fx.mul(j, nx);
             const jy = fx.mul(j, ny);
             if (a.movable) applyImpulse(va, ma, rax, ray, jx, jy);
@@ -239,6 +242,87 @@ pub fn Sys(comptime Self: type) type {
                 Self.wanted.onCarImpact(self, a.id, b.id, j, false);
                 Self.wanted.onCarImpact(self, b.id, a.id, j, false);
             }
+        }
+
+        /// Landing on another car (car-collision.md 3.6): `top` is in the
+        /// air above `under`. It bounces vertically as off a wall (rising or
+        /// level: x -0.7, zero under 1/32); the two take a push-apart
+        /// impulse of 0.1 along the line between their centres, halved for
+        /// a car with its handbrake on; the car landed on takes extra damage
+        /// mass x |vertical speed| x 50 (which car takes it is ours). A heavy
+        /// car crushes instead. Returns whether this was a landing.
+        pub fn carLanding(self: *Self, top: *Entry, under: *Entry) bool {
+            const w = &self.state.world;
+            const tt = w.get(top.id, c.Transform).?;
+            const tu = w.get(under.id, c.Transform).?;
+            if (tt.z <= tu.z) return false;
+            if (w.get(top.id, c.Collider).?.flags & c.Collider.flag_grounded != 0) return false;
+            const vt = w.get(top.id, c.Velocity).?;
+            const vu = w.get(under.id, c.Velocity).?;
+            const mt = T.carModel(w.get(top.id, c.Vehicle).?.model);
+            const mu = T.carModel(w.get(under.id, c.Vehicle).?.model);
+            const vz = fx.abs(vt.vz);
+            const hit = fx.mul(mt.mass, vz);
+            if (Me.heavyCrush(self, top, under, @max(hit, T.crush_impulse + 1))) return true;
+            if (!self.writable(top.id) and !self.writable(under.id)) return true;
+            if (vt.vz >= 0) {
+                vt.vz = -fx.mul(vt.vz, fx.ratio(7, 10));
+                if (fx.abs(vt.vz) < fx.one / 32) vt.vz = 0;
+            }
+            var nx = tt.x - tu.x;
+            var ny = tt.y - tu.y;
+            const nl = fx.length(nx, ny);
+            if (nl > 0) {
+                nx = fx.div(nx, nl);
+                ny = fx.div(ny, nl);
+                const jt = if (w.get(top.id, c.Vehicle).?.flags & c.Vehicle.flag_handbrake != 0) T.landing_push >> 1 else T.landing_push;
+                const ju = if (w.get(under.id, c.Vehicle).?.flags & c.Vehicle.flag_handbrake != 0) T.landing_push >> 1 else T.landing_push;
+                if (top.movable) applyImpulse(vt, mt, 0, 0, fx.mul(jt, nx), fx.mul(jt, ny));
+                if (under.movable) applyImpulse(vu, mu, 0, 0, -fx.mul(ju, nx), -fx.mul(ju, ny));
+            }
+            const extra: i64 = @as(i64, hit) * T.landing_damage;
+            if (extra > 0) {
+                self.scratch.stats.impacts += 1;
+                self.damageCar(under.id, extra, top.id);
+            }
+            return true;
+        }
+
+        /// Heavy crush (car-collision.md 3.6): a heavy car that is a tank or
+        /// not AI-driven, moving faster than 0.01, hitting a car that is not
+        /// heavy with an impulse over 0.2 does not bounce: the other car
+        /// stops and is destroyed, credited to the crusher, and the crusher
+        /// rides up onto it (car-height.md 3.6: at least its height + 0.2).
+        /// Returns whether `crusher` crushed `victim`.
+        pub fn heavyCrush(self: *Self, crusher: *Entry, victim: *Entry, j: Fx) bool {
+            const w = &self.state.world;
+            const vc = w.get(crusher.id, c.Vehicle).?;
+            const vv = w.get(victim.id, c.Vehicle).?;
+            const mc = T.carModel(vc.model);
+            const mv = T.carModel(vv.model);
+            if (mc.heavy == 0 or mv.heavy != 0) return false;
+            if (mc.tank == 0 and vc.flags & c.Vehicle.flag_ai != 0) return false;
+            if (j <= T.crush_impulse) return false;
+            const velc = w.get(crusher.id, c.Velocity).?;
+            if (fx.length(velc.vx, velc.vy) <= T.crush_min_speed) return false;
+            if (!self.writable(victim.id)) return true;
+            w.get(victim.id, c.Velocity).?.* = std.mem.zeroes(c.Velocity);
+            self.scratch.stats.impacts += 1;
+            if (vv.flags & c.Vehicle.flag_wrecked == 0) {
+                const h = w.get(victim.id, c.Health).?;
+                h.hp = 0;
+                h.last_hit_by = crusher.id;
+            }
+            Self.wanted.onCarImpact(self, victim.id, crusher.id, 0, true);
+            if (self.writable(crusher.id)) {
+                const tc = w.get(crusher.id, c.Transform).?;
+                const up = w.get(victim.id, c.Transform).?.z + T.crush_ride_up;
+                if (up > tc.z and !self.boxBlocked(tc.x, tc.y, up, tc.heading, mc)) {
+                    tc.z = up;
+                    w.get(crusher.id, c.Collider).?.flags &= ~c.Collider.flag_grounded;
+                }
+            }
+            return true;
         }
 
         /// Impulse (jx, jy) at offset (rx, ry) from a car's centre
