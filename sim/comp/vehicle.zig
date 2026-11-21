@@ -35,6 +35,26 @@ pub const Vehicle = extern struct {
     drive: u8,
     /// Ticks spent sinking in deep water (car-height.md 3.5).
     sink: u8 = 0,
+    /// Traffic (workstream F, traffic-and-car-ai.md): `ai_*` bits.
+    ai_flags: u8 = 0,
+    /// Traffic: ticks since the AI took the car, saturating (the car-ahead
+    /// check waits 20).
+    ai_age: u8 = 0,
+    /// Traffic: ticks left holding because a car crossing a junction made
+    /// this one yield.
+    ai_yield: u8 = 0,
+    /// Traffic: ticks stuck touching the car `ai_touch`.
+    ai_wiggle: u8 = 0,
+    /// Traffic: ticks spent looking for a road.
+    ai_lost: u16 = 0,
+    /// Traffic: index + 1 of the car this one is stuck against, or 0.
+    ai_touch: u16 = 0,
+    /// Traffic: index + 1 of the last crossing marker stopped at, or 0.
+    ai_mark: u16 = 0,
+    /// Traffic: ticks left of an overtake at a crossing queue.
+    ai_pass: u8 = 0,
+    /// Traffic: the overtake side, -1 or 1, or 0.
+    ai_side: i8 = 0,
 
     pub const drive_none: u8 = 0;
     pub const drive_forward: u8 = 1;
@@ -51,6 +71,19 @@ pub const Vehicle = extern struct {
     pub const flag_wrecked: u8 = 16;
     /// Fully over deep water: no engine and no brakes.
     pub const flag_in_water: u8 = 32;
+
+    /// `ai_flags`: script-created (never gives up off-road).
+    pub const ai_script: u8 = 1;
+    /// Gave up off-road: halted for good.
+    pub const ai_abandoned: u8 = 2;
+    /// Halted by a script or a stop task until released.
+    pub const ai_halted: u8 = 4;
+    /// Police, SWAT, FBI, army, fire, ambulance or train: always honks.
+    pub const ai_emergency: u8 = 8;
+    /// A bus: never checks for a car ahead.
+    pub const ai_bus: u8 = 16;
+    /// Settling into the lane after a turn.
+    pub const ai_settling: u8 = 32;
 
     pub const reverse_base: u16 = 1000;
     pub const plan_in_junction: u8 = 0x80;
