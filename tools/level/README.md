@@ -28,3 +28,13 @@ zig-out/bin/level --sp --data ~/gta2/data --all --ticks 30000 --out results/sp-l
 Runs every map that has a main script of the same name (`wil.gmp` with `wil.scr` and the mission sub-scripts in `wil/*.scr`) in the `sp` configuration with the level attached. The autopilot goes to the mission arrow when the HUD shows one, else to the last phone that rang, else to road waypoints. Per level it reports missions started, passed and failed (with ticks), phone rings, wasted and busted, threads on one command for over 3,000 ticks (command number and type), the unhandled command count, invariant breaks and step time. `results/sp-latest.md` is the last run.
 
 Still to come: a route-following autopilot on F's route planner, and answering phones by walking onto them once the scripts ring them.
+
+## Traffic soak: `--traffic`
+
+```sh
+zig-out/bin/level --traffic --data ~/gta2/data --all --ticks 10000 --out results/traffic-latest.md
+zig-out/bin/level --traffic --data ~/gta2/data --map wil.gmp --trace 5      # last 80 ticks of the first 5 cars that leave the road
+zig-out/bin/level --traffic --data ~/gta2/data --map wil.gmp --dump 22,67   # the lanes around a block
+```
+
+Workstream F's check of the traffic AI on real maps. Runs the `sp` configuration (48 ambient cars, no level script) with the player on foot, moved to the pavement beside a random road block every 2,000 ticks, and counts per map: cars abandoned (gave up seeking the road), stuck (stopped 300 ticks with nothing holding them), wrong way (against their lane's arrow for 30 ticks), off the road for 20 ticks, car impacts, and damaged and wrecked cars, with the block of the first few of each. `results/traffic-latest.md` is the last run. The mike2 maps have no road, so no traffic.

@@ -22,6 +22,7 @@ const formats = @import("formats");
 const qa = @import("qa");
 const bots_mod = @import("bots");
 const Autopilot = @import("autopilot.zig").Autopilot;
+const traffic = @import("traffic.zig");
 const fx = sim.fx;
 const c = sim.c;
 const abi = sim.abi;
@@ -45,7 +46,11 @@ pub const Options = struct {
     out: ?[]const u8 = null,
     /// Single-player mode: run each level's script in the `sp` config.
     sp: bool = false,
+    traffic: bool = false,
+    dump: ?[2]i32 = null,
 };
+
+var sp: traffic.S = undefined;
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
@@ -65,6 +70,15 @@ pub fn main(init: std.process.Init) !void {
             i += 1;
         } else if (std.mem.eql(u8, a, "--sp")) {
             o.sp = true;
+        } else if (std.mem.eql(u8, a, "--dump")) {
+            var it = std.mem.splitScalar(u8, val, ',');
+            o.dump = .{ try std.fmt.parseInt(i32, it.next().?, 10), try std.fmt.parseInt(i32, it.next().?, 10) };
+            i += 1;
+        } else if (std.mem.eql(u8, a, "--trace")) {
+            traffic.setTrace(try std.fmt.parseInt(u32, val, 10));
+            i += 1;
+        } else if (std.mem.eql(u8, a, "--traffic")) {
+            o.traffic = true;
         } else if (std.mem.eql(u8, a, "--all")) {
             all = true;
         } else if (std.mem.eql(u8, a, "--ticks")) {
@@ -112,7 +126,9 @@ pub fn main(init: std.process.Init) !void {
     if (o.maps.items.len == 0) return usage();
 
     var report: std.ArrayList(u8) = .empty;
-    if (o.sp)
+    if (o.traffic)
+        try appendf(&report, arena, "# Traffic soak results\n\nWritten by `tools/level --traffic` (workstream F). {d} ticks per map in the single-player configuration (48 ambient cars), the player on foot, moved to the pavement beside a random road block every 2000 ticks, seed {x}.\n\n", .{ o.ticks, o.seed })
+    else if (o.sp)
         try appendf(&report, arena, "# Level runner results: single player\n\nWritten by `tools/level --sp` (workstream Q). Each level runs its own script in the `sp` configuration for {d} ticks, seed {x}. The autopilot follows the mission arrow, else the last phone that rang, else road waypoints; it is teleported to its target after {d} ticks.\n\n", .{ o.ticks, o.seed, o.limit })
     else
         try appendf(&report, arena, "# Level runner results\n\nWritten by `tools/level` (workstream Q). {d} ticks per map, autopilot in slot 0, {d} bots, seed {x}, teleport after {d} ticks. Targets: random road waypoints.\n\n", .{ o.ticks, o.bots, o.seed, o.limit });
@@ -136,7 +152,9 @@ pub fn main(init: std.process.Init) !void {
         // such as surface flags) must read as empty.
         @memset(std.mem.asBytes(&grid), 0);
         formats.grid.build(&m, &grid);
-        const ok = if (o.sp)
+        const ok = if (o.traffic)
+            try runTraffic(init.gpa, arena, &report, name, o)
+        else if (o.sp)
             try @import("sp.zig").runLevel(io, init.gpa, arena, &report, &grid, &m, name, o)
         else
             try runMap(io, init.gpa, arena, &report, name, o);
@@ -147,8 +165,24 @@ pub fn main(init: std.process.Init) !void {
     if (failed) std.process.exit(1);
 }
 
+fn runTraffic(gpa: std.mem.Allocator, arena: std.mem.Allocator, report: *std.ArrayList(u8), name: []const u8, o: Options) !bool {
+    const roads = try roadCells(&grid, gpa);
+    defer gpa.free(roads);
+    if (o.dump) |d| {
+        traffic.dump(&grid, d[0], d[1], 10);
+        return true;
+    }
+    const counts = traffic.run(&sp, &grid, o.seed, o.ticks, roads);
+    var buf: [4096]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try w.print("## {s}\n\n", .{name});
+    try traffic.write(&w, counts);
+    try report.appendSlice(arena, w.buffered());
+    return true;
+}
+
 fn usage() void {
-    print("usage: level --data <dir> (--map <name.gmp> ... | --all) [--ticks N] [--bots N] [--seed S] [--limit N] [--out file.md]\n", .{});
+    print("usage: level --data <dir> (--map <name.gmp> ... | --all) [--traffic [--trace N] [--dump X,Y]] [--sp] [--ticks N] [--bots N] [--seed S] [--limit N] [--out file.md]\n", .{});
 }
 
 pub fn appendf(l: *std.ArrayList(u8), gpa: std.mem.Allocator, comptime f: []const u8, a: anytype) !void {
