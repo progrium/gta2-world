@@ -28,6 +28,7 @@ import { textChoice } from "./importScreen.ts";
 import { deathKey } from "../game/text.ts";
 import { demoHud } from "./spDemo.ts";
 import { touchPad } from "./touchPad.ts";
+import { guardFocus } from "./focusGuard.ts";
 import { PlayerArrows, type ArrowTarget, playerColour } from "./playerArrows.ts";
 
 export interface GameScreenOpts {
@@ -838,8 +839,11 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const renderSoundPrompt = (): void => void soundPrompt.classList.toggle("hidden", audio.running || audio.muted);
   const offSound = audio.on(renderSoundPrompt);
   renderSoundPrompt();
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el, soundPrompt), hud);
+  const stage = h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el, soundPrompt);
+  const section = h("section", { class: "screen game" }, stage, hud);
   root.append(section);
+  // Pad buttons must drive the game, never the HUD's dropdown or buttons.
+  const offFocus = guardFocus(hud, stage);
   input.allowLocalJoin = false;
   loop.start();
   void boot();
@@ -853,6 +857,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     audio.stopAll();
     offSound();
     offInput();
+    offFocus();
     touchView.dispose();
     removeEventListener("focus", renderPads);
     removeEventListener("blur", renderPads);
