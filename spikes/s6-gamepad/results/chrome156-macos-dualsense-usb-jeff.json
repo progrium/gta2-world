@@ -1,0 +1,777 @@
+{
+  "schema": "s6-gamepad-probe/1",
+  "generatedAt": "2026-11-21T01:47:03.990Z",
+  "startedAt": "2026-11-21T01:41:46.593Z",
+  "tester": {
+    "controller": "DualSense",
+    "connection": "USB",
+    "os": "macOS",
+    "browser": "Chrome 156",
+    "notes": "me"
+  },
+  "environment": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36",
+    "platform": "MacIntel",
+    "userAgentData": {
+      "brands": [
+        {
+          "brand": "Not:A-Brand",
+          "version": "8"
+        },
+        {
+          "brand": "Chromium",
+          "version": "156"
+        },
+        {
+          "brand": "Google Chrome",
+          "version": "156"
+        }
+      ],
+      "platform": "macOS",
+      "mobile": false
+    },
+    "secureContext": true,
+    "location": "https://progrium.github.io",
+    "getGamepads": true,
+    "GamepadHapticActuator": true,
+    "gamepadrawinputchanged": false,
+    "permissionsPolicyGamepad": true,
+    "devicePixelRatio": 2,
+    "screen": "1512x982"
+  },
+  "padsSeen": [
+    {
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard",
+      "connected": true,
+      "buttons": 18,
+      "axes": 4,
+      "timestamp": 5004.9,
+      "vibrationActuator": {
+        "type": "dual-rumble",
+        "effects": [
+          "dual-rumble"
+        ],
+        "canPlay": true
+      },
+      "hapticActuators": null,
+      "hasTouchedField": true
+    }
+  ],
+  "mapping": {
+    "pad": {
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard"
+    },
+    "results": [
+      {
+        "control": "bottom face",
+        "expect": {
+          "type": "button",
+          "index": 0
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 0,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "right face",
+        "expect": {
+          "type": "button",
+          "index": 1
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 1,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "left face",
+        "expect": {
+          "type": "button",
+          "index": 2
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 2,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "top face",
+        "expect": {
+          "type": "button",
+          "index": 3
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 3,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "left shoulder",
+        "expect": {
+          "type": "button",
+          "index": 4
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 4,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "right shoulder",
+        "expect": {
+          "type": "button",
+          "index": 5
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 5,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "left trigger",
+        "expect": {
+          "type": "button",
+          "index": 6
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 6,
+            "value": 0.78
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "right trigger",
+        "expect": {
+          "type": "button",
+          "index": 7
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 7,
+            "value": 0.647
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "back/select",
+        "expect": {
+          "type": "button",
+          "index": 8
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 8,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "start",
+        "expect": {
+          "type": "button",
+          "index": 9
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 9,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "left stick click",
+        "expect": {
+          "type": "button",
+          "index": 10
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 10,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "right stick click",
+        "expect": {
+          "type": "button",
+          "index": 11
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 11,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "d-pad up",
+        "expect": {
+          "type": "button",
+          "index": 12
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 12,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "d-pad down",
+        "expect": {
+          "type": "button",
+          "index": 13
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 13,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "d-pad left",
+        "expect": {
+          "type": "button",
+          "index": 14
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 14,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "d-pad right",
+        "expect": {
+          "type": "button",
+          "index": 15
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 15,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "home/guide",
+        "expect": {
+          "type": "button",
+          "index": 16
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 16,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": true
+      },
+      {
+        "control": "touchpad click / capture / share (extra button, if any)",
+        "expect": {
+          "type": "button",
+          "index": 17
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 17,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": true
+      },
+      {
+        "control": "Push LEFT stick fully LEFT, then release",
+        "expect": {
+          "type": "axis",
+          "index": 0,
+          "sign": -1
+        },
+        "hits": [
+          {
+            "type": "axis",
+            "index": 0,
+            "sign": -1,
+            "value": -0.543
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "Push LEFT stick fully UP, then release",
+        "expect": {
+          "type": "axis",
+          "index": 1,
+          "sign": -1
+        },
+        "hits": [
+          {
+            "type": "axis",
+            "index": 1,
+            "sign": -1,
+            "value": -0.535
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "Push RIGHT stick fully LEFT, then release",
+        "expect": {
+          "type": "axis",
+          "index": 2,
+          "sign": -1
+        },
+        "hits": [
+          {
+            "type": "axis",
+            "index": 2,
+            "sign": -1,
+            "value": -0.676
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "Push RIGHT stick fully UP, then release",
+        "expect": {
+          "type": "axis",
+          "index": 3,
+          "sign": -1
+        },
+        "hits": [
+          {
+            "type": "axis",
+            "index": 3,
+            "sign": -1,
+            "value": -0.779
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      }
+    ],
+    "required": 20,
+    "matched": 22,
+    "mismatched": [],
+    "skipped": [],
+    "crossTalk": [],
+    "stopped": false
+  },
+  "axes": {
+    "pad": {
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard"
+    },
+    "axes": [
+      {
+        "index": 0,
+        "min": 0,
+        "max": 0.029,
+        "distinctValues": 4,
+        "rest": {
+          "mean": 0.013,
+          "maxAbs": 0.735
+        }
+      },
+      {
+        "index": 1,
+        "min": 0,
+        "max": 0.029,
+        "distinctValues": 4,
+        "rest": {
+          "mean": -0.004,
+          "maxAbs": 0.331
+        }
+      },
+      {
+        "index": 2,
+        "min": 0,
+        "max": 0,
+        "distinctValues": 1,
+        "rest": {
+          "mean": 0,
+          "maxAbs": 0
+        }
+      },
+      {
+        "index": 3,
+        "min": 0,
+        "max": 0,
+        "distinctValues": 1,
+        "rest": {
+          "mean": 0,
+          "maxAbs": 0
+        }
+      }
+    ],
+    "stickLeft": {
+      "maxMagnitude": 0.041,
+      "octantMax": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "stickRight": {
+      "maxMagnitude": 0,
+      "octantMax": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "triggers": [
+      {
+        "button": 6,
+        "distinctValues": 1,
+        "max": 0,
+        "analog": false
+      },
+      {
+        "button": 7,
+        "distinctValues": 1,
+        "max": 0,
+        "analog": false
+      }
+    ]
+  },
+  "latency": {
+    "pad": {
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard"
+    },
+    "durationMs": 10000,
+    "frames": 1203,
+    "frameIntervalMs": {
+      "n": 1202,
+      "min": 2,
+      "p50": 8.3,
+      "p95": 9.4,
+      "max": 14.7,
+      "mean": 8.323
+    },
+    "distinctStatesHiRate": 899,
+    "distinctStatesSeenByFrames": 616,
+    "updatesMissedByFramePolling": 348,
+    "padUpdateIntervalMs": {
+      "n": 898,
+      "min": 4,
+      "p50": 5.1,
+      "p95": 11.7,
+      "max": 7966.1,
+      "mean": 16.021
+    },
+    "padUpdateRateHz": 196.078,
+    "timestampOnPerformanceClock": true,
+    "stalenessAtFrameReadMs": {
+      "n": 616,
+      "min": 0,
+      "p50": 2.3,
+      "p95": 5.3,
+      "max": 4389.3,
+      "mean": 9.689
+    },
+    "pipelineDelayMs": {
+      "n": 899,
+      "min": 0,
+      "p50": 2.6,
+      "p95": 4.8,
+      "max": 4386.1,
+      "mean": 7.488
+    },
+    "addedByFramePollingMs": {
+      "n": 551,
+      "min": -4.9,
+      "p50": 0.2,
+      "p95": 4.7,
+      "max": 7.7,
+      "mean": -0.197
+    },
+    "getGamepadsReturnsSameObject": false,
+    "rawInputEvents": null,
+    "verdictUnderOneFrame": true
+  },
+  "rumble": [
+    {
+      "effect": "strong",
+      "t": 254287.4,
+      "result": "complete",
+      "error": null,
+      "felt": true,
+      "ms": 604.1,
+      "pad": "DualSense Wireless Controller (STANDARD GAMEPAD)"
+    },
+    {
+      "effect": "weak",
+      "t": 257049,
+      "result": "complete",
+      "error": null,
+      "felt": true,
+      "ms": 606.1,
+      "pad": "DualSense Wireless Controller (STANDARD GAMEPAD)"
+    },
+    {
+      "effect": "both",
+      "t": 259687.1,
+      "result": "complete",
+      "error": null,
+      "felt": true,
+      "ms": 603.3,
+      "pad": "DualSense Wireless Controller (STANDARD GAMEPAD)"
+    },
+    {
+      "effect": "trigger",
+      "t": 262169.4,
+      "result": "complete",
+      "error": null,
+      "felt": false,
+      "ms": 601.1,
+      "pad": "DualSense Wireless Controller (STANDARD GAMEPAD)"
+    },
+    {
+      "effect": "preempt",
+      "t": 266819.1,
+      "result": "first=preempted, second=complete",
+      "error": null,
+      "felt": true,
+      "ms": 702.9,
+      "pad": "DualSense Wireless Controller (STANDARD GAMEPAD)"
+    },
+    {
+      "effect": "reset",
+      "t": 269609.5,
+      "result": "complete",
+      "error": null,
+      "felt": null,
+      "ms": 6.7,
+      "pad": "DualSense Wireless Controller (STANDARD GAMEPAD)"
+    },
+    {
+      "effect": "legacy",
+      "t": 273090.7,
+      "result": null,
+      "error": "hapticActuators absent",
+      "felt": null,
+      "ms": 0.1,
+      "pad": "DualSense Wireless Controller (STANDARD GAMEPAD)"
+    }
+  ],
+  "hotplug": {
+    "summary": {
+      "connectedEvents": 2,
+      "disconnectedEvents": 1,
+      "pollAppeared": 2,
+      "connectWhileHidden": 0,
+      "reconnectSameIndex": true,
+      "idsSeen": [
+        "DualSense Wireless Controller (STANDARD GAMEPAD)"
+      ]
+    },
+    "marks": [
+      287908.7
+    ]
+  },
+  "events": [
+    {
+      "t": 5006,
+      "wall": "2026-11-21T01:41:51.536Z",
+      "type": "gamepadconnected",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard"
+    },
+    {
+      "t": 5012.4,
+      "wall": "2026-11-21T01:41:51.542Z",
+      "type": "poll:appeared",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard"
+    },
+    {
+      "t": 287908.8,
+      "wall": "2026-11-21T01:46:34.437Z",
+      "type": "mark",
+      "hidden": false,
+      "focused": true,
+      "note": "hot-plug test start"
+    },
+    {
+      "t": 293445.5,
+      "wall": "2026-11-21T01:46:39.974Z",
+      "type": "gamepaddisconnected",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard"
+    },
+    {
+      "t": 293451.2,
+      "wall": "2026-11-21T01:46:39.979Z",
+      "type": "poll:vanished",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": ""
+    },
+    {
+      "t": 303704,
+      "wall": "2026-11-21T01:46:50.232Z",
+      "type": "gamepadconnected",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard"
+    },
+    {
+      "t": 303709.8,
+      "wall": "2026-11-21T01:46:50.238Z",
+      "type": "poll:appeared",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller (STANDARD GAMEPAD)",
+      "mapping": "standard"
+    }
+  ]
+}

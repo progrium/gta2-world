@@ -81,7 +81,7 @@
 
   <section>
     <h2>3. Axis ranges and triggers</h2>
-    <p class="dim">8 seconds: roll both sticks around their outer edge several times, and squeeze both triggers slowly from zero to full and back. Then let go of everything; the last 2 seconds measure rest drift.</p>
+    <p class="dim">Press Start, then pick up the controller. The 8-second clock starts when a stick or trigger first moves: roll both sticks around their outer edge several times, and squeeze both triggers slowly from zero to full and back. Then let go of everything; the last 2 seconds measure rest drift.</p>
     <div class="row"><button class="primary" id="axis-start">Start axis test</button></div>
     <div id="axis-prompt" class="prompt dim">Not running.</div>
     <div class="sticks"><canvas id="stickL" width="160" height="160"></canvas><canvas id="stickR" width="160" height="160"></canvas></div>
@@ -415,7 +415,10 @@ function fmtIn(h) { return h.type === "button" ? `btn ${h.index}` : `axis ${h.in
 let axisRun = null;
 $("axis-start").onclick = () => {
   const gp = pad(state.selected); if (!gp) return alertBox("axis-prompt", "No pad selected.");
-  axisRun = { idx: gp.index, t0: now(), dur: 8000, restFrom: 6000, n: gp.axes.length, min: gp.axes.map(() => Infinity), max: gp.axes.map(() => -Infinity), rest: gp.axes.map(() => []), trig: { 6: new Set(), 7: new Set() }, trigMax: { 6: 0, 7: 0 }, octL: new Array(8).fill(0), octR: new Array(8).fill(0), maxMagL: 0, maxMagR: 0, axisDistinct: gp.axes.map(() => new Set()) };
+  // t0 stays null until the first real movement: the click leaves the tester's
+  // hand on the mouse, and a clock started there can run out before they touch
+  // the pad (seen in two runs: triggers max 0, sticks ~0 during the sweep).
+  axisRun = { idx: gp.index, t0: null, armedAt: now(), base: gp.axes.slice(), dur: 8000, restFrom: 6000, n: gp.axes.length, min: gp.axes.map(() => Infinity), max: gp.axes.map(() => -Infinity), rest: gp.axes.map(() => []), trig: { 6: new Set(), 7: new Set() }, trigMax: { 6: 0, 7: 0 }, octL: new Array(8).fill(0), octR: new Array(8).fill(0), maxMagL: 0, maxMagR: 0, axisDistinct: gp.axes.map(() => new Set()) };
   clearStick("stickL"); clearStick("stickR");
 };
 function clearStick(id) {
@@ -428,8 +431,19 @@ function octant(x, y) { return (Math.round(Math.atan2(y, x) / (Math.PI / 4)) + 8
 function axisTick() {
   if (!axisRun) return;
   const gp = pad(axisRun.idx); if (!gp) return;
-  const el = now() - axisRun.t0;
   const a = gp.axes;
+  if (axisRun.t0 == null) {
+    const moved = a.some((v, i) => Math.abs(v - (axisRun.base[i] ?? 0)) > 0.3) || [6, 7].some(t => gp.buttons[t] && gp.buttons[t].value > 0.1);
+    if (!moved) {
+      const waited = now() - axisRun.armedAt;
+      if (waited > 30000) { axisRun = null; return alertBox("axis-prompt", "Nothing moved for 30 s. Press Start to try again."); }
+      $("axis-prompt").className = "prompt";
+      $("axis-prompt").textContent = "Ready. Move a stick or squeeze a trigger to begin.";
+      return;
+    }
+    axisRun.t0 = now();
+  }
+  const el = now() - axisRun.t0;
   $("axis-prompt").className = "prompt";
   $("axis-prompt").textContent = el < axisRun.restFrom ? `Roll sticks and squeeze triggers... ${((axisRun.restFrom - el) / 1000).toFixed(1)} s` : `Let go of everything... ${((axisRun.dur - el) / 1000).toFixed(1)} s`;
   if (el < axisRun.restFrom) {
@@ -453,7 +467,9 @@ function axisTick() {
       axes: R.min.map((mn, i) => ({ index: i, min: r3(mn), max: r3(R.max[i]), distinctValues: R.axisDistinct[i].size, rest: restStats[i] })),
       stickLeft: { maxMagnitude: r3(R.maxMagL), octantMax: R.octL.map(r3) },
       stickRight: { maxMagnitude: r3(R.maxMagR), octantMax: R.octR.map(r3) },
-      triggers: [6, 7].map(t => ({ button: t, distinctValues: R.trig[t].size, max: r3(R.trigMax[t]), analog: R.trig[t].size > 3 })),
+      // analog is null (not measured) when the trigger never moved, rather than "digital".
+      triggers: [6, 7].map(t => ({ button: t, distinctValues: R.trig[t].size, max: r3(R.trigMax[t]), analog: R.trigMax[t] < 0.5 ? null : R.trig[t].size > 3 })),
+      valid: R.maxMagL > 0.8 && R.maxMagR > 0.8 && R.trigMax[6] > 0.8 && R.trigMax[7] > 0.8,
     };
     axisRun = null;
     $("axis-prompt").className = "prompt ok"; $("axis-prompt").textContent = "Done.";
@@ -464,7 +480,7 @@ function renderAxes() {
   const A = state.axes;
   const gate = (s) => { const d = [1, 3, 5, 7].map(i => s.octantMax[i]).filter(Boolean); const c = [0, 2, 4, 6].map(i => s.octantMax[i]).filter(Boolean); if (!d.length || !c.length) return "not enough coverage"; const dm = d.reduce((a, b) => a + b) / d.length; return `diagonal mag ${dm.toFixed(2)} (${dm > 1.15 ? "square gate, needs radial clamp" : dm < 0.9 ? "under-reaching diagonals" : "circular"})`; };
   $("axis-result").innerHTML = `<table><thead><tr><th>axis</th><th>min</th><th>max</th><th>rest mean</th><th>rest max|v|</th><th>distinct</th></tr></thead><tbody>${A.axes.map(x => `<tr><td>${x.index}</td><td class="${x.min > -0.98 ? "warn" : ""}">${x.min}</td><td class="${x.max < 0.98 ? "warn" : ""}">${x.max}</td><td>${x.rest.mean}</td><td class="${x.rest.maxAbs > 0.1 ? "warn" : ""}">${x.rest.maxAbs}</td><td>${x.distinctValues}</td></tr>`).join("")}</tbody></table>
-  <div class="mono">left stick: ${gate(A.stickLeft)}<br>right stick: ${gate(A.stickRight)}<br>${A.triggers.map(t => `trigger btn ${t.button}: ${t.analog ? '<span class="ok">analog</span>' : '<span class="warn">digital</span>'} (${t.distinctValues} distinct, max ${t.max})`).join("<br>")}</div>`;
+  <div class="mono">left stick: ${gate(A.stickLeft)}<br>right stick: ${gate(A.stickRight)}<br>${A.triggers.map(t => `trigger btn ${t.button}: ${t.analog == null ? '<span class="bad">not measured</span>' : t.analog ? '<span class="ok">analog</span>' : '<span class="warn">digital</span>'} (${t.distinctValues} distinct, max ${t.max})`).join("<br>")}</div>${A.valid ? "" : '<div class="prompt bad">Sticks or triggers didn\'t reach full travel. Press Start and run it again.</div>'}`;
 }
 
 // ---------- latency test ----------

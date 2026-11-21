@@ -20,7 +20,7 @@ const rows = process.argv.slice(2).map((f) => {
     mapping: JSON.stringify(pad.mapping ?? null),
     mapOk: m ? `${m.matched}/${m.results.length - m.skipped.length}` : "-",
     mismatches: m ? m.mismatched.map((x) => x.control).join("; ") : "-",
-    trig: a ? a.triggers.map((t) => (t.analog ? "A" : "D")).join("") : "-",
+    trig: a ? a.triggers.map((t) => (t.analog == null || (!t.analog && !(t.max > 0)) ? "?" : t.analog ? "A" : "D")).join("") : "-",
     restMax: a ? Math.max(...a.axes.slice(0, 4).map((x) => x.rest.maxAbs)) : "-",
     diagL: a ? Math.max(...[1, 3, 5, 7].map((i) => a.stickLeft.octantMax[i])) : "-",
     padHz: l ? l.padUpdateRateHz : "-",
