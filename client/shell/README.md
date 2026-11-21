@@ -29,6 +29,7 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 | `src/session.ts` | Fixed session id `m1-local`, or `#s=<id>` from the link. |
 | `src/game/wasm.ts` | Loads `game.wasm`; copies files in, hands buffers to the renderer, steps the sim, reads player info and tuning. |
 | `src/audio/` | Sound banks (.sdt/.raw), WebAudio engine, the cue list and mapping, procedural fallbacks. |
+| `src/assets/installer.ts` | "Download from the Internet Archive": streams the GTA2 freeware installer from archive.org into the browser and unpacks the data files from its InstallShield cabinets. |
 | `src/ui/` | Import screen, game screen (real map, sim and renderer, HUD), controls (remap) overlay, handling tuning panel, sound board, host and join screens. |
 | `src/net/` | I3 `Connection` (WebTransport, WebSocket, WebRTC, loopback), WebRTC peer (`rtc.ts`), signalling (`signal.ts` contract, `signal-bc.ts`, `signaller.ts` factory). |
 | `src/host/` | Browser host: `hostPeers.ts` (Worker, peers, loopback), `hostSession.ts` (one hosted game), `protocol.ts` (Worker contract). |
@@ -93,3 +94,10 @@ The game screen already feeds the listener, the player's engine, door, crash and
 **Spoken lines.** `data/audio/Vocals/*.wav` (RIFF WAVE, IMA ADPCM or PCM, mono or stereo) load as a third bank, `vocals`, decoded in `audio/wav.ts` and mixed to mono. Mappings name these by file (`{ bank: "vocals", name: "wasted" }`), since the files have no fixed order. Spoken cues (the announcer and pedestrian voices) stay silent until mapped rather than play a built-in stand-in.
 
 **Sound board** (B, or the Sound button; M mutes). Lists every sample in both banks with a play button and its rate, length and encoding (click the encoding to flip it if a sample plays as noise). Pick a cue, step through samples with ↑/↓ (each one plays) and press Enter or Assign. Per-cue gain and the engine pitch range are on the cue list. The mapping is saved in `localStorage` (`gta2.sound.v1`) and exports or imports as JSON; that file holds indices only, never audio.
+
+## Internet Archive download
+
+The import screen can fetch Rockstar's freeware release of GTA2 from the Internet Archive item [`gta2_rockstar-classics`](https://archive.org/details/gta2_rockstar-classics) (`GTA2INSTALLER.exe`, 362,331,961 bytes). The browser fetches it from `https://archive.org/cors/<item>/<file>`, archive.org's CORS endpoint, so the bytes go straight from the Internet Archive to the player and never through our servers. The plain `/download/` URL redirects to an item server that sends no CORS headers, so it can't be read from a page.
+
+The installer is a PE stub followed by entries of `name\0 path\0 version\0 decimal-size\0` and then the bytes. Among them are an InstallShield 7 cabinet set: `data1.hdr` (the file table), `data1.cab` and `data2.cab` (the volumes). `InstallerReader` takes the download in order, keeps only the stored bytes of the files under `data/` that the shell imports, and expands them (compressed files are chunks of a u16 length and raw deflate, read with `DecompressionStream("deflate-raw")`). The music in `data/GTAudio` (about 290 MB) is skipped because nothing plays it yet. What's left, 271 files and about 57 MB, goes through the same import as a picked folder.
+

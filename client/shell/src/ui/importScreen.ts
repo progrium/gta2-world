@@ -1,6 +1,7 @@
 // Screen 1: the player gives us their GTA2 files. They stay in this browser.
 
 import { type PickedFile, fromDrop, fromInput, pickDirectory } from "../assets/pick.ts";
+import { ARCHIVE_PAGE, ARCHIVE_SIZE, downloadFromArchive } from "../assets/installer.ts";
 import type { AssetRecord } from "../assets/protocol.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { clear, fmtBytes, h } from "./dom.ts";
@@ -26,12 +27,14 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
   dirInput.setAttribute("webkitdirectory", "");
   const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".gmp,.sty,.scr,.mmp,.gxt,.sdt,.raw,.gci,.seq,.wav" }) as HTMLInputElement;
 
+  let busy = false;
   const run = async (files: PickedFile[] | null): Promise<void> => {
-    if (!files) return;
+    if (!files || busy) return;
     if (files.length === 0) {
       status.textContent = "No GTA2 data files there. Pick the GTA2 install folder, or its data folder.";
       return;
     }
+    busy = true;
     bar.hidden = false;
     bar.value = 0;
     status.textContent = `Importing ${files.length} files…`;
@@ -54,10 +57,65 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
     } catch (e) {
       status.textContent = `Import failed: ${(e as Error).message}`;
     } finally {
+      busy = false;
       bar.hidden = true;
       render();
     }
   };
+
+  // Download Rockstar's freeware installer from the Internet Archive into this
+  // browser, pull the data files out of it and import them like a local folder.
+  const archiveBar = h("progress", { max: 1, value: 0, hidden: true });
+  const archiveBtn = h("button", {}, `Download from the Internet Archive (${fmtBytes(ARCHIVE_SIZE)})`) as HTMLButtonElement;
+  const cancelBtn = h("button", { hidden: true }, "Cancel") as HTMLButtonElement;
+  let abort: AbortController | null = null;
+  cancelBtn.onclick = () => abort?.abort();
+  archiveBtn.onclick = async () => {
+    if (busy) return;
+    busy = true;
+    abort = new AbortController();
+    archiveBtn.disabled = true;
+    cancelBtn.hidden = false;
+    archiveBar.hidden = false;
+    archiveBar.value = 0;
+    status.textContent = "Connecting to the Internet Archive…";
+    let files: PickedFile[] | null = null;
+    try {
+      files = await downloadFromArchive((phase, done, total, path) => {
+        archiveBar.max = Math.max(1, total);
+        archiveBar.value = done;
+        status.textContent =
+          phase === "download"
+            ? `Downloading the GTA2 installer from the Internet Archive: ${fmtBytes(done)} of ${fmtBytes(total)}`
+            : `Unpacking ${path ?? ""} (${done + 1} of ${total})`;
+      }, abort.signal);
+    } catch (e) {
+      status.textContent = abort.signal.aborted
+        ? "Download cancelled."
+        : `Download failed: ${(e as Error).message}. You can try again, or choose your GTA2 folder instead.`;
+    } finally {
+      busy = false;
+      abort = null;
+      archiveBtn.disabled = false;
+      cancelBtn.hidden = true;
+      archiveBar.hidden = true;
+    }
+    if (files) await run(files);
+  };
+  const archive = h(
+    "div",
+    { class: "archive" },
+    h("p", {}, "No copy of GTA2? Rockstar gave it away as freeware. Get it here in one click:"),
+    h("div", { class: "row" }, archiveBtn, cancelBtn),
+    archiveBar,
+    h(
+      "p",
+      { class: "muted small" },
+      "The installer downloads straight from the ",
+      h("a", { href: ARCHIVE_PAGE, target: "_blank", rel: "noopener" }, "Internet Archive"),
+      " to this browser, which unpacks the game's data files and caches them here. Nothing goes through our servers. The music is left out to save space.",
+    ),
+  );
 
   const chooseFolder = async (): Promise<void> => {
     const r = await pickDirectory();
@@ -182,6 +240,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
       h("h1", {}, "GTA2 World"),
       h("p", {}, "This game runs on your own copy of GTA2. Point it at the folder where GTA2 is installed. Your files are checked and cached in this browser only. They are never uploaded."),
       drop,
+      archive,
       status,
       errorsBox,
       mapsBox,
