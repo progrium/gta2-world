@@ -157,3 +157,33 @@ pub const muzzle_ahead = fx.ratio(1, 4);
 pub const shot_radius = fx.ratio(1, 16);
 /// Shots fly this far above the shooter's feet (ours: about a ped's middle).
 pub const shot_height = fx.ratio(1, 8);
+
+/// Water from a fire truck's cannon (weapons.md 3.7): 2 damage to a player,
+/// 5 to others (projectiles.md 5), and it puts out a burning ped. Ours: the
+/// stream's reach (0.3 a tick for 8 ticks) and no damage to cars.
+pub const shot_water: u8 = 5;
+
+/// `Projectile.weapon` of a vehicle weapon's shot: this plus the
+/// `tuning/career.zig` `CarWeapon` kind, less 1. Hand weapons stay below it and
+/// explosions use `Projectile.explosion_bit` (0x40) above it.
+pub const car_shot_base: u8 = 16;
+
+/// Indexed by `CarWeapon` kind less 1: car guns, jeep gun, tank gun, water
+/// cannon, flamethrower (oil, mines and the car bomb fire nothing). The guns' bullets are the
+/// machine gun's (the notes give no separate figures; ours).
+const car_shots = [5]WeaponDef{
+    weapons[weapon_smg],
+    weapons[weapon_smg],
+    weapons[weapon_rocket],
+    .{ .cooldown = 1, .damage_player = 2, .damage_other = 5, .damage_car = 0, .speed = fx.ratio(3, 10), .ttl = 8, .pellets = 1, .spread = 0, .explosive = false, .tenths_per_pull = 1, .pickup_rounds = 0, .shot = shot_water },
+    weapons[weapon_flamethrower],
+};
+
+/// The definition behind a projectile's `weapon` byte: a hand weapon or a
+/// vehicle weapon's shot. Anything else reads as the last hand weapon, as
+/// before car shots existed.
+pub fn shotDef(weapon: u8) WeaponDef {
+    if (weapon < weapon_count) return weapons[weapon];
+    if (weapon >= car_shot_base and weapon - car_shot_base < car_shots.len) return car_shots[weapon - car_shot_base];
+    return weapons[weapon_count - 1];
+}

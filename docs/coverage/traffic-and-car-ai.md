@@ -9,5 +9,5 @@ Rules from [docs/behaviour/traffic-and-car-ai.md](../behaviour/traffic-and-car-a
 | 3.3 Halting | todo | | |
 | 3.4 Following the road | todo | | |
 | 3.5 Looking ahead | todo | | |
-| 3.6 Traffic lights | todo | | |
+| 3.6 Traffic lights | done | sim/test/objects_furniture.zig | B: the 526-tick cycle, the unread toggle bit, lamps and crossing markers placed once from the arrows (sim/sys/lights.zig). F: braking at markers via `lights.markerAt` |
 | 3.7 Chase, follow and patrol tasks | todo | | |
