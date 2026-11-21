@@ -222,7 +222,15 @@ pub fn Sys(comptime Self: type) type {
             if (car.isNone()) return;
             const ct = (w.get(car, c.Transform) orelse return).*;
             const v = w.get(car, c.Vehicle).?;
-            if (eql(v.driver, ped)) self.releaseCar(car);
+            const was_driver = eql(v.driver, ped);
+            if (was_driver) self.releaseCar(car);
+            defer if (was_driver) {
+                // The driver leaving empties the car: the crew's passengers
+                // (alive or not) get out with him.
+                if (crewOfCar(self, car)) |cr| for (cr.members) |m| {
+                    if (!m.isNone() and !eql(m, ped) and eql(riding(self, m), car)) getOut(self, m);
+                };
+            };
             const m = T.carModel(v.model);
             const off = m.half_wid + T.ped_radius + fx.ratio(1, 10);
             var x = ct.x;
@@ -475,7 +483,12 @@ pub fn Sys(comptime Self: type) type {
             // Drop the dead and a wrecked car.
             var any = false;
             for (&cr.members) |*m| {
-                if (!alive(self, m.*)) m.* = .none else any = true;
+                if (!alive(self, m.*)) {
+                    // A dead officer still in the car is taken out first,
+                    // so nobody rides a car the crew no longer tracks.
+                    if (!cr.car.isNone() and eql(riding(self, m.*), cr.car)) getOut(self, m.*);
+                    m.* = .none;
+                } else any = true;
             }
             if (!carUsable(self, cr.car)) cr.car = .none;
             if (!any) {
