@@ -189,3 +189,31 @@ test "group attack: members pair off against a rival group, both sides fighting"
     try std.testing.expect(h.gr(far).flags & c.Group.flag_fighting == 0);
     try std.testing.expect(h.gr(am[0]).flags & c.Group.flag_fighting != 0);
 }
+
+test "end to end: recruits follow a walking leader; a gang fight starts (needs D1's objectives)" {
+    if (!@hasDecl(Sp.objectives, "attack")) return error.SkipZigTest;
+    var h = try H.init();
+    defer h.deinit();
+    const t = h.sim.transformOf(h.me()).?;
+    const a = h.civ(t.x + fx.one, t.y);
+    const b = h.civ(t.x - fx.one, t.y);
+    try std.testing.expectEqual(@as(u8, 2), Gr.recruit(h.sim, h.me(), 2));
+    // Walk east along the pavement for 80 ticks.
+    h.frames[0].throttle = 127;
+    h.sim.transformOf(h.me()).?.heading = 0;
+    h.run(80);
+    h.frames[0].throttle = 0;
+    h.run(60);
+    const lt = h.sim.transformOf(h.me()).?;
+    for ([_]EntityId{ a, b }) |p| {
+        const pt = h.sim.transformOf(p).?;
+        try std.testing.expect(fx.length(pt.x - lt.x, pt.y - lt.y) < fx.fromInt(2));
+    }
+    // A rival pair: an attack order makes both sides fight.
+    const boss = h.civ(lt.x + fx.fromInt(3), lt.y);
+    const thug = h.civ(lt.x + fx.fromInt(3), lt.y + fx.half);
+    _ = Gr.join(h.sim, thug, boss);
+    Gr.attack(h.sim, h.me(), thug);
+    try std.testing.expect(Sp.objectives.isAttacking(h.sim, a));
+    try std.testing.expect(Sp.objectives.isAttacking(h.sim, thug));
+}

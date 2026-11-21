@@ -178,8 +178,10 @@ pub fn Sys(comptime Self: type) type {
             w.get(ped, c.Transform).?.* = w.get(car, c.Transform).?.*;
             if (ctl.player != c.Controller.no_player) {
                 self.state.players[ctl.player].car = car;
-            } else {
-                // An AI ped who took a car drives it for 600 ticks (3.4).
+            } else if (Me.tookOnOwn(self, ped)) {
+                // An AI ped who took a car on his own drives it for 600
+                // ticks (3.4); one ordered in (a script, a mission route)
+                // stays.
                 pd.car = car;
                 pd.car_phase = @intFromEnum(Phase.thief);
                 if (comptime Self.single_player) Self.car_tasks.setCarTask(self, car, .wander, .none, 0, 0);
@@ -486,6 +488,15 @@ pub fn Sys(comptime Self: type) type {
             if (comptime !Self.single_player) return false;
             const tag = self.state.world.get(car, c.ScriptTag) orelse return false;
             return tag.flags & c.ScriptTag.flag_locked != 0;
+        }
+
+        /// A car thief, or a ped with no main objective or a steal-car one.
+        /// Always in deathmatch (no objectives there).
+        fn tookOnOwn(self: *Self, ped: EntityId) bool {
+            if (comptime !Self.single_player) return true;
+            if (Me.occupation(self, ped) == .car_thief) return true;
+            const k = Self.objectives.objectiveOf(self, ped).kind;
+            return k == .none or k == .steal_car;
         }
 
         fn occupation(self: *Self, ped: EntityId) ?ids.Occupation {
