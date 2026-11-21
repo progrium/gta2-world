@@ -807,6 +807,21 @@ const spr = struct {
 fn pedFrame(p: sim.c.Pedestrian, wp: ?sim.c.Weapon, t: u16) u16 {
     const P = sim.c.Pedestrian;
     if (p.shock >= sim.tuning.shock_threshold / 2) return spr.ped_shocked + t % spr.ped_shocked_frames;
+    // The animations C, D1 and D2 report (pedestrian.zig `anim_*`); frames
+    // reuse the ones picked above (ours until the animation note lands).
+    switch (p.anim) {
+        P.anim_electrocuted => return spr.ped_shocked + t % spr.ped_shocked_frames,
+        // Falling from a height: the fall frames by ticks fallen.
+        P.anim_fall => return spr.ped_fall + @min(p.fall / 2, spr.ped_cycle - 1),
+        // Drowning: thrashing through the fall frames.
+        P.anim_drown => return spr.ped_fall + (t / 2) % spr.ped_cycle,
+        P.anim_get_up => return spr.ped_fall + spr.ped_cycle - 1 - @min(t % 16, spr.ped_cycle - 1),
+        P.anim_lie => return spr.ped_down,
+        P.anim_punch => return spr.ped_aim + t % spr.ped_aim_frames,
+        P.anim_enter_car, P.anim_exit_car => return spr.ped_walk + t % spr.ped_cycle,
+        P.anim_burning => return spr.ped_run + t % spr.ped_cycle,
+        else => {},
+    }
     if (p.state != P.state_up or p.anim == P.anim_down) {
         // Thrown: falling back; at rest: lying.
         return if (p.down == 0) spr.ped_fall + @min(t % 16, spr.ped_cycle - 1) else spr.ped_down;
@@ -825,6 +840,27 @@ fn pedFrame(p: sim.c.Pedestrian, wp: ?sim.c.Weapon, t: u16) u16 {
         P.anim_jump => spr.ped_jump + @min(t % 16, spr.ped_cycle - 1),
         else => if (firing) spr.ped_aim + t % spr.ped_aim_frames else if (armed) spr.ped_aim else spr.ped_idle + (t / 3) % spr.ped_idle_frames,
     };
+}
+
+/// The sprite of map object `o` within the style's map-object group: its
+/// model's first sprite (OBJI) plus a frame. Phones flash while ringing,
+/// doors show their animation frame, other many-sprite models cycle
+/// (ours until the objects note says how each animates).
+fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
+    const K = sim.ids.ObjectKind;
+    if (@as(K, @enumFromInt(o.kind)) == .door) {
+        // A door's model is its shared animation; the objects system keeps
+        // its frame (`state.sp.objects.doors[value]`), read as a sprite of
+        // the map-object group (ours: the note names frames, not sprites).
+        if (isSp() and o.value < game_sp.state.sp.objects.doors.len) return game_sp.state.sp.objects.doors[o.value].frame;
+        return 0;
+    }
+    const info = s.objectSprites(o.model) orelse return 0;
+    if (info.count <= 1) return info.first;
+    if (@as(K, @enumFromInt(o.kind)) == .phone) {
+        return info.first + if (o.state & 1 != 0) (t / 4) % info.count else 0;
+    }
+    return info.first + (t / 2) % info.count;
 }
 
 /// `Instance.kind` marking an instance `decorate` drops.
@@ -876,6 +912,7 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
     const veh_col = columnOf(.car, .vehicle);
     const ped_col = columnOf(.ped, .pedestrian);
     const wpn_col = columnOf(.ped, .weapon);
+    const obj_col = columnOf(.map_object, .object);
     for (instances[0..n_in]) |*in| {
         switch (in.kind) {
             @intFromEnum(abi.Kind.projectile) => {
@@ -915,6 +952,11 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                     instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
                     n += 1;
                 }
+            },
+            @intFromEnum(abi.Kind.map_object) => {
+                // Single player only (dm16's map objects have no Object).
+                const o = readAt(sim.c.Object, state, obj_col orelse continue, in.index) orelse continue;
+                in.sprite = @intCast(s.sprite_base.base(.map_obj) + objectFrame(s, o, frame16 +% in.index));
             },
             @intFromEnum(abi.Kind.car) => {
                 const v = readAt(sim.c.Vehicle, state, veh_col orelse continue, in.index) orelse continue;
