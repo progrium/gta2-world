@@ -8,6 +8,7 @@
 import { type Cue, type SampleRef, type SoundMapping, engineRate, fallbackChain, loadMapping, saveMapping } from "./cues.ts";
 import { RATE as PROC_RATE, procedural } from "./procedural.ts";
 import type { SampleFormat, SoundBank } from "./sdt.ts";
+import type { VocalBank } from "./wav.ts";
 
 /** Full level inside this many blocks, then falling off. */
 const NEAR = 3;
@@ -24,6 +25,14 @@ const VOLUME_KEY = "gta2.sound.volume";
 const MIN_RATE = 8000;
 
 export type BankId = SampleRef["bank"];
+export type Bank = SoundBank | VocalBank;
+
+/** Where a reference points in its bank, or -1 when the bank lacks it. */
+export function refIndex(bank: Bank | undefined, ref: SampleRef): number {
+  if (!bank) return -1;
+  if (ref.bank === "vocals") return "names" in bank ? bank.names.indexOf(ref.name ?? "") : -1;
+  return bank.entries[ref.index] ? ref.index : -1;
+}
 
 interface Voice {
   cue: Cue | null;
@@ -72,7 +81,7 @@ export function upsample(data: Float32Array, rate: number): { data: Float32Array
 
 export class AudioEngine {
   mapping: SoundMapping;
-  banks: Partial<Record<BankId, SoundBank>> = {};
+  banks: Partial<Record<BankId, Bank>> = {};
   /** Names of the files the banks came from, for the board. */
   bankNames: Partial<Record<BankId, string>> = {};
   private ctx: AudioContext | null = null;
@@ -183,7 +192,7 @@ export class AudioEngine {
     this.emit();
   }
 
-  setBanks(banks: Partial<Record<BankId, SoundBank>>, names: Partial<Record<BankId, string>> = {}): void {
+  setBanks(banks: Partial<Record<BankId, Bank>>, names: Partial<Record<BankId, string>> = {}): void {
     this.banks = banks;
     this.bankNames = names;
     this.buffers.clear();
@@ -357,14 +366,14 @@ export class AudioEngine {
 
   private engineKey(): string {
     const s = this.mapping.cues.engine.samples[0];
-    return s ? `${s.bank}:${s.index}:${s.format ?? ""}` : "proc";
+    return s ? `${s.bank}:${s.index}:${s.name ?? ""}:${s.format ?? ""}` : "proc";
   }
 
   private bufferForCue(cue: Cue): { buf: AudioBuffer; loopStart: number } | null {
     // A cue with no usable samples borrows from its fallbacks (dual pistol → pistol).
     let refs: SampleRef[] = [];
     for (const c of fallbackChain(cue)) {
-      refs = this.mapping.cues[c].samples.filter((r) => this.banks[r.bank]?.entries[r.index]);
+      refs = this.mapping.cues[c].samples.filter((r) => refIndex(this.banks[r.bank], r) >= 0);
       if (refs.length) break;
     }
     // The engine always uses its first sample so the loop doesn't change under you.
@@ -379,6 +388,7 @@ export class AudioEngine {
       const c = this.context();
       if (!c) return null;
       const data = procedural(cue);
+      if (!data) return null;
       const buf = c.createBuffer(1, data.length, PROC_RATE);
       buf.copyToChannel(data as Float32Array<ArrayBuffer>, 0);
       b = { buf, loopStart: 0 };
@@ -389,14 +399,15 @@ export class AudioEngine {
 
   private bufferForRef(ref: SampleRef): { buf: AudioBuffer; loopStart: number } | null {
     const bank = this.banks[ref.bank];
-    if (!bank || !bank.entries[ref.index]) return null;
-    const format: SampleFormat = ref.format ?? bank.formats[ref.index]!;
-    const key = `${ref.bank}:${ref.index}:${format}`;
+    const i = refIndex(bank, ref);
+    if (!bank || i < 0) return null;
+    const format: SampleFormat = ref.format ?? bank.formats[i]!;
+    const key = `${ref.bank}:${i}:${format}`;
     let b = this.buffers.get(key);
     if (b) return b;
     const c = this.context();
     if (!c) return null;
-    const pcm = bank.pcm(ref.index, format);
+    const pcm = bank.pcm(i, format);
     if (pcm.data.length === 0) return null;
     const up = upsample(pcm.data, pcm.rate);
     const buf = c.createBuffer(1, up.data.length, up.rate);

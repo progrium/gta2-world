@@ -10,7 +10,8 @@ import type { SampleFormat } from "../audio/sdt.ts";
 import { clear, h } from "./dom.ts";
 
 const clone = (m: SoundMapping): SoundMapping => normalizeMapping(JSON.parse(JSON.stringify(m)), emptyMapping());
-const refLabel = (r: SampleRef, names: Partial<Record<BankId, string>>): string => `${(names[r.bank] ?? r.bank).replace(/\.sdt$/, "")} #${r.index}${r.format ? ` ${r.format}` : ""}`;
+const refLabel = (r: SampleRef, names: Partial<Record<BankId, string>>): string =>
+  r.bank === "vocals" ? `“${r.name}”` : `${(names[r.bank] ?? r.bank).replace(/\.sdt$/, "")} #${r.index}${r.format ? ` ${r.format}` : ""}`;
 
 export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement {
   let bank: BankId = audio.banks.map ? "map" : "fstyle";
@@ -45,6 +46,8 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
 
   const formatOf = (i: number): SampleFormat => overrides.get(`${bank}:${i}`) ?? audio.banks[bank]!.formats[i]!;
   const refFor = (i: number): SampleRef => {
+    const bk = audio.banks[bank]!;
+    if ("names" in bk) return { bank: "vocals", index: 0, name: bk.names[i]! };
     const f = formatOf(i);
     return f === audio.banks[bank]!.formats[i] ? { bank, index: i } : { bank, index: i, format: f };
   };
@@ -60,10 +63,11 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
 
   const renderStatus = (): void => {
     const names = audio.bankNames;
-    const have = [names.map, names.fstyle].filter(Boolean).join(" and ");
+    const have = [names.map, names.vocals, names.fstyle].filter(Boolean).join(", ");
     clear(status);
     status.append(
       have ? h("span", {}, `Banks: ${have}. `) : h("span", { class: "warn" }, "No sound banks cached. Import data/audio/*.sdt and *.raw with your other files; until then every cue plays its built-in sound. "),
+      have && !names.vocals ? h("span", { class: "warn" }, "No spoken lines cached: import your data folder again to bring in data/audio/Vocals/*.wav. ") : "",
       audio.running ? "" : h("span", { class: "prompt" }, "Click or press a key to turn sound on."),
     );
   };
@@ -115,7 +119,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
 
   const renderTabs = (): void => {
     clear(tabs);
-    for (const b of ["map", "fstyle"] as BankId[]) {
+    for (const b of ["map", "vocals", "fstyle"] as BankId[]) {
       const bk = audio.banks[b];
       if (!bk) continue;
       tabs.append(h("button", { class: b === bank ? "on" : "", onclick: () => { bank = b; selected = -1; renderTabs(); renderSamples(); samplesScroll.scrollTop = 0; } }, `${audio.bankNames[b] ?? b} (${bk.entries.length})`));
@@ -135,14 +139,15 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
     if (!bk) return;
     bk.entries.forEach((e, i) => {
       const f = formatOf(i);
-      const used = usedBy({ bank, index: i });
+      const used = usedBy(refFor(i));
+      const vocal = "names" in bk;
       const tr = h(
         "tr",
         { class: i === selected ? "sel" : "", "data-i": i },
-        h("td", { class: "mono" }, `#${i}`),
+        h("td", { class: "mono" }, vocal ? (bk as { names: string[] }).names[i]! : `#${i}`),
         h("td", {}, h("button", { onclick: () => play(i) }, "▶")),
         h("td", { class: "mono small" }, `${(e.size / (f === "s16" ? 2 : 1) / e.rate).toFixed(2)} s · ${e.rate} Hz`),
-        h("td", { class: "small" }, h("button", {
+        vocal ? h("td", {}) : h("td", { class: "small" }, h("button", {
           class: "link",
           title: "Switch between 16-bit and 8-bit if it sounds like noise",
           onclick: () => {

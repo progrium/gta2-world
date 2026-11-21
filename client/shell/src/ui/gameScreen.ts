@@ -452,6 +452,11 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   // a tick would be noise) and throws.
   // By weapon id (WEAPON_NAMES order).
   const SHOT_CUES: CueName[] = ["pistol", "machine_gun", "shotgun", "rocket_launch", "dual_pistol", "silenced_mg", "flamethrower", "electro_gun", "grenade_throw", "molotov_throw"];
+  // What the announcer says for each pickup kind: weapons, then PICKUP_NAMES.
+  const SAY_PICKUP: CueName[] = [
+    "say_pistol", "say_machine_gun", "say_shotgun", "say_rocket_launcher", "say_dual_pistol", "say_silenced_mg", "say_flamethrower", "say_electro_gun", "say_grenades", "say_molotovs",
+    "say_health", "say_armour", "say_invulnerability", "say_double_damage", "say_fast_reload",
+  ];
   const secs = (ticks: number): number => Math.ceil(ticks / 30);
   // Debug: each press drops the next kind of pickup, weapons then power-ups.
   let nextPickup = 1;
@@ -491,6 +496,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         if (e.a === e.b) feedLine(`${victim} ${e.b === ownSlot ? "killed yourself" : "died by their own hand"}`, mine);
         else if (e.a === 0xff) feedLine(`${victim} ${e.b === ownSlot ? "were" : "was"} killed by ${weaponWord(e.c)}`, mine);
         else feedLine(`${nameOf(e.a)} killed ${victim === "You" ? "you" : victim} with ${weaponWord(e.c)}`, mine);
+        if (e.a === ownSlot && e.b !== ownSlot) audio.play("frag_taunt");
         if (e.b === ownSlot) {
           audio.play("ped_death");
           input.rumble(0, Effects.collisionHeavy);
@@ -526,6 +532,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         if (e.a === ownSlot) {
           const extra = e.b - WEAPON_NAMES.length;
           audio.play(extra < 0 ? "pickup" : extra === 0 ? "pickup_health" : extra === 1 ? "pickup_armour" : "pickup_powerup", e.x, e.y, e.z);
+          const say = SAY_PICKUP[e.b];
+          if (say) audio.play(say);
           feedLine(e.b < WEAPON_NAMES.length ? WEAPON_NAMES[e.b]! : (PICKUP_NAMES[e.b - WEAPON_NAMES.length] ?? "Power-up"), true);
         }
         break;
