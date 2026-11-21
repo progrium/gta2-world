@@ -109,6 +109,14 @@ pub const mine_life: u16 = 5400;
 /// projectiles.md 3.3).
 pub const mine_car_damage: i64 = 32000;
 
+// --- Barriers (police roadblocks, police-ai.md 3.4; workstream E places them)
+
+/// Ours: barrier sizes by model, half extents along and across its
+/// heading. Model 0 is the roadblock barrier, a block long and a quarter
+/// block thick.
+pub const barrier_half_len = [_]Fx{fx.half};
+pub const barrier_half_wid = [_]Fx{fx.ratio(1, 8)};
+
 // --- Traffic lights (notes: traffic-and-car-ai.md 3.6)
 
 /// Phase lengths in ticks: north-south green, amber, red; east-west green,
