@@ -675,9 +675,18 @@ pub fn Sys(comptime Self: type) type {
             if (cr.timer > 0) cr.timer -= 1;
             const driven = carUsable(self, cr.car) and !self.state.world.get(cr.car, c.Vehicle).?.driver.isNone();
             if (cr.timer > 0 and driven) return;
-            // Gone: the double goes with it.
             const w = &self.state.world;
-            if (w.isAlive(cr.members[1]) and eql(riding(self, cr.members[1]), cr.car)) w.despawn(cr.members[1]);
+            // Gone: the double goes with it (G drops its reference at the
+            // end of the countdown; removing it is E's). A double left
+            // standing, arrested, when the car is lost goes too.
+            const d = cr.members[1];
+            if (w.isAlive(d)) {
+                const arrested = if (w.get(d, c.Pedestrian)) |p| p.state == c.Pedestrian.state_arrested else false;
+                if (eql(riding(self, d), cr.car) or arrested) {
+                    if (!riding(self, d).isNone()) w.get(d, c.Riding).?.vehicle = .none;
+                    w.despawn(d);
+                }
+            }
             cr.* = .{};
         }
     };
