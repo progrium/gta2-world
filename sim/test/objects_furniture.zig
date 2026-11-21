@@ -523,3 +523,24 @@ test "pickups: a script weapon pickup arms the player who walks over it" {
     try std.testing.expect(h.sim.state.world.get(h.ped(), c.Weapon).?.rounds()[1] > 0);
     try std.testing.expect(h.sawEvent(.pickup, 0));
 }
+
+test "barriers: a ped can't walk through one and a car is stopped by it" {
+    var h = try H.init(null);
+    defer h.deinit();
+    // Across the pavement strip at x = 44, running along y.
+    _ = O.spawnObject(h.sim, .barrier, 0, fx.fromInt(44), blk(37), O.ground_z, 16384).?;
+    h.run(1);
+    h.put(blk(42), blk(37));
+    const t = h.sim.transformOf(h.ped()).?;
+    t.heading = 0;
+    h.frames[0].throttle = 127;
+    h.run(60);
+    h.frames[0].throttle = 0;
+    try std.testing.expect(h.sim.transformOf(h.ped()).?.x < fx.fromInt(44));
+    // A car driven east along the road into a barrier across it.
+    _ = O.spawnObject(h.sim, .barrier, 0, fx.fromInt(64), blk(34), O.ground_z, 16384).?;
+    const car = h.sim.spawnCarAt(blk(60), blk(34), 0, 0).?;
+    h.sim.state.world.get(car, c.Velocity).?.vx = fx.ratio(2, 10);
+    h.run(40);
+    try std.testing.expect(h.sim.transformOf(car).?.x < fx.fromInt(64));
+}
