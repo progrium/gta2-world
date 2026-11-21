@@ -47,6 +47,34 @@ pub fn Sys(comptime Self: type) type {
             return map.rectHitsWall(self.grid, map.Rect.square(x, y, r), z, step_h);
         }
 
+        /// A circle body that has dropped (off a ledge, while falling or
+        /// thrown) can end with its edge inside the wall it slid down past:
+        /// its centre crossed the edge, but its radius still overlaps the
+        /// face below. Nudge it straight out, along the axes first and then
+        /// the diagonals, by the least of up to `r` + 1/16 that clears it.
+        /// Ours: the notes do not say how the original separates them.
+        pub fn pushOutCircle(self: *const Self, t: *c.Transform, r: Fx, step_h: Fx) void {
+            if (!self.circleBlocked(t.x, t.y, t.z, r, step_h)) return;
+            const dirs = [_][2]Fx{
+                .{ fx.one, 0 },                 .{ -fx.one, 0 },                .{ 0, fx.one },                  .{ 0, -fx.one },
+                .{ fx.ratio(70711, 100000), fx.ratio(70711, 100000) }, .{ -fx.ratio(70711, 100000), fx.ratio(70711, 100000) },
+                .{ fx.ratio(70711, 100000), -fx.ratio(70711, 100000) }, .{ -fx.ratio(70711, 100000), -fx.ratio(70711, 100000) },
+            };
+            const unit = fx.one >> 6;
+            var d: Fx = unit;
+            while (d <= r + (fx.one >> 4)) : (d += unit) {
+                for (dirs) |u| {
+                    const x = t.x + fx.mul(u[0], d);
+                    const y = t.y + fx.mul(u[1], d);
+                    if (!self.circleBlocked(x, y, t.z, r, step_h)) {
+                        t.x = x;
+                        t.y = y;
+                        return;
+                    }
+                }
+            }
+        }
+
         /// Is a car's box blocked at (x, y)? Like `circleBlocked`, also
         /// tested at the floor under its centre when that is higher.
         pub fn boxBlocked(self: *const Self, x: Fx, y: Fx, z: Fx, heading: u16, m: *const T.CarModel) bool {

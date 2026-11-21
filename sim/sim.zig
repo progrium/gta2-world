@@ -319,6 +319,7 @@ pub fn Sim(comptime cfg: Config) type {
         pub const isExplosion = sys_explosions.isExplosion;
         pub const sysExplosions = sys_explosions.sysExplosions;
         pub const circleBlocked = sys_terrain.circleBlocked;
+        pub const pushOutCircle = sys_terrain.pushOutCircle;
         pub const boxBlocked = sys_terrain.boxBlocked;
         pub const substeps = sys_terrain.substeps;
         pub const settle = sys_terrain.settle;
