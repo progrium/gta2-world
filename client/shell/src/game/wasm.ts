@@ -426,6 +426,13 @@ export class GameModule {
     return { bytes: this.u8(this.w.instancePtr!(), count * INSTANCE_BYTES), count };
   }
 
+  /** Door leaves as map vertices for this frame (single player; empty otherwise). */
+  doorFaces(): Uint8Array {
+    if (typeof this.w.doorFaces !== "function") return new Uint8Array(0);
+    const n = this.w.doorFaces();
+    return this.u8(this.w.doorFacesPtr!(), n * VERTEX_BYTES);
+  }
+
   camera(alpha: number, slot = 0): CameraTarget {
     const t = new Float32Array(this.buf, this.w.cameraTarget!(alpha, slot), 7);
     return { x: t[0]!, y: t[1]!, z: t[2]!, angle: t[3]!, vx: t[4]!, vy: t[5]!, found: t[6] !== 0 };

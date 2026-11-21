@@ -642,7 +642,55 @@ pub fn buildChunked(gpa: std.mem.Allocator, map: *const gmp.Map, opts: Options) 
     return .{ .vertices = try out.toOwnedSlice(gpa), .chunks = chunks, .stats = stats };
 }
 
+/// A block's side, in the sim's door face order.
+pub const Side = enum(u2) { west, east, north, south };
+
+/// One full-height wall face on `side` of block (x, y, z) showing `tile`,
+/// with index-0 pixels as holes, seen from both sides: a door leaf
+/// (client/wasm `doorFaces`). `flip` mirrors the tile. No baked light.
+pub fn doorFace(out: *std.ArrayList(Vertex), x: u8, y: u8, z: u8, side: Side, tile: u10, flip: bool) !void {
+    var stats: Stats = .{};
+    // `door` checks the room first, so nothing is ever allocated.
+    var none = std.heap.FixedBufferAllocator.init(&.{});
+    var b: Builder = .{ .gpa = none.allocator(), .out = out, .stats = &stats, .ox = @as(i32, x) * unit, .oy = @as(i32, y) * unit, .oz = @as(i32, z) * unit };
+    const face: gmp.Face = .{ .tile = tile, .bit10 = false, .bit11 = false, .flat = true, .flip = flip, .rotation = 0 };
+    const nw: P2 = .{ .x = 0, .y = 0 };
+    const ne: P2 = .{ .x = 64, .y = 0 };
+    const se: P2 = .{ .x = 64, .y = 64 };
+    const sw: P2 = .{ .x = 0, .y = 64 };
+    // The same ends and shades as `box` gives a block's own faces.
+    switch (side) {
+        .west => try door(&b, face, nw, sw, shade_lr),
+        .east => try door(&b, face, se, ne, shade_lr),
+        .north => try door(&b, face, ne, nw, shade_tb),
+        .south => try door(&b, face, sw, se, shade_tb),
+    }
+}
+
+fn door(b: *Builder, face: gmp.Face, a: P2, c: P2, shade: u8) !void {
+    if (b.out.unusedCapacitySlice().len < 6) return error.OutOfMemory;
+    try wallFlags(b, face, a, c, 64, 64, 0, 64, shade, 0);
+}
+
 const testing = std.testing;
+
+test "a door face is one full-height see-through quad on its side" {
+    var buf: [12]Vertex = undefined;
+    var out: std.ArrayList(Vertex) = .initBuffer(&buf);
+    try doorFace(&out, 3, 4, 2, .south, 135, false);
+    try testing.expectEqual(@as(usize, 6), out.items.len);
+    for (out.items) |v| {
+        try testing.expectEqual(@as(u16, 135), v.tile);
+        try testing.expect(v.flags & flag_transparent != 0);
+        try testing.expectEqual(@as(i16, 5 * unit), v.y);
+        try testing.expect(v.x >= 3 * unit and v.x <= 4 * unit);
+        try testing.expect(v.z >= 2 * unit and v.z <= 3 * unit);
+    }
+    try doorFace(&out, 3, 4, 2, .west, 135, true);
+    for (out.items[6..]) |v| try testing.expectEqual(@as(i16, 3 * unit), v.x);
+    // No room: nothing written, an error instead of a reallocation.
+    try testing.expectError(error.OutOfMemory, doorFace(&out, 0, 0, 0, .east, 1, false));
+}
 
 test "cube emits five faces" {
     var out: std.ArrayList(Vertex) = .empty;

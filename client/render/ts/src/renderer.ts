@@ -108,6 +108,9 @@ export class Renderer {
   private spriteProg: WebGLProgram;
   private mapVao: WebGLVertexArrayObject;
   private mapVbo: WebGLBuffer;
+  private extraVao: WebGLVertexArrayObject;
+  private extraVbo: WebGLBuffer;
+  private extraCount = 0;
   private spriteVao: WebGLVertexArrayObject;
   private instanceVbo: WebGLBuffer;
   private idxTex: WebGLTexture;
@@ -138,22 +141,29 @@ export class Renderer {
     this.mapU = uniforms(this.mapProg, [...shared, 'u_anim', 'u_tileBase']);
     this.spriteU = uniforms(this.spriteProg, [...shared, 'u_sprites', 'u_spriteBase']);
 
-    // Map vertices.
-    this.mapVao = gl.createVertexArray()!;
-    this.mapVbo = gl.createBuffer()!;
-    gl.bindVertexArray(this.mapVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.mapVbo);
+    // Map vertices, and a small second buffer of the same layout for faces
+    // that change every frame (door leaves).
     const ml = (n: string) => gl.getAttribLocation(this.mapProg, n);
-    gl.enableVertexAttribArray(ml('a_pos'));
-    gl.vertexAttribPointer(ml('a_pos'), 3, gl.SHORT, false, VERTEX_BYTES, 0);
-    gl.enableVertexAttribArray(ml('a_uv'));
-    gl.vertexAttribPointer(ml('a_uv'), 2, gl.UNSIGNED_BYTE, false, VERTEX_BYTES, 6);
-    gl.enableVertexAttribArray(ml('a_tile'));
-    gl.vertexAttribIPointer(ml('a_tile'), 1, gl.UNSIGNED_SHORT, VERTEX_BYTES, 8);
-    gl.enableVertexAttribArray(ml('a_fs'));
-    gl.vertexAttribIPointer(ml('a_fs'), 2, gl.UNSIGNED_BYTE, VERTEX_BYTES, 10);
-    gl.enableVertexAttribArray(ml('a_light'));
-    gl.vertexAttribPointer(ml('a_light'), 3, gl.UNSIGNED_BYTE, true, VERTEX_BYTES, 12);
+    const mapVertexArray = (vbo: WebGLBuffer): WebGLVertexArrayObject => {
+      const vao = gl.createVertexArray()!;
+      gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+      gl.enableVertexAttribArray(ml('a_pos'));
+      gl.vertexAttribPointer(ml('a_pos'), 3, gl.SHORT, false, VERTEX_BYTES, 0);
+      gl.enableVertexAttribArray(ml('a_uv'));
+      gl.vertexAttribPointer(ml('a_uv'), 2, gl.UNSIGNED_BYTE, false, VERTEX_BYTES, 6);
+      gl.enableVertexAttribArray(ml('a_tile'));
+      gl.vertexAttribIPointer(ml('a_tile'), 1, gl.UNSIGNED_SHORT, VERTEX_BYTES, 8);
+      gl.enableVertexAttribArray(ml('a_fs'));
+      gl.vertexAttribIPointer(ml('a_fs'), 2, gl.UNSIGNED_BYTE, VERTEX_BYTES, 10);
+      gl.enableVertexAttribArray(ml('a_light'));
+      gl.vertexAttribPointer(ml('a_light'), 3, gl.UNSIGNED_BYTE, true, VERTEX_BYTES, 12);
+      return vao;
+    };
+    this.mapVbo = gl.createBuffer()!;
+    this.mapVao = mapVertexArray(this.mapVbo);
+    this.extraVbo = gl.createBuffer()!;
+    this.extraVao = mapVertexArray(this.extraVbo);
 
     // Sprite quads: one static corner buffer, one instance buffer.
     this.spriteVao = gl.createVertexArray()!;
@@ -243,6 +253,16 @@ export class Renderer {
       }
     }
     this.resetAnimTable();
+  }
+
+  /// Map faces that change from frame to frame (door leaves), in the map
+  /// vertex layout. Drawn with the map, never culled; empty clears them.
+  setExtraFaces(vertices: Uint8Array): void {
+    const gl = this.gl;
+    this.extraCount = Math.floor(vertices.byteLength / VERTEX_BYTES);
+    if (this.extraCount === 0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.extraVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
   }
 
   resize(cssWidth: number, cssHeight: number, dpr = 1): void {
@@ -347,6 +367,12 @@ export class Renderer {
         }
       }
       flush();
+      if (this.extraCount > 0) {
+        gl.bindVertexArray(this.extraVao);
+        gl.drawArrays(gl.TRIANGLES, 0, this.extraCount);
+        stats.drawCalls++;
+        stats.triangles += this.extraCount / 3;
+      }
     }
 
     // Sprites: one instanced call.

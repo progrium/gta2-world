@@ -776,8 +776,31 @@ const spr = struct {
     /// gun, shotgun, rockets, dual pistols, silenced machine gun,
     /// flamethrower, electro gun, grenades, molotovs; then health, armour,
     /// invulnerability, double damage, fast reload.
-    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 98, 90, 82, 42, 58, 50, 167, 175, 247, 215, 159 };
+    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 98, 90, 82, 42, 58, 50, 167, 175, 199, 207, 215 };
     const pickup_frames: u16 = 8;
+
+    /// The code-object sprite of collectable n (0-44), the order the public
+    /// script docs number them (COLLECT_00 pistol .. COLLECT_40 instant
+    /// gang), matched to the style by eye: hand weapons 0-10 spin through
+    /// 8 frames from 18; the empty slots 11-14 are the yellow letters L-O
+    /// (one frame); car weapons 15-18 spin from 110; 19-27 are the blue
+    /// letters E-M; power-ups 28-40 spin from 151 (multiplier, life,
+    /// health, armour, jail card, bribe, invulnerability, double damage,
+    /// fast reload, electrofingers, respect, invisibility, instant gang).
+    /// Past 40 the docs list nothing: drawn as the last letter.
+    fn collect(n: u16, t: u16) u16 {
+        if (n <= 10) return 18 + n * 8 + t % 8;
+        if (n <= 14) return 106 + (n - 11);
+        if (n <= 18) return 110 + (n - 15) * 8 + t % 8;
+        if (n <= 27) return 142 + (n - 19);
+        if (n <= 40) return 151 + (n - 28) * 8 + t % 8;
+        return 150;
+    }
+    /// Traffic light lamps: 18x4 lit bars in red, green and amber, the
+    /// last three code objects in all three districts' styles.
+    const lamp_red: u16 = 549;
+    const lamp_green: u16 = 550;
+    const lamp_amber: u16 = 551;
     /// Thrown grenade and molotov in flight: the pickup's first frame.
     const grenade: u16 = 58;
     const molotov: u16 = 50;
@@ -844,22 +867,10 @@ fn pedFrame(p: sim.c.Pedestrian, wp: ?sim.c.Weapon, t: u16) u16 {
 
 /// The sprite of map object `o` within the style's map-object group: its
 /// model's first sprite (OBJI) plus a frame. Phones flash while ringing,
-/// doors show their animation frame, other many-sprite models cycle
-/// (ours until the objects note says how each animates).
+/// other many-sprite models cycle (ours until the objects note says how
+/// each animates). Doors are wall faces (`doorFaces`), not sprites.
 fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
     const K = sim.ids.ObjectKind;
-    if (@as(K, @enumFromInt(o.kind)) == .door) {
-        // The objects system steps the door's frame from its animation's
-        // start to end (`state.sp.objects.doors[value]`); drawn as an offset
-        // from the model's first sprite (ours: the note doesn't say what
-        // the frame numbers count).
-        const first: u16 = if (s.objectSprites(o.model)) |i| i.first else 0;
-        if (!isSp() or o.value >= game_sp.state.sp.objects.doors.len) return first;
-        const sp = &game_sp.state.sp.objects;
-        const d = sp.doors[o.value];
-        const start: u16 = if (d.anim < sp.anims.len) sp.anims[d.anim].start else 0;
-        return first + (d.frame -| start);
-    }
     const info = s.objectSprites(o.model) orelse return 0;
     if (info.count <= 1) return info.first;
     if (@as(K, @enumFromInt(o.kind)) == .phone) {
@@ -867,6 +878,84 @@ fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
     }
     return info.first + (t / 2) % info.count;
 }
+
+/// A traffic light's lamp: the lit bar for what its lights show now (red,
+/// green or amber code-object sprite), lying across the lane at the top of
+/// the light's gantry (the map blocks over the stop line), drawn lit.
+fn lampLook(in: *list.Instance, o: sim.c.Object, code: u32) void {
+    if (!isSp()) {
+        in.kind = hidden_kind;
+        return;
+    }
+    // `value` 0 is the north-south lamp, 1 the east-west one (sys/lights.zig).
+    const shows = SimSp.lights.phase(game_sp.state.sp.lights.cycle, o.value == 0);
+    in.sprite = @intCast(code + switch (shows) {
+        .green => spr.lamp_green,
+        .amber => spr.lamp_amber,
+        else => spr.lamp_red,
+    });
+    in.palette = list.Instance.own_palette;
+    in.flags |= list.Instance.flag_glow;
+    in.kind = list.Instance.kind_effect;
+    const bx: i32 = @intFromFloat(@floor(in.x));
+    const by: i32 = @intFromFloat(@floor(in.y));
+    // The lamp stands on the approach block next to the light's zone; the
+    // gantry's arm runs along that block's far edge, so slide it there.
+    const steps = [4][2]i32{ .{ 1, 0 }, .{ -1, 0 }, .{ 0, 1 }, .{ 0, -1 } };
+    for (steps) |d| {
+        if (level_sp.zoneAt(.traffic_light, bx + d[0], by + d[1]) == null) continue;
+        in.x -= @as(f32, @floatFromInt(d[0])) * 0.45;
+        in.y -= @as(f32, @floatFromInt(d[1])) * 0.45;
+        break;
+    }
+    if (map) |*m| {
+        var z: i32 = formats.gmp.size_z - 1;
+        while (z >= 0) : (z -= 1) {
+            if (!m.getOrAir(bx, by, z).isAir()) break;
+        }
+        // Just above the gantry's top, so it never hides in its lid.
+        if (z + 1 > @as(i32, @intFromFloat(@floor(in.z)))) in.z = @as(f32, @floatFromInt(z + 1)) + 0.02;
+    }
+}
+
+/// Door leaves as wall faces, rebuilt each frame from the doors' current
+/// frames: a door's animation frames are tile numbers, closed to open
+/// (type 230), drawn on the door's block face. A double door's second leaf
+/// is on the next block along the wall, mirrored. Which way along the wall
+/// is read from the player's own maps: of the two blocks beside a double
+/// door's block, it is the one that is open (south face: west; north
+/// face: east; east face: south; west face: north).
+var door_verts: [door_vert_cap]mesh.Vertex = undefined;
+const door_vert_cap = @typeInfo(@TypeOf(game_sp.state.sp.objects.doors)).array.len * 2 * 6;
+export fn doorFaces() usize {
+    if (!isSp() or style == null) return 0;
+    const s = &game_sp.state.sp.objects;
+    var out: std.ArrayList(mesh.Vertex) = .initBuffer(&door_verts);
+    for (&s.doors) |*d| {
+        if (d.obj.isNone() or game_sp.state.world.get(d.obj, sim.c.Object) == null) continue;
+        if (d.frame == 0 or d.frame >= 1023) continue;
+        const side: mesh.Side = @enumFromInt(@min(d.face, 3));
+        const flip = d.flags & DoorRec.flag_flip != 0;
+        mesh.doorFace(&out, d.bx, d.by, d.bz, side, @intCast(d.frame), flip) catch break;
+        if (d.flags & DoorRec.flag_double != 0) {
+            const step: [2]i32 = switch (side) {
+                .south => .{ -1, 0 },
+                .north => .{ 1, 0 },
+                .east => .{ 0, 1 },
+                .west => .{ 0, -1 },
+            };
+            const x2 = @as(i32, d.bx) + step[0];
+            const y2 = @as(i32, d.by) + step[1];
+            if (x2 < 0 or y2 < 0 or x2 > 255 or y2 > 255) continue;
+            mesh.doorFace(&out, @intCast(x2), @intCast(y2), d.bz, side, @intCast(d.frame), !flip) catch break;
+        }
+    }
+    return out.items.len;
+}
+export fn doorFacesPtr() [*]const u8 {
+    return @ptrCast(&door_verts);
+}
+const DoorRec = @TypeOf(game_sp.state.sp.objects.doors[0]);
 
 /// `Instance.kind` marking an instance `decorate` drops.
 const hidden_kind = 0xFF;
@@ -962,13 +1051,34 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 // Single player only (dm16's map objects have no Object).
                 const o = readAt(sim.c.Object, state, obj_col orelse continue, in.index) orelse continue;
                 switch (@as(sim.ids.ObjectKind, @enumFromInt(o.kind))) {
-                    // Traffic AI markers; lamps and lights have no known
-                    // sprite yet (model 0), so they are not drawn.
-                    .crossing_marker, .lamp, .traffic_light => {
+                    // Traffic AI markers are not drawn. Doors are drawn as
+                    // wall faces (`doorFaces`), not sprites.
+                    .crossing_marker, .traffic_light, .door => {
                         in.kind = hidden_kind;
                         continue;
                     },
+                    .lamp => {
+                        lampLook(in, o, code);
+                        continue;
+                    },
                     else => {},
+                }
+                // Weapon and power-up pickups (models 200-244 and 64-108,
+                // script-objects.md 4) are code objects, spinning.
+                if (o.model >= 200 and o.model <= 244 or o.model >= 64 and o.model <= 108) {
+                    const what: u16 = if (o.model >= 200) o.model - 200 else o.model - 64;
+                    in.sprite = @intCast(code + spr.collect(what, frame16 / 2 +% in.index));
+                    in.palette = list.Instance.own_palette;
+                    in.flags |= list.Instance.flag_glow;
+                    in.angle = 0;
+                    continue;
+                }
+                // Other models are style map objects (OBJI). Script object
+                // types the style has no entry for are not drawn rather
+                // than drawn as another object's sprite.
+                if (s.objectSprites(o.model) == null) {
+                    in.kind = hidden_kind;
+                    continue;
                 }
                 in.sprite = @intCast(s.sprite_base.base(.map_obj) + objectFrame(s, o, frame16 +% in.index));
             },
