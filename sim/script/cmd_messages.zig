@@ -14,6 +14,8 @@ const Step = vm.Step;
 const Cmd = vm.Cmd;
 const P = vm.P;
 const k = vm.k;
+const world = @import("world.zig");
+const EntityId = @import("../prelude.zig").EntityId;
 
 /// Seconds to ticks (script-messages.md 4: x30).
 pub const ticks_per_second = 30;
@@ -22,6 +24,11 @@ pub fn Sys(comptime Self: type) type {
     return struct {
         const V = Self.script;
         const H = Self.hud;
+
+        fn showArrow(self: *Self, decl: u16, target: EntityId, x: @import("../prelude.zig").Fx, y: @import("../prelude.zig").Fx) void {
+            V.st(self).arrow_owner = decl;
+            H.setArrow(self, 0, target, x, y);
+        }
 
         pub fn exec(self: *Self, t: *Thread, cmd: Cmd) ?Step {
             const p = P{ .b = cmd.params };
@@ -48,7 +55,28 @@ pub fn Sys(comptime Self: type) type {
                     t.cond = @intFromBool(H.briefShowing(self, slot));
                     return .advance;
                 },
-                k.display_decl, k.counter_display_decl => return .advance,
+                k.display_decl, k.counter_display_decl, k.arrow => return .advance,
+                // The arrow (ours): 113 points declaration @4 at the thing
+                // command @0 declared, 114 at the place @0 (x, y, z),
+                // declaration @12; 116 removes declaration @0's arrow.
+                k.arrow_at => {
+                    const target = V.handle(self, p.u(0));
+                    if (!target.isNone()) showArrow(self, p.u(2), target, 0, 0);
+                    return .advance;
+                },
+                k.arrow_pos => {
+                    const pos = world.params(cmd).pos(0);
+                    showArrow(self, p.u(6), .none, pos.x, pos.y);
+                    return .advance;
+                },
+                k.arrow_clear => {
+                    const s = V.st(self);
+                    if (s.arrow_owner == p.u(0)) {
+                        s.arrow_owner = 0;
+                        H.setArrow(self, slot, .none, 0, 0);
+                    }
+                    return .advance;
+                },
                 k.timer => {
                     _ = H.startTimer(self, slot, p.u(0), @as(i32, p.s(1)) * ticks_per_second);
                     return .advance;

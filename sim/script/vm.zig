@@ -44,6 +44,18 @@ pub const max_challenges = 10;
 pub const max_keyframes = 25;
 
 /// The command types the VM handles itself (numbers in formats/scr.zig).
+/// Is `kind` one of the VM's own command types (the `k` constants)?
+pub fn isOwn(kind: u16) bool {
+    inline for (@typeInfo(k).@"struct".decl_names) |d| {
+        if (@field(k, d) == kind) return true;
+    }
+    return switch (kind) {
+        // Counter arithmetic and tests; challenges; the frenzy's run line.
+        79...95, 108...112, 288...294, 402, 423 => true,
+        else => false,
+    };
+}
+
 pub const k = struct {
     pub const level_start = 59;
     pub const level_end_ = 60;
@@ -64,11 +76,17 @@ pub const k = struct {
     pub const trigger_off = 216;
     pub const counter = 21;
     pub const counter_bare = 22;
-    pub const save_counter = 23;
     pub const save_counter_bare = 24;
     /// A second plain counter declaration, used by the bil and ste scripts
     /// the way the others use 21.
     pub const counter_v = 276;
+    /// The HUD arrow: declared by 23 (script-declarations 2.6), pointed at
+    /// a thing (113) or a place (114), removed (116). Ours: 113/114/116
+    /// from the player's files; no note covers them.
+    pub const arrow = 23;
+    pub const arrow_at = 113;
+    pub const arrow_pos = 114;
+    pub const arrow_clear = 116;
     pub const set = 340;
     pub const copy = 341;
     pub const inc = 96;
@@ -199,6 +217,13 @@ pub const State = extern struct {
     next_id: u16 = 0,
     /// The thread running a mission (its id), 0 = none.
     mission_thread: u16 = 0,
+    /// The gang-phone gate's "passed" and "failed" counters for the
+    /// running mission (0 for a 274 launch).
+    mission_passed: u16 = 0,
+    mission_failed: u16 = 0,
+    /// The arrow declaration (23) the HUD arrow currently shows, 0 = none.
+    arrow_owner: u16 = 0,
+    _pad1: u16 = 0,
     triggers: u16 = 0,
     cleanup_len: u16 = 0,
     /// Mission-in-progress flags: general, gangs 1-3 (declared counters,
@@ -215,7 +240,8 @@ pub const State = extern struct {
     death_arrest: u8 = 0,
     notify_death_arrest: u8 = 0,
     frenzy_running: u8 = 0,
-    _pad0: u8 = 0,
+    /// The mission thread's gosub depth inside the mission body.
+    mission_sp: u8 = 0,
     /// Basic keyframe ids (422 declarations) and which have started.
     keyframe: [max_keyframes]u16 = @splat(0),
     keyframe_len: u16 = 0,
@@ -415,12 +441,34 @@ pub fn Sys(comptime Self: type) type {
                 endThread(self, t);
                 return .ended;
             }
+            if (st(self).mission_thread == t.id and t.sp == st(self).mission_sp) missionEnded(self);
             t.sp -= 1;
             t.cur = t.ret[t.sp];
             t.cond = t.ret_cond[t.sp];
             t.ret[t.sp] = 0;
             t.ret_cond[t.sp] = 0;
             return .jumped;
+        }
+
+        /// The mission body returned (mission end, 273, or RETURN at its
+        /// own level). Ours: passed when the gate's "passed" counter is
+        /// set, failed when its "failed" counter is, and a mission started
+        /// by 274 (no counters) that ends without the fail unwind counts
+        /// as passed.
+        fn missionEnded(self: *Self) void {
+            const s = st(self);
+            const passed = s.mission_passed != 0 and s.slot[s.mission_passed] != 0;
+            const failed = s.mission_failed != 0 and s.slot[s.mission_failed] != 0;
+            const gated = s.mission_passed != 0 or s.mission_failed != 0;
+            s.mission_thread = 0;
+            s.mission_passed = 0;
+            s.mission_failed = 0;
+            s.mission_sp = 0;
+            if (failed and !passed) {
+                self.pushEvent(.{ .kind = .mission_fail, .a = 0 });
+            } else if (passed or !gated) {
+                self.pushEvent(.{ .kind = .mission_pass, .a = 0 });
+            }
         }
 
         // ------------------------------------------------------------------
@@ -482,6 +530,14 @@ pub fn Sys(comptime Self: type) type {
                     3 => trig_area_on_foot,
                     else => trig_area_any,
                 };
+                // A phone trigger's target is a phone (ours: the object
+                // declarations carry only a model, and no note says which
+                // models are phones, so the trigger declaration decides).
+                if (kind == trig_phone) {
+                    if (x.self.state.world.get(t.target, c.Object)) |o| {
+                        if (o.kind == @intFromEnum(ids.ObjectKind.none)) o.kind = @intFromEnum(ids.ObjectKind.phone);
+                    }
+                }
                 _ = Vm.addTrigger(x.self, .{
                     .kind = kind,
                     .enabled = 1,
@@ -573,12 +629,15 @@ pub fn Sys(comptime Self: type) type {
         fn declare(self: *Self, f: Found) void {
             const p = P{ .b = f.params };
             switch (f.kind) {
-                k.counter, k.save_counter, k.counter_v => st(self).slot[f.num] = p.s(0),
+                k.counter, k.counter_v => st(self).slot[f.num] = p.s(0),
                 k.counter_bare, k.save_counter_bare => st(self).slot[f.num] = 0,
                 k.frenzy => missions.declareKeyframe(self, f),
-                k.display_decl, k.counter_display_decl, k.thread_decl, k.label => {},
+                k.display_decl, k.counter_display_decl, k.thread_decl, k.label, k.arrow => {},
                 else => {
                     const ctx: Ctx = .{ .self = self, .t = null, .num = f.num };
+                    // The VM's own commands are not declarations: the pass
+                    // steps over them without counting them as unhandled.
+                    if (isOwn(f.kind)) return;
                     const r = world.exec(Self, self, ctx, .{ .num = f.num, .kind = f.kind, .ret = f.ret, .params = f.params });
                     if (r == .unhandled) st(self).unhandled +%= 1;
                 },
@@ -601,7 +660,7 @@ pub fn Sys(comptime Self: type) type {
                 s.slot[num] = 0;
                 const f = findIn(m, @intCast(num)) orelse continue;
                 const p = P{ .b = f.params };
-                if (f.kind == k.counter or f.kind == k.save_counter or f.kind == k.counter_v) s.slot[num] = p.s(0);
+                if (f.kind == k.counter or f.kind == k.counter_v) s.slot[num] = p.s(0);
             }
         }
 
@@ -745,6 +804,9 @@ pub fn Sys(comptime Self: type) type {
                 s.slot[n] = 0;
             };
             s.mission_thread = 0;
+            s.mission_passed = 0;
+            s.mission_failed = 0;
+            s.mission_sp = 0;
             self.pushEvent(.{ .kind = .mission_fail, .a = 0 });
         }
 
