@@ -120,6 +120,9 @@ pub const EventKind = enum(u8) {
     game_over = 17,
     /// a = slot: the level's target score was reached
     level_complete = 18,
+    /// x, y, z of the speaker; a = what (0 a cop shouts "Freeze!", 1 police
+    /// radio chatter), b = the pursued slot (cosmetic, police-ai.md)
+    police_voice = 19,
     _,
 };
 

@@ -23,7 +23,7 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 
 | Path | What it does |
 | --- | --- |
-| `src/input/` | Keyboard and gamepad to I2 frames (`interfaces/I2-input-frame.md`). |
+| `src/input/` | Keyboard, gamepad and the on-screen touch pad to I2 frames (`interfaces/I2-input-frame.md`). |
 | `src/assets/` | Folder pick, drag-drop, worker hashing and checks, OPFS cache keyed by SHA-256. |
 | `src/loop.ts` | rAF-driven fixed 30 Hz clock: poll every frame, latch every tick, render with alpha. |
 | `src/session.ts` | Fixed session id `m1-local`, or `#s=<id>` from the link. |
@@ -42,6 +42,7 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 - **Peer connection**: the joiner creates channels `s` (ordered, reliable), `d` (`ordered: false, maxRetransmits: 0`) and `f` (ordered, reliable), makes the offer and trickles ICE; the host answers. One channel message is one I3 message. Datagrams over min(1100, SCTP max message size), or sent while `d` has over 64 KB queued, are dropped.
 - **Worker routing**: peers get ids from 1. `opened` (transport 2) goes to the Worker right before the peer's first stream message (its hello), so time spent in the lobby doesn't count. `s` closing, ICE `failed`, or `disconnected` for 5 s sends `closed`. Worker `close` flushes `s`, then closes the peer connection (and `closed` follows, as with the native transports).
 - **Loopback**: the host's own player uses `Connection` with transport `"loopback"`: `sendStream`/`sendDatagram` post straight to the Worker as another peer id; the Worker's replies for that id are handed back in-page. hello.transport is 2, since the loopback is part of the WebRTC host.
+- **Player arrows**: in deathmatch, each other live player who is off screen gets an arrow at the screen edge pointing at them, in their slot colour (`src/ui/playerArrows.ts`), with their name and distance in blocks. The scoreboard shows the same colour. Our own design.
 - **Lobby (`f`)**: the joiner sends `{t:"want", map}`; the host answers `{t:"match", description, share, files}` with the `.gmp` and `.sty` (name, kind, size, sha256). The joiner asks `{t:"get", files:[sha256…]}` for what its store lacks. With sharing on, each file is a `{t:"file", id, name, kind, size, sha256}` header, binary chunks (u32 id + up to 16 KB) and `{t:"end", id}`, at most 2 transfers at a time on the host; the joiner checks size and SHA-256 and imports the file under `shared/` in the asset store. With sharing off the host answers `{t:"refused", names}` and the joiner names the missing files. `{t:"ready"}` ends the lobby; nothing more is sent on `f`.
 
 ## Single player
@@ -61,6 +62,7 @@ What the HUD shows is filled in by the sim's workstreams (script engine A1, care
 - On foot: tank (steer + walk) or direct (`direct` bit, `aim` from the stick, speed from its magnitude, heading kept when centred). "Auto" uses direct after pad input and tank after keys. On foot, RT also fires.
 - Rumble through `vibrationActuator`: dual-rumble where present, trigger-rumble only where listed. Firefox has none, Safari has no trigger-rumble (S6). Never throws.
 - Hot-plug from `gamepadconnected`/`gamepaddisconnected` and from polling (events can be late in background tabs). A pad that comes back returns to its slot. The HUD asks for a button press while no pad is visible.
+- Touch pad (`src/input/touch.ts`, overlay `src/ui/touchPad.ts`): the "Touch pad" button on the game screen shows a floating move stick (left half of the view) and Fire, Jump, Car (enter/exit) and weapon buttons. It feeds slot 0 like the keyboard. On foot the auto scheme is direct; in a car the stick x steers and its y is the pedal (up accelerates, down brakes). The setting is kept in localStorage and defaults on for touch screens (`pointer: coarse`).
 - Remaps are stored in `localStorage` per normalised controller key: `vid:pid` where the id carries it (Chrome, Firefox), else `name:<name>` (Safari). Each pad remap is saved under both keys, so Safari finds a remap made elsewhere. Non-standard mappings get a warning and a guessed layout until remapped. `KNOWN_PADS` in `bindings.ts` is the per-controller table, empty until probe runs show a pad that needs an entry.
 
 Default pad layout (standard mapping, by position): RT accelerate, LT brake, X fire, Y enter/exit, A handbrake/jump, B run, RB/LB next/previous weapon, LS click horn. Home is never bound.
