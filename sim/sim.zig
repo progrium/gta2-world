@@ -236,6 +236,8 @@ pub fn Sim(comptime cfg: Config) type {
                 siren = 16,
                 game_over = 17,
                 level_complete = 18,
+                /// a = 0 shout, 1 radio; b = pursued slot (`wire.EventKind`).
+                police_voice = 19,
             };
             pub const no_slot: u8 = 0xFF;
             pub const weapon_car: u8 = 0x80;

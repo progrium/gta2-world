@@ -589,6 +589,10 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         // a vehicle's siren; a = 1 switched on
         if (e.a === 1) audio.play("siren", e.x, e.y, e.z);
         break;
+      case 19:
+        // police voice: a = 0 a cop shouts ("Freeze!"), 1 radio chatter
+        audio.play(e.a === 0 ? "cop_shout" : "police_radio", e.x, e.y, e.z);
+        break;
       default:
         if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
     }
