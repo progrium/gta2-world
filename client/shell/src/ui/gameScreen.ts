@@ -378,6 +378,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
     if (spHud) spHud.update(hudDemo ? demoHud(game.tick) : game.spInfo(), t.found ? { x: t.x, y: t.y } : null);
     const list = game.renderList(paused ? 1 : alpha, now);
+    if (sp) renderer.setExtraFaces(game.doorFaces());
+    renderer.setMarks(game.skidMarks(now));
     const view = camera.view();
     renderer.draw(view, list.bytes, list.count, now / 1000);
     if (!sp) drawArrows(view, paused ? 1 : alpha, t.found ? { x: t.x, y: t.y } : null);
