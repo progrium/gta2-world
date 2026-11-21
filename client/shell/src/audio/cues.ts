@@ -216,6 +216,7 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
   car_door: [25, 27, 26, 28],
   car_crash: [37, 38, 39, 40, 33],
   siren: [14, 147],
+  tyre_screech: [13, 15, 12],
   pickup: [319],
   say_pistol: ["pistolp"],
   say_machine_gun: ["macgun"],
@@ -239,7 +240,8 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
   mission_pass: ["jobcomplete"],
   mission_fail: ["jobfail"],
   game_over: ["gameover"],
-  footstep: [198, 200, 206, 208],
+  // Not #206: a deeper, woody step, and no ground in the game is wood.
+  footstep: [198, 200, 208],
   punch: [45, 59],
   glass_break: [66, 67],
   car_fire: [189, 190],
@@ -281,7 +283,7 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
  * (nothing in the banks sounds like a bump), so it plays them quieter. No
  * sample sounds like a tyre screech either, so that cue uses its built-in sound.
  */
-const DEFAULT_GAIN: Partial<Record<Cue, number>> = { car_bump: 0.45, footstep: 0.5, footstep_grass: 0.35, footstep_water: 0.5 };
+const DEFAULT_GAIN: Partial<Record<Cue, number>> = { car_bump: 0.45, tyre_screech: 0.6, footstep: 0.5, footstep_grass: 0.35, footstep_water: 0.5 };
 
 export function defaultMapping(): SoundMapping {
   const m = emptyMapping();
@@ -329,7 +331,10 @@ export function normalizeMapping(input: unknown, base: SoundMapping = defaultMap
  */
 const RETIRED: Partial<Record<Cue, number[][]>> = {
   car_bump: [[44]],
-  tyre_screech: [[24], [146]],
+  // #24 chirped like an alarm and #146 grinds like metal; empty was the
+  // built-in squeal, too high. #12, #13 and #15 are the short tyre squeals.
+  tyre_screech: [[24], [146], []],
+  footstep: [[198, 200, 206, 208]],
   // Soft noise that didn't read as an engine; #4 is the idling chug.
   engine: [[3]],
 };
