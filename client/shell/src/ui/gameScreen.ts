@@ -662,7 +662,6 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     5: "ped_panic",
     6: "ped_bumped",
     7: "carjacked",
-    8: "cop_shout",
     9: "mugger",
     10: "gang_shout",
     11: "elvis",
@@ -670,8 +669,6 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   };
   const VOICE_GAP_MS = 900;
   const voiceAt = new Map<CueName, number>();
-  // Police radio chatter while wanted, in seconds until the next line.
-  let radioIn = 3;
 
   // Footstep timers by player slot, in seconds since the last step.
   const stepClock = new Map<number, number>();
@@ -682,13 +679,6 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     const srcs = g.soundSources();
     const cars = srcs.filter((s) => s.kind === "car" && near(s) < 26).sort((a, b) => near(a) - near(b));
     for (const s of cars.slice(0, 8)) audio.setEngine(s.id, s.speed, s.x, s.y, s.z);
-    if (spHud && g.spInfo().stars > 0) {
-      radioIn -= dt;
-      if (radioIn <= 0) {
-        radioIn = 7 + Math.random() * 8;
-        audio.play("police_radio");
-      }
-    } else radioIn = 3;
     for (const s of srcs) {
       if (s.kind !== "walker") continue;
       const stride = s.anim === 2 ? 0.27 : s.anim === 1 ? 0.42 : 0;

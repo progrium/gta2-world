@@ -1035,7 +1035,7 @@ pub const cue_switch: u32 = 4;
 pub const cue_ped_panic: u32 = 5;
 pub const cue_ped_bumped: u32 = 6;
 pub const cue_carjacked: u32 = 7;
-pub const cue_cop_shout: u32 = 8;
+// 8 was the cop shout; the sim now sends police voices itself (event 19).
 pub const cue_mugger: u32 = 9;
 pub const cue_gang_shout: u32 = 10;
 pub const cue_elvis: u32 = 11;
@@ -1141,7 +1141,7 @@ fn isPlayerPed(players: []const abi.EntityId, id: abi.EntityId) bool {
 }
 
 /// Voices from AI peds: a ped knocked over without being hurt, pulled out of
-/// a car, starting to flee, or turning on a player (by occupation: cops,
+/// a car, starting to flee, or turning on a player (by occupation:
 /// muggers, gang members, Elvis). Objectives exist only in single-player
 /// state; without them only the first two are heard.
 fn watchPeds(state: []const u8, players: []const abi.EntityId) void {
@@ -1193,7 +1193,6 @@ fn watchPeds(state: []const u8, players: []const abi.EntityId) void {
             if (flee and (occ == .civilian or occ == .customer or occ == .passenger or occ == .driver)) cue(cue_ped_panic, 0, t);
         }
         if (on_player and !seen_ped_on_player[i]) switch (occ) {
-            .police, .swat, .fbi, .army, .guard => cue(cue_cop_shout, 0, t),
             .mugger => cue(cue_mugger, 0, t),
             .gang_member => cue(cue_gang_shout, 0, t),
             .elvis => cue(cue_elvis, 0, t),
