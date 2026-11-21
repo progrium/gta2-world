@@ -552,6 +552,8 @@ test "accuracy: the player's projectile hits are counted by weapon (scoring.md 3
     h.frames[0].buttons = 0;
     h.run(10);
     try std.testing.expectEqual(@as(u16, 1), h.cs().hits_other[T.weapon_pistol]);
+    // The script's per-entity hit record saw it too.
+    try std.testing.expect(w.get(victim, c.ScriptTag).?.hits & (@as(u32, 1) << T.weapon_pistol) != 0);
 }
 
 test "car weapons: mines drop behind the car on a fresh press, credited to the driver" {
