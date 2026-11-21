@@ -849,11 +849,16 @@ fn pedFrame(p: sim.c.Pedestrian, wp: ?sim.c.Weapon, t: u16) u16 {
 fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
     const K = sim.ids.ObjectKind;
     if (@as(K, @enumFromInt(o.kind)) == .door) {
-        // A door's model is its shared animation; the objects system keeps
-        // its frame (`state.sp.objects.doors[value]`), read as a sprite of
-        // the map-object group (ours: the note names frames, not sprites).
-        if (isSp() and o.value < game_sp.state.sp.objects.doors.len) return game_sp.state.sp.objects.doors[o.value].frame;
-        return 0;
+        // The objects system steps the door's frame from its animation's
+        // start to end (`state.sp.objects.doors[value]`); drawn as an offset
+        // from the model's first sprite (ours: the note doesn't say what
+        // the frame numbers count).
+        const first: u16 = if (s.objectSprites(o.model)) |i| i.first else 0;
+        if (!isSp() or o.value >= game_sp.state.sp.objects.doors.len) return first;
+        const sp = &game_sp.state.sp.objects;
+        const d = sp.doors[o.value];
+        const start: u8 = if (d.anim < sp.anims.len) sp.anims[d.anim].start else 0;
+        return first + (d.frame -| start);
     }
     const info = s.objectSprites(o.model) orelse return 0;
     if (info.count <= 1) return info.first;
@@ -956,6 +961,15 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
             @intFromEnum(abi.Kind.map_object) => {
                 // Single player only (dm16's map objects have no Object).
                 const o = readAt(sim.c.Object, state, obj_col orelse continue, in.index) orelse continue;
+                switch (@as(sim.ids.ObjectKind, @enumFromInt(o.kind))) {
+                    // Traffic AI markers; lamps and lights have no known
+                    // sprite yet (model 0), so they are not drawn.
+                    .crossing_marker, .lamp, .traffic_light => {
+                        in.kind = hidden_kind;
+                        continue;
+                    },
+                    else => {},
+                }
                 in.sprite = @intCast(s.sprite_base.base(.map_obj) + objectFrame(s, o, frame16 +% in.index));
             },
             @intFromEnum(abi.Kind.car) => {
