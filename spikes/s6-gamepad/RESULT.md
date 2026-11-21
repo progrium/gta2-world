@@ -5,14 +5,14 @@
 
 ## Answer
 
-**Accepted (19 Nov 2026), with known caveats.** Jeff judged the results good enough to move on. Two of the nine browser and pad pairs now have a probe run: an Xbox 360 pad in Brave (Chromium) on Windows, and a DualSense over USB in Chrome on macOS (added 21 Nov). Both pass, with standard mapping on every control and added delay under one frame. The other eight pairs are untested. Until they are run, the gaps listed in [README.md](README.md) under "Known gaps from research" are the working assumptions. In particular, Firefox has no rumble, Switch Pro triggers are digital, and some pads report `mapping: ""` in Firefox and Safari. Those gaps argue for the design doc's fallback anyway: a per-controller mapping table, with the remap screen in M1.
+**Accepted (19 Nov 2026), with known caveats.** Jeff judged the results good enough to move on. Three of the nine browser and pad pairs now have a probe run: an Xbox 360 pad in Brave (Chromium) on Windows, and a DualSense in Chrome and in Safari on macOS (added 21 Nov). All three have standard mapping on every control. Chrome and Brave add under one frame of delay. Safari's pad timestamps can't be used to measure delay (see below). The other eight pairs are untested. Until they are run, the gaps listed in [README.md](README.md) under "Known gaps from research" are the working assumptions. In particular, Firefox has no rumble, Switch Pro triggers are digital, and some pads report `mapping: ""` in Firefox and Safari. Those gaps argue for the design doc's fallback anyway: a per-controller mapping table, with the remap screen in M1.
 
 ## Probe runs
 
 | | Chrome / Chromium | Firefox | Safari |
 | --- | --- | --- | --- |
 | Xbox | **Pass** (Xbox 360 pad, XInput, Brave 158 on Windows; Paul, #5) | not run | not run |
-| DualSense | **Pass** (USB, Chrome 156 on macOS; Jeff, `results/chrome156-macos-dualsense-usb-jeff.json`) | not run | not run |
+| DualSense | **Pass** (USB, Chrome 156 on macOS; Jeff, `results/chrome156-macos-dualsense-usb-jeff.json`) | not run | **Pass**, latency not measurable (Safari 27 on macOS; Jeff, `results/safari27-macos-dualsense-jeff.json`) |
 | Switch Pro | not run | not run | not run |
 
 ### Paul (#5): Xbox 360 Controller (XInput), Brave 158 on Windows
@@ -30,7 +30,7 @@ The issue title and file name say "Chrome 158 … unknown-unknown". The file's u
 
 ### Jeff: DualSense over USB, Chrome 156 on macOS
 
-The id is `DualSense Wireless Controller (STANDARD GAMEPAD)`. Chrome on macOS gives no Vendor and Product here, unlike Chrome on Windows, so this pad gets a name-only controller key, the same as Safari would.
+The id is `DualSense Wireless Controller (STANDARD GAMEPAD)`. Chrome on macOS gives no Vendor and Product here, unlike Chrome on Windows, so this pad gets a name-only controller key. Safari names the same pad differently (below). The shell maps both names to the same key.
 
 | Area | Result | Verdict |
 | --- | --- | --- |
@@ -45,8 +45,25 @@ The id is `DualSense Wireless Controller (STANDARD GAMEPAD)`. Chrome on macOS gi
 
 **What this changes in the shell (`client/shell`, branch m1/shell):** nothing in behaviour. The name-only key, the button glyphs, dual-rumble without trigger-rumble, same-index reconnect and ORing buttons between ticks are already handled there. Tests now cover this pad's id.
 
+### Jeff: the same DualSense, Safari 27 on macOS
+
+The id is `DualSense Wireless Controller Extended Gamepad`: no vendor or product, and Apple's GameController profile name appended. Controller, Connection and Notes were left blank. It is the same pad as the Chrome run.
+
+| Area | Result | Verdict |
+| --- | --- | --- |
+| Mapping | `mapping: "standard"`, 17 buttons, 4 axes. All 21 required and optional controls landed on the expected index with no cross-talk, Home (16) included. There is no touchpad button 17, unlike Chrome | Pass |
+| Triggers | Analog: 24 and 15 distinct values over the sweep, both reaching 1.0 | Pass |
+| Sticks | Full ±1 on all four axes, ~200 distinct values each. The gate is square-ish: diagonals reach 1.21 (left) and 1.23 (right), so the game needs the radial clamp, as on the Xbox 360 pad. Rest drift wasn't measured, because the sticks were still moving in the last 2 s | Gap noted: clamp needed |
+| Latency | Not measurable. `timestamp` isn't on the `performance.now()` clock, and its steps (median 0.015 units, "66 kHz") can't be real report times. A frame-by-frame count still works: 52 of 552 distinct states (9%) were never seen by a frame at 60 Hz. `getGamepads()` returns the same live object every call | Not measured; nothing suggests a problem |
+| Rumble | `vibrationActuator.type` is `dual-rumble` and `effects` is null. Strong, weak and both were felt, and preemption worked. Trigger rumble rejects with "This gamepad doesn't support playing such effect". `hapticActuators` is absent | Pass for dual-rumble; no trigger rumble |
+| Hot-plug | Disconnect and reconnect events fired, and the pad came back on the same index with the same id | Pass (foreground) |
+
+The new probe timing worked: the sweep captured the full range on this run.
+
+**Shell changes:** the controller key now drops Safari's ` Extended Gamepad` / ` Micro Gamepad` suffix, so Chrome on macOS and Safari share one key and a remap made in one applies in the other (m1/shell e43b3c1). Everything else was already handled: the radial clamp, reading `effects: null` as dual-rumble without sending trigger effects, never using `timestamp` for timing, and copying button and axis values when the remap screen takes its baseline, so the live object Safari returns can't change underneath it.
+
 **Known caveats, accepted:**
-- Seven of the nine browser and pad pairs, all of Firefox and Safari, and the Switch Pro are untested. Stick ranges and the gate shape are unmeasured on the DualSense. The research gaps in the README stand in for them.
+- Six of the nine browser and pad pairs, all of Firefox, Safari with the Xbox and Switch pads, and the Switch Pro everywhere are untested. Latency is unmeasured on Safari. The research gaps in the README stand in for them.
 - The only Chromium run is Brave, not Chrome. Brave uses the same Gamepad implementation, so it is treated as Chrome here.
 - The 26% (Xbox, ~99 Hz) and 39% (DualSense, ~196 Hz) of pad updates that per-frame polling never sees means a very short tap between two frames can be lost. The input layer should latch button presses between ticks rather than sampling once per frame.
 - Rumble was never confirmed as felt, and hot-plug and rest drift weren't measured.

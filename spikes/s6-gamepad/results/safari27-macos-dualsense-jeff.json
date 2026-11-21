@@ -1,0 +1,740 @@
+{
+  "schema": "s6-gamepad-probe/1",
+  "generatedAt": "2026-11-21T03:27:03.831Z",
+  "startedAt": "2026-11-21T03:24:09.457Z",
+  "tester": {
+    "controller": "",
+    "connection": "",
+    "os": "macOS",
+    "browser": "Safari 27.0",
+    "notes": ""
+  },
+  "environment": {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Safari/605.1.15",
+    "platform": "MacIntel",
+    "userAgentData": null,
+    "secureContext": true,
+    "location": "https://progrium.github.io",
+    "getGamepads": true,
+    "GamepadHapticActuator": true,
+    "gamepadrawinputchanged": false,
+    "permissionsPolicyGamepad": null,
+    "devicePixelRatio": 2,
+    "screen": "1512x982"
+  },
+  "padsSeen": [
+    {
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard",
+      "connected": true,
+      "buttons": 17,
+      "axes": 4,
+      "timestamp": 1846543.915,
+      "vibrationActuator": {
+        "type": "dual-rumble",
+        "effects": null,
+        "canPlay": true
+      },
+      "hapticActuators": null,
+      "hasTouchedField": false
+    }
+  ],
+  "mapping": {
+    "pad": {
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard"
+    },
+    "results": [
+      {
+        "control": "bottom face",
+        "expect": {
+          "type": "button",
+          "index": 0
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 0,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "right face",
+        "expect": {
+          "type": "button",
+          "index": 1
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 1,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "left face",
+        "expect": {
+          "type": "button",
+          "index": 2
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 2,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "top face",
+        "expect": {
+          "type": "button",
+          "index": 3
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 3,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "left shoulder",
+        "expect": {
+          "type": "button",
+          "index": 4
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 4,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "right shoulder",
+        "expect": {
+          "type": "button",
+          "index": 5
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 5,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "left trigger",
+        "expect": {
+          "type": "button",
+          "index": 6
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 6,
+            "value": 0.545
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "right trigger",
+        "expect": {
+          "type": "button",
+          "index": 7
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 7,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "back/select",
+        "expect": {
+          "type": "button",
+          "index": 8
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 8,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "start",
+        "expect": {
+          "type": "button",
+          "index": 9
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 9,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "left stick click",
+        "expect": {
+          "type": "button",
+          "index": 10
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 10,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "right stick click",
+        "expect": {
+          "type": "button",
+          "index": 11
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 11,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "d-pad up",
+        "expect": {
+          "type": "button",
+          "index": 12
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 12,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "d-pad down",
+        "expect": {
+          "type": "button",
+          "index": 13
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 13,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "d-pad left",
+        "expect": {
+          "type": "button",
+          "index": 14
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 14,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "d-pad right",
+        "expect": {
+          "type": "button",
+          "index": 15
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 15,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "home/guide",
+        "expect": {
+          "type": "button",
+          "index": 16
+        },
+        "hits": [
+          {
+            "type": "button",
+            "index": 16,
+            "value": 1
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": true
+      },
+      {
+        "control": "touchpad click / capture / share (extra button, if any)",
+        "expect": {
+          "type": "button",
+          "index": 17
+        },
+        "hits": [],
+        "ok": null,
+        "extraInputs": 0,
+        "skipped": true,
+        "optional": true
+      },
+      {
+        "control": "Push LEFT stick fully LEFT, then release",
+        "expect": {
+          "type": "axis",
+          "index": 0,
+          "sign": -1
+        },
+        "hits": [
+          {
+            "type": "axis",
+            "index": 0,
+            "sign": -1,
+            "value": -0.585
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "Push LEFT stick fully UP, then release",
+        "expect": {
+          "type": "axis",
+          "index": 1,
+          "sign": -1
+        },
+        "hits": [
+          {
+            "type": "axis",
+            "index": 1,
+            "sign": -1,
+            "value": -0.653
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "Push RIGHT stick fully LEFT, then release",
+        "expect": {
+          "type": "axis",
+          "index": 2,
+          "sign": -1
+        },
+        "hits": [
+          {
+            "type": "axis",
+            "index": 2,
+            "sign": -1,
+            "value": -0.598
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      },
+      {
+        "control": "Push RIGHT stick fully UP, then release",
+        "expect": {
+          "type": "axis",
+          "index": 3,
+          "sign": -1
+        },
+        "hits": [
+          {
+            "type": "axis",
+            "index": 3,
+            "sign": -1,
+            "value": -0.599
+          }
+        ],
+        "ok": true,
+        "extraInputs": 0,
+        "skipped": false,
+        "optional": false
+      }
+    ],
+    "required": 20,
+    "matched": 21,
+    "mismatched": [],
+    "skipped": [
+      "touchpad click / capture / share (extra button, if any)"
+    ],
+    "crossTalk": [],
+    "stopped": false
+  },
+  "axes": {
+    "pad": {
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard"
+    },
+    "axes": [
+      {
+        "index": 0,
+        "min": -1,
+        "max": 1,
+        "distinctValues": 200,
+        "rest": {
+          "mean": 0.569,
+          "maxAbs": 1
+        }
+      },
+      {
+        "index": 1,
+        "min": -1,
+        "max": 1,
+        "distinctValues": 196,
+        "rest": {
+          "mean": -0.481,
+          "maxAbs": 0.983
+        }
+      },
+      {
+        "index": 2,
+        "min": -1,
+        "max": 1,
+        "distinctValues": 218,
+        "rest": {
+          "mean": -0.61,
+          "maxAbs": 1
+        }
+      },
+      {
+        "index": 3,
+        "min": -1,
+        "max": 1,
+        "distinctValues": 195,
+        "rest": {
+          "mean": 0.233,
+          "maxAbs": 0.536
+        }
+      }
+    ],
+    "stickLeft": {
+      "maxMagnitude": 1.208,
+      "octantMax": [
+        1.077,
+        1.208,
+        1.074,
+        1.13,
+        1.073,
+        1.193,
+        1.08,
+        1.18
+      ]
+    },
+    "stickRight": {
+      "maxMagnitude": 1.226,
+      "octantMax": [
+        1.074,
+        1.182,
+        1.077,
+        1.15,
+        1.071,
+        1.182,
+        1.08,
+        1.226
+      ]
+    },
+    "triggers": [
+      {
+        "button": 6,
+        "distinctValues": 24,
+        "max": 1,
+        "analog": true
+      },
+      {
+        "button": 7,
+        "distinctValues": 15,
+        "max": 1,
+        "analog": true
+      }
+    ]
+  },
+  "latency": {
+    "pad": {
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard"
+    },
+    "durationMs": 10000,
+    "frames": 601,
+    "frameIntervalMs": {
+      "n": 600,
+      "min": 13,
+      "p50": 17,
+      "p95": 17,
+      "max": 20,
+      "mean": 16.66
+    },
+    "distinctStatesHiRate": 552,
+    "distinctStatesSeenByFrames": 501,
+    "updatesMissedByFramePolling": 52,
+    "padUpdateIntervalMs": {
+      "n": 551,
+      "min": 0.013,
+      "p50": 0.015,
+      "p95": 0.016,
+      "max": 6.387,
+      "mean": 0.028
+    },
+    "padUpdateRateHz": 66666.667,
+    "timestampOnPerformanceClock": false,
+    "stalenessAtFrameReadMs": null,
+    "pipelineDelayMs": null,
+    "addedByFramePollingMs": {
+      "n": 500,
+      "min": -8,
+      "p50": 3,
+      "p95": 12,
+      "max": 15,
+      "mean": 2.998
+    },
+    "getGamepadsReturnsSameObject": true,
+    "rawInputEvents": null,
+    "verdictUnderOneFrame": null
+  },
+  "rumble": [
+    {
+      "effect": "strong",
+      "t": 98969,
+      "result": "complete",
+      "error": null,
+      "felt": true,
+      "ms": 602,
+      "pad": "DualSense Wireless Controller Extended Gamepad"
+    },
+    {
+      "effect": "weak",
+      "t": 101464,
+      "result": "complete",
+      "error": null,
+      "felt": true,
+      "ms": 601,
+      "pad": "DualSense Wireless Controller Extended Gamepad"
+    },
+    {
+      "effect": "both",
+      "t": 103078,
+      "result": "complete",
+      "error": null,
+      "felt": true,
+      "ms": 603,
+      "pad": "DualSense Wireless Controller Extended Gamepad"
+    },
+    {
+      "effect": "trigger",
+      "t": 104660,
+      "result": null,
+      "error": "This gamepad doesn't support playing such effect",
+      "felt": false,
+      "ms": 0,
+      "pad": "DualSense Wireless Controller Extended Gamepad"
+    },
+    {
+      "effect": "preempt",
+      "t": 110786,
+      "result": "first=preempted, second=complete",
+      "error": null,
+      "felt": true,
+      "ms": 703,
+      "pad": "DualSense Wireless Controller Extended Gamepad"
+    },
+    {
+      "effect": "reset",
+      "t": 114988,
+      "result": "complete",
+      "error": null,
+      "felt": false,
+      "ms": 0,
+      "pad": "DualSense Wireless Controller Extended Gamepad"
+    },
+    {
+      "effect": "legacy",
+      "t": 120627,
+      "result": null,
+      "error": "hapticActuators absent",
+      "felt": false,
+      "ms": 0,
+      "pad": "DualSense Wireless Controller Extended Gamepad"
+    }
+  ],
+  "hotplug": {
+    "summary": {
+      "connectedEvents": 2,
+      "disconnectedEvents": 1,
+      "pollAppeared": 2,
+      "connectWhileHidden": 0,
+      "reconnectSameIndex": true,
+      "idsSeen": [
+        "DualSense Wireless Controller Extended Gamepad"
+      ]
+    },
+    "marks": [
+      140308
+    ]
+  },
+  "events": [
+    {
+      "t": 2922,
+      "wall": "2026-11-21T03:24:12.304Z",
+      "type": "gamepadconnected",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard"
+    },
+    {
+      "t": 2932,
+      "wall": "2026-11-21T03:24:12.315Z",
+      "type": "poll:appeared",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard"
+    },
+    {
+      "t": 140308,
+      "wall": "2026-11-21T03:26:29.692Z",
+      "type": "mark",
+      "hidden": false,
+      "focused": true,
+      "note": "hot-plug test start"
+    },
+    {
+      "t": 154769,
+      "wall": "2026-11-21T03:26:44.152Z",
+      "type": "gamepaddisconnected",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard"
+    },
+    {
+      "t": 154776,
+      "wall": "2026-11-21T03:26:44.160Z",
+      "type": "poll:vanished",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": ""
+    },
+    {
+      "t": 159836,
+      "wall": "2026-11-21T03:26:49.220Z",
+      "type": "gamepadconnected",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard"
+    },
+    {
+      "t": 159840,
+      "wall": "2026-11-21T03:26:49.223Z",
+      "type": "poll:appeared",
+      "hidden": false,
+      "focused": true,
+      "index": 0,
+      "id": "DualSense Wireless Controller Extended Gamepad",
+      "mapping": "standard"
+    }
+  ]
+}
