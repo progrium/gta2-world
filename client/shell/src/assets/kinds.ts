@@ -5,11 +5,12 @@
 // its name says and records its chunk index so a bad copy is caught on import.
 
 import { checkSdt } from "../audio/sdt.ts";
+import { wavInfo } from "../audio/wav.ts";
 
-export type AssetKind = "gmp" | "sty" | "scr" | "mmp" | "gxt" | "sdt" | "raw" | "gci" | "seq";
+export type AssetKind = "gmp" | "sty" | "scr" | "mmp" | "gxt" | "sdt" | "raw" | "gci" | "seq" | "wav";
 
 const EXT: Record<string, AssetKind> = {
-  gmp: "gmp", sty: "sty", scr: "scr", mmp: "mmp", gxt: "gxt", sdt: "sdt", raw: "raw", gci: "gci", seq: "seq",
+  gmp: "gmp", sty: "sty", scr: "scr", mmp: "mmp", gxt: "gxt", sdt: "sdt", raw: "raw", gci: "gci", seq: "seq", wav: "wav",
 };
 
 /** Kind from the file name, or null if the shell doesn't keep this file. */
@@ -123,6 +124,14 @@ export function parseAsset(kind: AssetKind, buf: ArrayBuffer): ParsedInfo {
   if (kind === "sdt") {
     const c = checkSdt(buf);
     return { ok: c.ok, error: c.error, samples: c.count, rawSize: c.rawSize };
+  }
+  if (kind === "wav") {
+    try {
+      wavInfo(buf);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
   }
   return { ok: buf.byteLength > 0, error: buf.byteLength > 0 ? undefined : "empty file" };
 }

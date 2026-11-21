@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseAsset } from "../src/assets/kinds.ts";
-import { CUE_INFO, CUES, defaultMapping, emptyMapping, engineRate, fallbackChain, loadMapping, normalizeMapping, saveMapping, STORE_KEY } from "../src/audio/cues.ts";
-import { spatial, upsample } from "../src/audio/engine.ts";
+import { CUE_INFO, CUES, SPOKEN, defaultMapping, emptyMapping, engineRate, fallbackChain, loadMapping, normalizeMapping, saveMapping, STORE_KEY } from "../src/audio/cues.ts";
+import { refIndex, spatial, upsample } from "../src/audio/engine.ts";
+import { VocalBank, decodeWav, wavInfo } from "../src/audio/wav.ts";
 import { procedural, RATE } from "../src/audio/procedural.ts";
 import { SDT_ENTRY, SoundBank, checkSdt, decodeSample, guessFormat, parseSdt } from "../src/audio/sdt.ts";
 
@@ -135,9 +136,14 @@ test("upsample keeps slow banks above the lowest buffer rate", () => {
   assert.equal(upsample(new Float32Array(4), 22050).factor, 1);
 });
 
-test("every cue has a short, non-silent, clean procedural fallback", () => {
+test("every cue but the spoken ones has a short, non-silent, clean procedural fallback", () => {
   for (const c of CUES) {
     const b = procedural(c);
+    if (SPOKEN.has(c)) {
+      assert.equal(b, null, `${c} is spoken: silent until mapped`);
+      continue;
+    }
+    assert.ok(b, `${c} has no built-in sound`);
     assert.ok(b.length > RATE * 0.03 && b.length <= RATE * 2, `${c} length ${b.length}`);
     let peak = 0;
     for (const v of b) {
@@ -146,6 +152,49 @@ test("every cue has a short, non-silent, clean procedural fallback", () => {
     }
     assert.ok(peak > 0.3 && peak <= 1, `${c} peak ${peak}`);
   }
-  assert.equal(procedural("engine").length, RATE, "the engine loop is exactly one second");
+  assert.equal(procedural("engine")!.length, RATE, "the engine loop is exactly one second");
   assert.equal(procedural("pistol"), procedural("pistol"), "cached");
+});
+
+/** A WAVE file from parts (synthetic, no game data). */
+function wav(format: number, channels: number, rate: number, blockAlign: number, bits: number, data: number[]): ArrayBuffer {
+  const fmt = new Uint8Array(16);
+  const f = new DataView(fmt.buffer);
+  f.setUint16(0, format, true);
+  f.setUint16(2, channels, true);
+  f.setUint32(4, rate, true);
+  f.setUint16(12, blockAlign, true);
+  f.setUint16(14, bits, true);
+  const parts = [new TextEncoder().encode("RIFF"), new Uint8Array(4), new TextEncoder().encode("WAVEfmt "), Uint8Array.of(16, 0, 0, 0), fmt, new TextEncoder().encode("data"), Uint8Array.of(data.length, 0, 0, 0), Uint8Array.from(data)];
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out.buffer;
+}
+
+test("wav: PCM and IMA ADPCM decode to mono", () => {
+  const pcm = decodeWav(wav(1, 2, 11025, 4, 16, [0x00, 0x40, 0x00, 0x20, 0x00, 0xc0, 0x00, 0xe0]));
+  assert.equal(pcm.rate, 11025);
+  assert.deepEqual([...pcm.data], [0.375, -0.375], "stereo mixed down");
+  // One mono block: predictor 1000, step index 0, then nibbles 7, 7 and six 0s.
+  const ima = decodeWav(wav(0x11, 1, 22050, 8, 4, [0xe8, 0x03, 0, 0, 0x77, 0, 0, 0]));
+  assert.deepEqual([...ima.data].map((v) => Math.round(v * 32768)), [1000, 1011, 1041, 1045, 1048, 1051, 1054, 1056, 1058]);
+  assert.throws(() => wavInfo(new ArrayBuffer(12)), /not a WAVE/);
+  assert.equal(parseAsset("wav", wav(1, 1, 8000, 1, 8, [128])).ok, true);
+  assert.equal(parseAsset("wav", new ArrayBuffer(4)).ok, false);
+});
+
+test("vocals: lines are referred to by name, whatever order the files come in", () => {
+  const a = wav(1, 1, 8000, 1, 8, [128, 255]);
+  const bank = new VocalBank([{ name: "Wasted.wav", buf: a }, { name: "busted.wav", buf: a }, { name: "junk.wav", buf: new ArrayBuffer(3) }]);
+  assert.deepEqual(bank.names, ["busted", "wasted"]);
+  assert.equal(refIndex(bank, { bank: "vocals", index: 0, name: "wasted" }), 1);
+  assert.equal(refIndex(bank, { bank: "vocals", index: 0, name: "gone" }), -1);
+  assert.equal(bank.pcm(1).data.length, 2);
+  const m = normalizeMapping({ cues: { wasted: { samples: [{ bank: "vocals", name: "Wasted" }, { bank: "vocals" }], gain: 1 } } });
+  assert.deepEqual(m.cues.wasted.samples, [{ bank: "vocals", index: 0, name: "wasted" }]);
+  assert.ok(defaultMapping().cues.say_pistol.samples.every((r) => r.bank === "vocals" && r.name));
 });

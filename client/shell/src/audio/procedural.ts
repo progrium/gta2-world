@@ -2,7 +2,7 @@
 // player maps samples from their own banks. Pure: each returns mono PCM at
 // RATE, deterministic (seeded noise), so it can be tested without WebAudio.
 
-import { type Cue, fallbackChain } from "./cues.ts";
+import { type Cue, SPOKEN, fallbackChain } from "./cues.ts";
 
 export const RATE = 22050;
 
@@ -84,8 +84,6 @@ const seq = (...parts: Float32Array[]): Float32Array => {
 const gate = (len: number, edge = 0.01): Env => (t) => Math.min(1, t / edge, Math.max(0, (len - t) / edge));
 const beep = (len: number, f: number, shape: "sine" | "square" | "saw" = "sine"): Float32Array => tone(len, f, f, gate(len), shape);
 const rest = (len: number): Float32Array => new Float32Array(Math.round(len * RATE));
-const voice = (len: number, f0: number, f1: number, wobble: number, seed: number): Float32Array =>
-  normalize(mix([tone(len, f0, f1, attackDecay(0.03, 3 / len), "saw").map((v, i) => v * (1 + 0.3 * Math.sin((i / RATE) * 2 * Math.PI * wobble))), 1], [lowpass(noise(len, seed, attackDecay(0.03, 3 / len)), () => 2500), 0.2]));
 
 /** A tone whose pitch swings around `f` by ±`depth` Hz, `rate` times a second. */
 function wail(len: number, f: number, depth: number, rate: number): Float32Array {
@@ -121,9 +119,6 @@ const BUILD: Partial<Record<Cue, () => Float32Array>> = {
   splash: () => normalize(lowpass(noise(0.7, 28, attackDecay(0.02, 5)), (t) => 3000 * Math.exp(-t * 3) + 300)),
   car_alarm: () => normalize(seq(beep(0.25, 900, "square"), beep(0.25, 1300, "square"), beep(0.25, 900, "square"), beep(0.25, 1300, "square")), 0.5),
   car_fire: () => normalize(lowpass(noise(1, 29, gate(1, 0.1)), () => 700).map((v, i) => v * (0.6 + 0.4 * Math.sin(i * 0.0009) * Math.sin(i * 0.0037)))),
-  ped_chatter: () => voice(0.5, 220, 180, 6, 30),
-  cop_shout: () => voice(0.4, 160, 130, 9, 31),
-  gang_shout: () => voice(0.4, 200, 150, 12, 32),
   train: () => normalize(seq(...[0, 1, 2].map(() => seq(lowpass(noise(0.08, 33, decay(30)), () => 1500), rest(0.07), lowpass(noise(0.08, 34, decay(30)), () => 1500), rest(0.3)))), 0.6),
 
   pistol: () => gunshot(0.25, 22, 6000, 11, 180),
@@ -159,11 +154,14 @@ function engineLoop(): Float32Array {
 }
 
 const cache = new Map<Cue, Float32Array>();
-export function procedural(cue: Cue): Float32Array {
+/** The cue's built-in sound, or null for a spoken cue (see SPOKEN). */
+export function procedural(cue: Cue): Float32Array | null {
+  if (SPOKEN.has(cue)) return null;
   let b = cache.get(cue);
   if (!b) {
-    const from = fallbackChain(cue).find((c) => BUILD[c])!;
-    b = from === cue ? BUILD[cue]!() : procedural(from);
+    const from = fallbackChain(cue).find((c) => BUILD[c]);
+    if (!from) return null;
+    b = from === cue ? BUILD[cue]!() : procedural(from)!;
     cache.set(cue, b);
   }
   return b;

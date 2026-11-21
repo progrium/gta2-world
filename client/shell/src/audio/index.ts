@@ -7,11 +7,13 @@
 //
 // plus audio.volume, audio.muted and audio.toggleMute(). Samples come from the
 // player's own banks (data/audio/<map>.sdt/.raw and fstyle.sdt/.raw) through
-// the mapping made on the sound board; unmapped cues play a procedural sound.
+// the mapping made on the sound board, plus the spoken lines in
+// data/audio/Vocals/*.wav; unmapped cues play a procedural sound.
 
 import type { AssetStore, MapChoice } from "../assets/store.ts";
-import { AudioEngine, type BankId } from "./engine.ts";
+import { AudioEngine, type Bank, type BankId } from "./engine.ts";
 import { SoundBank } from "./sdt.ts";
+import { VocalBank } from "./wav.ts";
 
 export { CUES, CUE_LABELS, type Cue } from "./cues.ts";
 export { AudioEngine } from "./engine.ts";
@@ -28,7 +30,7 @@ export function mapBankName(map: Pick<MapChoice, "gmp">): string {
  * borrows another map's: the shipped map banks share one layout.
  */
 export async function loadBanks(store: AssetStore, map: Pick<MapChoice, "gmp">, engine: AudioEngine = audio): Promise<Partial<Record<BankId, string>>> {
-  const banks: Partial<Record<BankId, SoundBank>> = {};
+  const banks: Partial<Record<BankId, Bank>> = {};
   const names: Partial<Record<BankId, string>> = {};
   const pair = async (base: string): Promise<SoundBank | null> => {
     const s = store.find(`${base}.sdt`);
@@ -54,6 +56,15 @@ export async function loadBanks(store: AssetStore, map: Pick<MapChoice, "gmp">, 
   if (f) {
     banks.fstyle = f;
     names.fstyle = "fstyle.sdt";
+  }
+  const wavs = store.manifest.files.filter((f) => f.kind === "wav" && f.info.ok);
+  if (wavs.length) {
+    const files = await Promise.all(wavs.map(async (f) => ({ name: f.name, buf: await store.read(f.hash).catch(() => null) })));
+    const v = new VocalBank(files.filter((f): f is { name: string; buf: ArrayBuffer } => f.buf !== null));
+    if (v.names.length) {
+      banks.vocals = v;
+      names.vocals = `Vocals (${v.names.length} lines)`;
+    }
   }
   engine.setBanks(banks, names);
   return names;

@@ -2,7 +2,7 @@
 // samples in their own sound banks. The mapping is made by ear on the sound
 // board, kept in localStorage and exported as JSON.
 
-export type CueGroup = "Weapons" | "Hits and deaths" | "Vehicles" | "Pickups" | "Player and missions" | "Not in the game yet";
+export type CueGroup = "Weapons" | "Hits and deaths" | "Vehicles" | "Pickups" | "Announcer" | "Player and missions" | "Not in the game yet";
 
 export interface CueInfo {
   label: string;
@@ -16,6 +16,7 @@ export interface CueInfo {
 
 // Order is the board's order. Cues in "Not in the game yet" can be mapped now;
 // nothing plays them until the game has the event.
+const NY = "Not in the game yet";
 const INFO = {
   // Weapons: one per weapon id, then the weapon change.
   pistol: { label: "Pistol shot", group: "Weapons" },
@@ -35,7 +36,6 @@ const INFO = {
   explosion: { label: "Explosion", group: "Hits and deaths" },
   ped_hurt: { label: "Pedestrian hurt", group: "Hits and deaths" },
   ped_death: { label: "Pedestrian death", group: "Hits and deaths" },
-  wasted: { label: "Wasted (you die)", group: "Hits and deaths", fallback: "ped_death" },
   // Vehicles
   engine: { label: "Engine loop (pitch follows speed)", group: "Vehicles" },
   horn: { label: "Horn", group: "Vehicles" },
@@ -44,14 +44,32 @@ const INFO = {
   car_bump: { label: "Car bump (light)", group: "Vehicles", fallback: "car_crash" },
   tyre_screech: { label: "Tyre screech (hard turn at speed)", group: "Vehicles" },
   siren: { label: "Siren", group: "Vehicles" },
-  // Pickups
+  // Pickups: the pickup sound, then the announcer names what it was.
   pickup: { label: "Weapon pickup", group: "Pickups" },
   pickup_health: { label: "Health pickup", group: "Pickups", fallback: "pickup" },
   pickup_armour: { label: "Armour pickup", group: "Pickups", fallback: "pickup" },
   pickup_powerup: { label: "Power-up pickup", group: "Pickups", fallback: "pickup" },
+  // Announcer: spoken lines played over the pickup sound, and when you frag someone.
+  say_pistol: { label: "“Pistol!”", group: "Announcer" },
+  say_machine_gun: { label: "“Machine gun!”", group: "Announcer" },
+  say_shotgun: { label: "“Shotgun!”", group: "Announcer" },
+  say_rocket_launcher: { label: "“Rocket launcher!”", group: "Announcer" },
+  say_dual_pistol: { label: "“Dual pistol!”", group: "Announcer" },
+  say_silenced_mg: { label: "“Silenced machine gun!”", group: "Announcer" },
+  say_flamethrower: { label: "“Flamethrower!”", group: "Announcer" },
+  say_electro_gun: { label: "“Electro gun!”", group: "Announcer" },
+  say_grenades: { label: "“Grenades!”", group: "Announcer" },
+  say_molotovs: { label: "“Molotov cocktails!”", group: "Announcer" },
+  say_health: { label: "“Health!”", group: "Announcer" },
+  say_armour: { label: "“Armour!”", group: "Announcer" },
+  say_invulnerability: { label: "“Invulnerability!”", group: "Announcer" },
+  say_double_damage: { label: "“Double damage!”", group: "Announcer" },
+  say_fast_reload: { label: "“Fast reload!”", group: "Announcer" },
+  frag_taunt: { label: "Taunt when you kill a player", group: "Announcer" },
   // Player and missions
   wanted_up: { label: "Wanted level up", group: "Player and missions" },
   wanted_down: { label: "Wanted level down", group: "Player and missions" },
+  wasted: { label: "Wasted (you die)", group: "Player and missions", fallback: "ped_death" },
   busted: { label: "Busted", group: "Player and missions" },
   phone_ring: { label: "Phone ringing", group: "Player and missions" },
   pager: { label: "Pager (mission brief)", group: "Player and missions" },
@@ -62,17 +80,45 @@ const INFO = {
   level_complete: { label: "Level complete", group: "Player and missions", fallback: "mission_pass" },
   round_end: { label: "Round over (multiplayer)", group: "Player and missions", fallback: "mission_pass" },
   player_joined: { label: "Player joined (multiplayer)", group: "Player and missions", fallback: "pager" },
-  // Not in the game yet
-  footstep: { label: "Footstep", group: "Not in the game yet" },
-  punch: { label: "Punch", group: "Not in the game yet" },
-  glass_break: { label: "Glass breaking", group: "Not in the game yet" },
-  splash: { label: "Splash (into water)", group: "Not in the game yet" },
-  car_alarm: { label: "Car alarm", group: "Not in the game yet" },
-  car_fire: { label: "Car on fire", group: "Not in the game yet" },
-  ped_chatter: { label: "Pedestrian chatter", group: "Not in the game yet" },
-  cop_shout: { label: "Cop shout", group: "Not in the game yet" },
-  gang_shout: { label: "Gang member shout", group: "Not in the game yet" },
-  train: { label: "Train", group: "Not in the game yet" },
+  // Not in the game yet: world and pedestrian sounds
+  footstep: { label: "Footstep", group: NY },
+  punch: { label: "Punch", group: NY },
+  glass_break: { label: "Glass breaking", group: NY },
+  splash: { label: "Splash (into water)", group: NY },
+  car_alarm: { label: "Car alarm", group: NY },
+  car_fire: { label: "Car on fire", group: NY },
+  train: { label: "Train", group: NY },
+  crowd: { label: "Crowd", group: NY },
+  dog_bark: { label: "Dog bark", group: NY },
+  ped_chatter: { label: "Pedestrian chatter (“Hey”, “Huh?”)", group: NY },
+  ped_bumped: { label: "Pedestrian bumped (“Watch it, buddy!”)", group: NY },
+  ped_panic: { label: "Pedestrian panic (“He's got a gun!”, “Help!”)", group: NY },
+  ped_taxi: { label: "Pedestrian hailing a taxi", group: NY },
+  mugger: { label: "Mugger (“Give me your wallet”)", group: NY },
+  driver_angry: { label: "Angry driver (“Asshole!”, “Maniac”)", group: NY },
+  carjacked: { label: "Carjacked driver (“Get out of my car!”)", group: NY },
+  cop_shout: { label: "Cop shout (“Freeze!”, “Hold it!”)", group: NY },
+  police_radio: { label: "Police radio", group: NY },
+  gang_shout: { label: "Gang member shout", group: NY },
+  laugh: { label: "Laughter", group: NY },
+  elvis: { label: "Elvis (“Hey man, it's the king!”)", group: NY },
+  // Not in the game yet: announcer
+  say_kill_frenzy: { label: "“Kill frenzy!”", group: NY },
+  frenzy_passed: { label: "Kill frenzy passed", group: NY, fallback: "mission_pass" },
+  frenzy_failed: { label: "Kill frenzy failed", group: NY, fallback: "mission_fail" },
+  kill_count: { label: "Kill count (“Thirty people down!”)", group: NY },
+  say_multiplier: { label: "Multiplier up", group: NY },
+  say_extra_life: { label: "Extra life", group: NY },
+  say_jail_card: { label: "“Get out of jail free card!”", group: NY },
+  say_respect: { label: "Respect", group: NY },
+  say_instant_gang: { label: "Instant gang", group: NY },
+  say_invisibility: { label: "“Invisibility!”", group: NY },
+  say_vehicle_weapon: { label: "Vehicle weapon (“Vehicle bomb”, “Oil slick!”)", group: NY },
+  time_out: { label: "“Time's up!”", group: NY },
+  time_extended: { label: "Time extended", group: NY },
+  race_start: { label: "Race on", group: NY },
+  race_lap: { label: "“Second lap!” / “Final lap!”", group: NY },
+  race_over: { label: "“Race over!”", group: NY },
 } as const satisfies Record<string, CueInfo>;
 
 export type Cue = keyof typeof INFO;
@@ -80,6 +126,14 @@ export const CUE_INFO: Record<Cue, CueInfo> = INFO;
 export const CUES = Object.keys(INFO) as Cue[];
 export const CUE_LABELS = Object.fromEntries(CUES.map((c) => [c, INFO[c].label])) as Record<Cue, string>;
 export const CUE_GROUPS: CueGroup[] = [...new Set(CUES.map((c) => INFO[c].group))];
+
+/**
+ * Spoken cues: with nothing mapped they stay silent rather than play a
+ * built-in stand-in, which would only be noise where a voice belongs.
+ */
+export const SPOKEN: ReadonlySet<Cue> = new Set(
+  CUES.filter((c) => c.startsWith("say_") || ["frag_taunt", "kill_count", "time_out", "time_extended", "race_start", "race_lap", "race_over", "ped_chatter", "ped_bumped", "ped_panic", "ped_taxi", "mugger", "driver_angry", "carjacked", "cop_shout", "police_radio", "gang_shout", "laugh", "elvis", "crowd", "dog_bark"].includes(c)),
+);
 
 /** The cue itself, then the cues it borrows from, nearest first. */
 export function fallbackChain(c: Cue): Cue[] {
@@ -100,8 +154,11 @@ export const isCue = (s: string): s is Cue => (CUES as readonly string[]).includ
  * each, apart from a small per-district block around #122 to #137) or "fstyle" (the shared fstyle.sdt bank).
  */
 export interface SampleRef {
-  bank: "map" | "fstyle";
+  bank: "map" | "fstyle" | "vocals";
+  /** Position in the bank. For "vocals" it is ignored and `name` is used. */
   index: number;
+  /** "vocals" only: the line's file name without .wav, e.g. "wasted". */
+  name?: string;
   /** Force an encoding when the guess is wrong. */
   format?: "s16" | "u8";
 }
@@ -131,42 +188,95 @@ export function emptyMapping(): SoundMapping {
 const num = (v: unknown, lo: number, hi: number, d: number): number => (typeof v === "number" && Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d);
 
 /**
- * The shipped mapping: sample numbers in the shared map-bank layout, picked by
- * ear on the sound board. It names samples by index only; the sounds are
- * whatever the player's own banks hold. Cues added after it was made start
- * from a first guess by waveform shape (marked below) until someone listens.
+ * The shipped mapping. It names samples only: a number in the shared map-bank
+ * layout, or a spoken line's file name (data/audio/Vocals/<name>.wav); the
+ * sounds are whatever the player's own files hold. Picked by ear on the sound
+ * board, then checked against a listened-to description of every sample.
  */
-const DEFAULT_SAMPLES: Partial<Record<Cue, number[]>> = {
-  pistol: [312],
-  machine_gun: [26, 28],
-  shotgun: [314],
+const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
+  pistol: [312, 311],
+  machine_gun: [53, 43],
+  silenced_mg: [55],
+  shotgun: [314, 315],
   rocket_launch: [29],
-  explosion: [186, 187, 188],
-  bullet_hit: [194, 195, 196, 197],
-  ped_hurt: [216, 217, 218, 219, 285, 286, 287],
-  ped_death: [229, 230, 231, 234, 235, 237],
-  car_crash: [37, 38, 39, 40],
-  car_door: [25, 27, 26],
-  pickup: [319],
+  flamethrower: [318],
+  electro_gun: [313, 9],
   weapon_switch: [56],
-  horn: [17],
+  bullet_hit: [194, 195, 196, 197],
+  explosion: [186, 187, 188, 68],
+  ped_hurt: [269, 228, 232, 233, 236, 238],
+  ped_death: [229, 230, 231, 234, 235, 237],
   engine: [3],
-  // First guesses, not yet heard:
-  flamethrower: [58],
-  electro_gun: [310],
-  tyre_screech: [24],
-  siren: [14],
-  phone_ring: [23],
-  footstep: [198, 199, 200, 201],
-  punch: [206, 207],
-  glass_break: [202, 203, 204, 205],
-  car_alarm: [30],
-  ped_chatter: [210, 211, 212, 213],
+  horn: [17],
+  car_door: [25, 27, 26, 28],
+  car_crash: [37, 38, 39, 40, 33],
+  car_bump: [44],
+  tyre_screech: [146],
+  siren: [14, 147],
+  pickup: [319],
+  say_pistol: ["pistolp"],
+  say_machine_gun: ["macgun"],
+  say_shotgun: ["shotgun"],
+  say_rocket_launcher: ["rocketl"],
+  say_dual_pistol: ["dualpist"],
+  say_silenced_mg: ["silentmg"],
+  say_flamethrower: ["flamet"],
+  say_electro_gun: ["electro", "electrofingers"],
+  say_grenades: ["grenades"],
+  say_molotovs: ["molotovs"],
+  say_health: ["health"],
+  say_armour: ["armour"],
+  say_invulnerability: ["invulnerability"],
+  say_double_damage: ["doubledamage"],
+  say_fast_reload: ["fastreload"],
+  frag_taunt: ["youretoastbuddy", "thatsgottahurt", "oohdidthathurt", "sorrydidthathurt", "toasted", "eatleaddeath", "crispycritter", "suckitandsee", "sorryaboutthat", "shocking"],
+  wasted: ["wasted"],
+  busted: ["busted"],
+  phone_ring: [30],
+  mission_pass: ["jobcomplete"],
+  mission_fail: ["jobfail"],
+  game_over: ["gameover"],
+  footstep: [198, 200, 206, 208],
+  punch: [45, 59],
+  glass_break: [66, 67],
+  car_fire: [189, 190],
+  train: [36],
+  crowd: [0, 22, 161, 174],
+  dog_bark: [49],
+  ped_chatter: [216, 218, 219, 268, 272, 275, 276, 303, 305],
+  ped_bumped: [210, 211, 212, 213, 214, 215],
+  ped_panic: [221, 222, 223, 224, 225, 226, 245, 246, 247, 248, 249],
+  ped_taxi: [239, 241, 242, 243, 244],
+  mugger: [251, 252, 253, 255, 256],
+  driver_angry: [257, 259, 261, 262, 263, 264, 266, 267, 280, 281],
+  carjacked: [277, 278, 279, 283, 284],
+  cop_shout: [285, 286, 288, 289, 291, 292, 293, 294, 296, 298, "freeze"],
+  police_radio: [71, 72, 90, 98, 111, 119],
+  gang_shout: [154, 155, 156, 164],
+  laugh: [157, 158, 159, 160, 182, "laugh3", "laugh5", "laughb", "laughc"],
+  elvis: [299, 300, 301, 302, "elvis"],
+  say_kill_frenzy: ["killfrenzy"],
+  frenzy_passed: ["frenzypassed"],
+  frenzy_failed: ["frenzyfail"],
+  kill_count: ["30peopledown", "60peopledown", "90peopledown", "120peopledown", "150peopledown"],
+  say_multiplier: ["multiplyer"],
+  say_extra_life: ["life"],
+  say_jail_card: ["getoutjail"],
+  say_respect: ["respect", "respectis"],
+  say_instant_gang: ["instantgang"],
+  say_invisibility: ["invisibility"],
+  say_vehicle_weapon: ["vehbomb", "vehbomb2", "vehmacgun", "vehmines", "oilslick", "bombarmed"],
+  time_out: ["timesup", "timeout"],
+  time_extended: ["timeextended"],
+  race_start: ["raceon"],
+  race_lap: ["2ndlap", "finallap"],
+  race_over: ["raceover"],
 };
 
 export function defaultMapping(): SoundMapping {
   const m = emptyMapping();
-  for (const c of CUES) m.cues[c].samples = (DEFAULT_SAMPLES[c] ?? []).map((index) => ({ bank: "map", index }));
+  for (const c of CUES)
+    m.cues[c].samples = (DEFAULT_SAMPLES[c] ?? []).map((x): SampleRef => (typeof x === "string" ? { bank: "vocals", index: 0, name: x } : { bank: "map", index: x }));
   return m;
 }
 
@@ -186,7 +296,9 @@ export function normalizeMapping(input: unknown, base: SoundMapping = defaultMap
     const samples = Array.isArray(m.samples) ? m.samples : [];
     for (const s of samples) {
       const r = s as Record<string, unknown>;
-      if ((r.bank === "map" || r.bank === "fstyle") && Number.isInteger(r.index) && (r.index as number) >= 0) {
+      if (r.bank === "vocals" && typeof r.name === "string" && r.name) {
+        out.cues[c].samples.push({ bank: "vocals", index: 0, name: r.name.toLowerCase() });
+      } else if ((r.bank === "map" || r.bank === "fstyle") && Number.isInteger(r.index) && (r.index as number) >= 0) {
         const ref: SampleRef = { bank: r.bank, index: r.index as number };
         if (r.format === "s16" || r.format === "u8") ref.format = r.format;
         out.cues[c].samples.push(ref);
@@ -218,7 +330,7 @@ export function saveMapping(m: SoundMapping, storage: Pick<Storage, "setItem"> |
 
 export const mappingJson = (m: SoundMapping): string => `${JSON.stringify(m, null, 2)}\n`;
 
-export const sameRef = (a: SampleRef, b: SampleRef): boolean => a.bank === b.bank && a.index === b.index;
+export const sameRef = (a: SampleRef, b: SampleRef): boolean => a.bank === b.bank && (a.bank === "vocals" ? a.name === b.name : a.index === b.index);
 
 /** Playback rate for the engine loop at a speed in blocks per tick. */
 export function engineRate(m: SoundMapping, speed: number): number {
