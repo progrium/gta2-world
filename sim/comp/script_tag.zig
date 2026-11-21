@@ -10,6 +10,11 @@ pub const ScriptTag = extern struct {
     handle: u16 = 0,
     /// `flag_*`.
     flags: u16 = 0,
+    /// Weapons this entity has been hit by since a script last cleared the
+    /// bit (mission-scripts.md 3.4): bit `weapon & 31`, the kill event's
+    /// weapon numbering. Set by `hooks.entityHit`; A2's hit tests read and
+    /// clear it.
+    hits: u32 = 0,
 
     /// Not despawned by the ambient recycler.
     pub const flag_keep: u16 = 1;

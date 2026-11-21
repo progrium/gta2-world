@@ -5,6 +5,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .interfaces = .{ .path = "../interfaces/zig" },
+        // Tests only: scrasm (formats/scr.zig) writes the test scripts.
+        .formats = .{ .path = "../formats" },
     },
     .paths = .{ "build.zig", "build.zig.zon", "." },
 }
