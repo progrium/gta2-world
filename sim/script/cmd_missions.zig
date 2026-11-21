@@ -54,15 +54,24 @@ pub fn Sys(comptime Self: type) type {
 
         /// Load the mission a string key names and GOSUB into it.
         fn launch(self: *Self, t: *Thread, key: u16, back: u16) Step {
+            return launchGated(self, t, key, back, 0, 0);
+        }
+
+        fn launchGated(self: *Self, t: *Thread, key: u16, back: u16, passed: u16, failed: u16) Step {
             const idx = V.missionByKey(self, key) orelse {
                 V.st(self).unhandled +%= 1;
                 return .advance;
             };
             V.loadMission(self, idx);
             const m = &self.level.?.missions[idx];
-            V.st(self).mission_thread = t.id;
+            const s = V.st(self);
+            s.mission_thread = t.id;
+            s.mission_passed = passed;
+            s.mission_failed = failed;
             self.pushEvent(.{ .kind = .mission_start, .a = 0, .x = @intCast(idx) });
-            return V.gosub(self, t, m.start, back);
+            const step = V.gosub(self, t, m.start, back);
+            s.mission_sp = t.sp;
+            return step;
         }
 
         /// The gang a string key names: the index A2's gang declarations
@@ -96,6 +105,13 @@ pub fn Sys(comptime Self: type) type {
             const mission2 = p.u(3);
             const mission1 = p.u(10);
             const back = nextOf(self, cmd);
+            // Ours: a mission sub-script already running counts as being on
+            // a job, so a second phone answered before the first mission
+            // has set its own flags cannot load over it.
+            if (V.st(self).mission_thread != 0) {
+                gateBrief(self, base, gate_on_own_job);
+                return .advance;
+            }
             // On a job for this gang or another (the general flag, word 4,
             // has no line of its own: script-missions 6).
             if (val(self, p.u(5)) != 0) {
@@ -111,18 +127,18 @@ pub fn Sys(comptime Self: type) type {
             const steps = @divTrunc(respect, respect_per_step);
             const enough = steps >= p.s(9);
             if (passed != 0 and val(self, passed) != 0) {
-                if (enough) return launch(self, t, mission2, back);
+                if (enough) return launchGated(self, t, mission2, back, passed, failed);
                 gateBrief(self, base, gate_passed);
                 return .advance;
             }
             if (failed != 0 and val(self, failed) != 0) {
-                if (enough) return launch(self, t, mission2, back);
+                if (enough) return launchGated(self, t, mission2, back, passed, failed);
                 gateBrief(self, base, gate_failed);
                 return .advance;
             }
             if (enough) {
                 V.st(self).death_arrest = 0;
-                return launch(self, t, mission1, back);
+                return launchGated(self, t, mission1, back, passed, failed);
             }
             gateBrief(self, base, if (steps == 0) gate_zero_respect else if (steps < 0) gate_negative_respect else gate_low_respect);
             return .advance;

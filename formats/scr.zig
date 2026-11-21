@@ -200,10 +200,15 @@ pub const types = [_]TypeInfo{
     .{ .kind = 210, .name = "thread_decl", .size = 8, .owner = .a1, .guess = true },
     .{ .kind = 215, .name = "trigger_on", .size = 12, .owner = .a1 },
     .{ .kind = 216, .name = "trigger_off", .size = 12, .owner = .a1 },
+    // --- A1: the HUD arrow (script-declarations.md 2.6 declares it; the
+    // point and remove commands are ours, from the player's files)
+    .{ .kind = 23, .name = "arrow", .size = 12, .owner = .a1 },
+    .{ .kind = 113, .name = "arrow_at", .size = 16, .owner = .a1, .guess = true },
+    .{ .kind = 114, .name = "arrow_pos", .size = 24, .owner = .a1, .guess = true },
+    .{ .kind = 116, .name = "arrow_clear", .size = 12, .owner = .a1, .guess = true },
     // --- A1: counters (script-counters.md)
     .{ .kind = 21, .name = "counter", .size = 12, .owner = .a1 },
     .{ .kind = 22, .name = "counter_bare", .size = 8, .owner = .a1, .guess = true },
-    .{ .kind = 23, .name = "save_counter", .size = 12, .owner = .a1 },
     .{ .kind = 276, .name = "counter_v", .size = 12, .owner = .a1 },
     .{ .kind = 24, .name = "save_counter_bare", .size = 8, .owner = .a1, .guess = true },
     .{ .kind = 340, .name = "set", .size = 12, .owner = .a1 },
@@ -279,8 +284,8 @@ const a2_sizes = blk: {
         .{ 6, 36 },   .{ 9, 32 },   .{ 10, 32 },  .{ 11, 32 },  .{ 14, 28 },  .{ 15, 28 },  .{ 16, 28 },  .{ 18, 32 },  .{ 20, 32 },
         .{ 26, 36 },  .{ 27, 36 },  .{ 30, 36 },  .{ 32, 36 },  .{ 35, 32 },  .{ 38, 40 },  .{ 39, 28 },  .{ 40, 20 },  .{ 41, 32 },
         .{ 42, 32 },  .{ 43, 32 },  .{ 44, 32 },  .{ 45, 32 },  .{ 46, 32 },  .{ 47, 32 },  .{ 49, 28 },  .{ 52, 28 },  .{ 100, 12 },
-        .{ 101, 8 },  .{ 102, 32 }, .{ 103, 16 }, .{ 104, 16 }, .{ 105, 16 }, .{ 106, 16 }, .{ 107, 16 }, .{ 113, 16 }, .{ 114, 24 },
-        .{ 116, 12 }, .{ 121, 12 }, .{ 122, 12 }, .{ 123, 12 }, .{ 126, 12 }, .{ 127, 12 }, .{ 128, 12 }, .{ 129, 12 }, .{ 131, 12 },
+        .{ 101, 8 },  .{ 102, 32 }, .{ 103, 16 }, .{ 104, 16 }, .{ 105, 16 }, .{ 106, 16 }, .{ 107, 16 },
+        .{ 121, 12 }, .{ 122, 12 }, .{ 123, 12 }, .{ 126, 12 }, .{ 127, 12 }, .{ 128, 12 }, .{ 129, 12 }, .{ 131, 12 },
         .{ 132, 16 }, .{ 133, 24 }, .{ 134, 12 }, .{ 138, 12 }, .{ 139, 24 }, .{ 140, 12 }, .{ 141, 16 }, .{ 142, 20 }, .{ 144, 12 },
         .{ 145, 32 }, .{ 146, 32 }, .{ 147, 32 }, .{ 151, 12 }, .{ 152, 12 }, .{ 153, 12 }, .{ 154, 12 }, .{ 157, 12 }, .{ 158, 12 },
         .{ 160, 12 }, .{ 161, 12 }, .{ 162, 12 }, .{ 163, 12 }, .{ 164, 12 }, .{ 165, 12 }, .{ 166, 12 }, .{ 167, 12 }, .{ 171, 12 },

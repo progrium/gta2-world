@@ -48,7 +48,7 @@ pub fn Sys(comptime Self: type) type {
             const p = P{ .b = cmd.params };
             switch (cmd.kind) {
                 // Declarations met at run time do nothing (2.1).
-                k.counter, k.counter_bare, k.save_counter, k.save_counter_bare, k.counter_v, k.copy => return .advance,
+                k.counter, k.counter_bare, k.save_counter_bare, k.counter_v, k.copy => return .advance,
                 k.set => {
                     if (V.slotPtr(self, p.u(0))) |q| q.* = p.s(1);
                     return .advance;
