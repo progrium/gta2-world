@@ -378,7 +378,7 @@ pub fn trafficSoak(ticks: u32, seed: u64) !SoakCounts {
         fn f(cx: *Ctx, id: EntityId, v: *c.Vehicle, hp: *c.Health, t: *c.Transform) void {
             if (v.ai_flags & c.Vehicle.ai_abandoned != 0) cx.out.abandoned += 1;
             if (cx.still[id.index()] >= 300) cx.out.stuck += 1;
-            if (debug_soak and (v.ai_flags & c.Vehicle.ai_abandoned != 0 or cx.still[id.index()] >= 300)) std.debug.print("car {d} at {d},{d},{d} h {d}: flags {x} ai {x} dir {d} timer {d} wig {d} touch {d}\n", .{ id.index(), @as(f32, @floatFromInt(t.x)) / 65536, @as(f32, @floatFromInt(t.y)) / 65536, @as(f32, @floatFromInt(t.z)) / 65536, t.heading, v.flags, v.ai_flags, v.ai_dir, v.timer, v.ai_wiggle, v.ai_touch });
+            if (debug_soak and (v.ai_flags & c.Vehicle.ai_abandoned != 0 or cx.still[id.index()] >= 300)) std.debug.print("car {d} at {d},{d},{d} h {d}: flags {x} ai {x} dir {d} timer {d} wig {d} touch {d}\n", .{ id.index(), t.x >> 16, t.y >> 16, t.z >> 16, t.heading, v.flags, v.ai_flags, v.ai_dir, v.timer, v.ai_wiggle, v.ai_touch });
             if (hp.hp < T.car_damage_max) cx.out.damaged += 1;
         }
     }.f);
