@@ -1,6 +1,7 @@
 //! The sim's static `Level` (interfaces `level.zig`) from a parsed map:
-//! zones, map objects and lights. The script is added by `formats/scr.zig`
-//! (workstream A1) when it lands; until then `Level.script` is empty.
+//! zones, map objects and lights. The script comes from `formats/scr.zig`
+//! (`parseMain`, `parseMission`), which the host adds to `Level.script` and
+//! `Level.missions`.
 //!
 //! The returned slices live in `gpa` allocations owned by `LevelData`.
 

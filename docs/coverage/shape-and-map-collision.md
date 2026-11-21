@@ -4,8 +4,8 @@ Rules from [docs/behaviour/shape-and-map-collision.md](../behaviour/shape-and-ma
 
 | rule | status | test | notes |
 |---|---|---|---|
-| 3.1 Two things touching (sprite against sprite) | todo | | |
-| 3.2 Touching a wall | todo | | |
-| 3.3 Slopes | todo | | |
-| 3.4 Diagonal walls | todo | | |
-| 3.5 Map edge | todo | | |
+| 3.1 Two things touching (sprite against sprite) | ours | sim/test/cars.zig | broadphase with circles for peds and boxes for cars (contacts.zig) |
+| 3.2 Touching a wall | done | sim/test/peds.zig, sim/map.zig | wall faces are lines; partial blocks never wall a body |
+| 3.3 Slopes | done | sim/map.zig | ramp side faces left out (formats/grid.zig); a step up a ramp is tested at the higher floor |
+| 3.4 Diagonal walls | done | sim/test/bodies_void.zig | 45-48 and the closed half of 49-52 as half-block walls; the diagonal-wall object for contacts is not modelled |
+| 3.5 Map edge | done | sim/test/bodies_void.zig |  |

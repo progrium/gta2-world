@@ -36,8 +36,10 @@ Shared names (imports, `Fx`, the `abi.rand` salts) come from `prelude.zig`. Rese
 | `sys/scoring.zig` | frags and points | G |
 | `sys/death.zig` | wasted and busted (stub) | G |
 | `sys/pickups.zig` | deathmatch pickups | B |
-| `sys/objects.zig` | objects API and `sysObjects` (stub) | B |
-| `sys/lights.zig` | light cycle (stub), `lights` state | B |
+| `sys/objects.zig` | objects API and `sysObjects`: phones, script pickups, oil, mines, conveyors, destructors, map objects | B |
+| `sys/objects_state.zig` | the `objects` sub-struct of the SP block (doors, generators, areas, dead phones) | B |
+| `sys/doors.zig`, `sys/generators.zig`, `sys/crusher.zig` | doors, generators, crushers | B |
+| `sys/lights.zig` | light cycle, lamps, crossing markers, `lights` state | B |
 | `sys/ambient.zig` | keeping the population near players | F |
 | `sys/traffic.zig` | traffic AI | F |
 | `sys/respawn.zig` | respawning | G |
@@ -47,8 +49,11 @@ Shared names (imports, `Fx`, the `abi.rand` salts) come from `prelude.zig`. Rese
 | `sp/career.zig` | career state and API (stub) | G |
 | `sp/wanted.zig`, `sp/police.zig` | wanted and police state, API (stubs) | E |
 | `sp/gangs.zig` | gang state and API (stub) | D2 |
-| `sp/hud.zig` | HUD state and API (stub) | A1 |
-| `script/vm.zig`, `script/hooks.zig` | script state, VM and hooks (stubs) | A1 |
+| `script/world.zig` | the VM seam for world commands (`exec`, `coverage`), parameter decoding, A2's `world` state block | A2 |
+| `script/cmd_decl.zig`, `cmd_cars.zig`, `cmd_chars.zig`, `cmd_objects.zig`, `cmd_player.zig` | declaration, car, character, object and player commands | A2 |
+| `sp/hud.zig` | HUD state and API (banner, briefs, timer/counter displays, arrow) | A1 |
+| `script/vm.zig`, `script/hooks.zig` | script state, VM, triggers and hooks | A1 |
+| `script/cmd_flow.zig`, `cmd_counters.zig`, `cmd_messages.zig`, `cmd_missions.zig` | the VM's own command families | A1 |
 | `comp/*.zig` | components: `objective` D1, `object` B, `car_task` F, `group` D2, `script_tag` A1; the rest shared | |
 | `tuning/*.zig` | tuning by area, re-exported from `tuning.zig` (whose `var`s stay there) | the area's owner |
 | `test/*.zig` | tests by area, with `test/harness.zig`; new workstreams add `test/<area>_*.zig` and list them in `sim_test.zig` | |

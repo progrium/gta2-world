@@ -141,6 +141,10 @@ test "respect: hijacking or destroying a gang car is a 1-point kill" {
     h.sim.board(d, car);
     const dp = h.sim.state.world.get(d, c.Pedestrian).?;
     dp.car_phase = 0;
+    // A parked driver: told to wait, his car task set to stop (board gave him a
+    // thief's), so the car stays put while the player runs to it.
+    Sp.car_tasks.setCarTask(h.sim, car, .stop, EntityId.none, 0, 0);
+    Sp.objectives.setObjective(h.sim, d, .{ .kind = .wait });
     h.sim.transformOf(h.me()).?.* = .{ .x = blk(62), .y = blk(31), .z = h.sim.transformOf(h.me()).?.z, .heading = 16384 };
     h.sim.startEnter(h.me(), car);
     for (0..300) |_| {

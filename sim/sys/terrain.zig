@@ -19,9 +19,19 @@ const eql = prelude.eql;
 
 pub fn Sys(comptime Self: type) type {
     return struct {
+        /// Is a circle body blocked at (x, y)? Tested at height z, and again
+        /// at the floor it would stand on there when that is higher (up a
+        /// ramp), so a step never lifts its head into matter: a ramp that
+        /// runs under a low ceiling stops it where the head would hit.
+        pub fn circleBlocked(self: *const Self, x: Fx, y: Fx, z: Fx, r: Fx, step_h: Fx) bool {
+            if (circleBlockedAt(self, x, y, z, r, step_h)) return true;
+            const f = map.floorAt(self.grid, x, y, z, step_h);
+            return f > z and circleBlockedAt(self, x, y, f, r, step_h);
+        }
+
         /// Sample points of a circle body: centre, four axis points, four
         /// diagonals. A void under the centre also blocks.
-        pub fn circleBlocked(self: *const Self, x: Fx, y: Fx, z: Fx, r: Fx, step_h: Fx) bool {
+        fn circleBlockedAt(self: *const Self, x: Fx, y: Fx, z: Fx, r: Fx, step_h: Fx) bool {
             const d = fx.mul(r, fx.ratio(70711, 100000));
             const pts = [_][2]Fx{
                 .{ 0, 0 }, .{ r, 0 },  .{ -r, 0 }, .{ 0, r },   .{ 0, -r },
@@ -30,15 +40,52 @@ pub fn Sys(comptime Self: type) type {
             if (map.isVoid(self.grid, x, y, z + step_h)) return true;
             for (pts) |p| {
                 if (map.blocks(self.grid, x + p[0], y + p[1], z, step_h)) return true;
+                if (map.pastTopEdge(x + p[0], y + p[1], z)) return true;
             }
             // Wall faces, against the body's square (a ped is a small
             // square: shape-and-map-collision.md 2).
             return map.rectHitsWall(self.grid, map.Rect.square(x, y, r), z, step_h);
         }
 
+        /// A circle body that has dropped (off a ledge, while falling or
+        /// thrown) can end with its edge inside the wall it slid down past:
+        /// its centre crossed the edge, but its radius still overlaps the
+        /// face below. Nudge it straight out, along the axes first and then
+        /// the diagonals, by the least of up to `r` + 1/16 that clears it.
+        /// Ours: the notes do not say how the original separates them.
+        pub fn pushOutCircle(self: *const Self, t: *c.Transform, r: Fx, step_h: Fx) void {
+            if (!self.circleBlocked(t.x, t.y, t.z, r, step_h)) return;
+            const dirs = [_][2]Fx{
+                .{ fx.one, 0 },                 .{ -fx.one, 0 },                .{ 0, fx.one },                  .{ 0, -fx.one },
+                .{ fx.ratio(70711, 100000), fx.ratio(70711, 100000) }, .{ -fx.ratio(70711, 100000), fx.ratio(70711, 100000) },
+                .{ fx.ratio(70711, 100000), -fx.ratio(70711, 100000) }, .{ -fx.ratio(70711, 100000), -fx.ratio(70711, 100000) },
+            };
+            const unit = fx.one >> 6;
+            var d: Fx = unit;
+            while (d <= r + (fx.one >> 4)) : (d += unit) {
+                for (dirs) |u| {
+                    const x = t.x + fx.mul(u[0], d);
+                    const y = t.y + fx.mul(u[1], d);
+                    if (!self.circleBlocked(x, y, t.z, r, step_h)) {
+                        t.x = x;
+                        t.y = y;
+                        return;
+                    }
+                }
+            }
+        }
+
+        /// Is a car's box blocked at (x, y)? Like `circleBlocked`, also
+        /// tested at the floor under its centre when that is higher.
+        pub fn boxBlocked(self: *const Self, x: Fx, y: Fx, z: Fx, heading: u16, m: *const T.CarModel) bool {
+            if (boxBlockedAt(self, x, y, z, heading, m)) return true;
+            const f = map.floorAt(self.grid, x, y, z, T.car_step);
+            return f > z and boxBlockedAt(self, x, y, f, heading, m);
+        }
+
         /// Sample points of a car's box: corners, side midpoints and the
         /// middle of the front and back.
-        pub fn boxBlocked(self: *const Self, x: Fx, y: Fx, z: Fx, heading: u16, m: *const T.CarModel) bool {
+        fn boxBlockedAt(self: *const Self, x: Fx, y: Fx, z: Fx, heading: u16, m: *const T.CarModel) bool {
             const cx = fx.cos(heading);
             const sy = fx.sin(heading);
             const pts = [_][2]Fx{
@@ -49,9 +96,13 @@ pub fn Sys(comptime Self: type) type {
                 const px = x + fx.mul(p[0], cx) - fx.mul(p[1], sy);
                 const py = y + fx.mul(p[0], sy) + fx.mul(p[1], cx);
                 if (map.blocks(self.grid, px, py, z, T.car_step)) return true;
+                if (map.pastTopEdge(px, py, z)) return true;
                 // Voids: checked at the middle of the front and the back.
                 if (i >= 6 and map.isVoid(self.grid, px, py, z + T.car_step)) return true;
             }
+            // And under the centre, so a car tipped or pushed over an edge
+            // never ends up hanging over nothing.
+            if (map.isVoid(self.grid, x, y, z + T.car_step)) return true;
             return map.rectHitsWall(self.grid, .{ .x = x, .y = y, .cos = cx, .sin = sy, .a = m.half_len, .b = m.half_wid }, z, T.car_step);
         }
 

@@ -77,6 +77,17 @@ pub const Script = struct {
     pointers: []const u16 = &.{},
     /// The script's own string table (names, not the `.gxt` text).
     strings: []const u8 = &.{},
+    /// Command number of `pointers[0]` (0 for the main script; a mission
+    /// sub-script's slot).
+    first: u16 = 0,
+    /// Offset of `code[0]` in the shared 64 KB command area (0 for the main
+    /// script): `pointers` hold offsets into that area.
+    base: u16 = 0,
+    /// A mission sub-script's start command (0 for the main script).
+    start: u16 = 0,
+    /// A mission sub-script's name, the file stem as the main script's
+    /// string table names it (for example "wil_le1").
+    name: []const u8 = "",
 };
 
 pub const Level = struct {
@@ -87,6 +98,10 @@ pub const Level = struct {
     zones: []const Zone = &.{},
     objects: []const MapObject = &.{},
     lights: []const Light = &.{},
+    /// Characters in each `.gxt` text, by numeric text id (0 or past the
+    /// end: unknown). The sim times briefs from it (script-messages.md 2.3);
+    /// the host fills it from the player's text file, or leaves it empty.
+    text_lengths: []const u16 = &.{},
 
     pub const empty: Level = .{};
 

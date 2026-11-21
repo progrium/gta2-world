@@ -44,7 +44,10 @@ pub const Pedestrian = extern struct {
     /// Ticks since `Health.last_hit_by` last changed, up to 255: a drowning
     /// is credited only to an attacker within `drown_credit_ticks`.
     hit_age: u8 = 0,
-    _pad: [3]u8 = .{ 0, 0, 0 },
+    /// Ticks spent falling (`state_falling`), up to 255: the fall animation
+    /// frame, and so fall damage, comes from it (ped-movement.md 3.5).
+    fall: u8 = 0,
+    _pad: [2]u8 = .{ 0, 0 },
     /// `Health.last_hit_by` as last seen, to notice a new attacker.
     prev_hit: abi.EntityId = .none,
     /// Getting in and out of cars (D2, `sys/enter_exit.zig`): the car being

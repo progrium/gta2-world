@@ -6,7 +6,7 @@ import { audio } from "./audio/index.ts";
 import { InputSystem } from "./input/system.ts";
 import { sessionIdFromUrl } from "./session.ts";
 import { gameScreen } from "./ui/gameScreen.ts";
-import { importScreen } from "./ui/importScreen.ts";
+import { importScreen, levelKey } from "./ui/importScreen.ts";
 
 const LAST_MAP = "gta2.lastMap";
 const root = document.getElementById("app")!;
@@ -35,7 +35,7 @@ function showImport(): void {
 
 function showGame(map: MapChoice): void {
   try {
-    localStorage.setItem(LAST_MAP, map.mmp ?? map.gmp);
+    localStorage.setItem(LAST_MAP, levelKey(map));
   } catch {
     /* ignore */
   }
@@ -49,9 +49,9 @@ async function boot(): Promise<void> {
   } catch (e) {
     console.warn("asset cache unavailable", e);
   }
-  const maps = store.maps();
+  const maps = [...store.levels(), ...store.maps()];
   const want = lastMap();
-  const m = maps.find((x) => (x.mmp ?? x.gmp) === want);
+  const m = maps.find((x) => levelKey(x) === want);
   if (m) showGame(m);
   else showImport();
 }

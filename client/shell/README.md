@@ -30,6 +30,14 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 | `src/audio/` | Sound banks (.sdt/.raw), WebAudio engine, the cue list and mapping, procedural fallbacks. |
 | `src/ui/` | Import screen, game screen (real map, sim and renderer, HUD), controls (remap) overlay, handling tuning panel, sound board. |
 
+## Single player
+
+Story levels come from a `.seq` file in the player's data (`MainOrBonus`, `GMPFile`, `STYFile`, `SCRFile`, `Description` blocks: main areas and bonus stages, in order), or, without one, from each `.gmp` with a same-named `.sty` and `.scr`. The import screen lists them under "Single player" above the deathmatch maps, with a choice of `.gxt` when there are several (`e.gxt` by default).
+
+Starting one loads the `.gxt`, the main `.scr` and the `.scr` files in the folder named after it (the mission sub-scripts) into `game.wasm` and runs the `sp` sim (`spStart`). `src/ui/spHud.ts` draws the HUD from `spInfo()`: points, multiplier and lives (top right), wanted stars (top centre), the banner message, the brief typing itself out at 3 ticks a character with a portrait badge from the text's speaker marker, the pager with the countdown and counters, and the arrow toward the mission target. Wasted (by cause: wasted, fried, shocked), busted, game over and level complete show as big centre text from the player's own `.gxt` keys, and the camera holds on the body, pulled back, for the 70-tick countdown. Text markup: `#` toggles highlighted words.
+
+What the HUD shows is filled in by the sim's workstreams (script engine A1, career G, wanted level E); until they land it stays empty. `?hudtest` feeds it a made-up state that cycles through every part, to look at the layout. Layout and colours are ours until the HUD note lands.
+
 ## Input
 
 - Every device produces the same 8-byte I2 frame. Slot 0 is the keyboard plus the first pad; further pads join as local players with Start (off on the M1 screen).
@@ -46,7 +54,7 @@ Default keys: arrows or WASD, Ctrl or J fire, Enter or F enter/exit, Space handb
 
 ## Assets
 
-The player picks their GTA2 folder (File System Access where available, else a `webkitdirectory` input), picks files, or drops a folder. A module worker hashes each `.gmp .sty .scr .mmp .gxt .sdt .raw`, checks `.gmp`/`.sty` headers and chunk tables, parses `.mmp` map descriptors, and writes the bytes to OPFS under `gta2/blobs/<sha256>` with a manifest. Nothing is uploaded. `AssetStore.find(name)` and `AssetStore.read(hash)` are the API for the renderer and sim; reads re-check the hash.
+The player picks their GTA2 folder (File System Access where available, else a `webkitdirectory` input), picks files, or drops a folder. A module worker hashes each `.gmp .sty .scr .mmp .seq .gxt .sdt .raw .gci`, checks `.gmp`/`.sty` headers and chunk tables, parses `.mmp` map descriptors, and writes the bytes to OPFS under `gta2/blobs/<sha256>` with a manifest. Nothing is uploaded. `AssetStore.find(name)` and `AssetStore.read(hash)` are the API for the renderer and sim; reads re-check the hash.
 
 Maps on offer come from `.mmp` files whose `.gmp` and `.sty` are present; without any `.mmp`, same-named `.gmp`/`.sty` pairs. With cached assets, the page opens straight into the last map.
 

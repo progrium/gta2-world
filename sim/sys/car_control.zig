@@ -37,7 +37,7 @@ pub fn Sys(comptime Self: type) type {
                     const player = !v.driver.isNone() and ctl.player != c.Controller.no_player;
                     const handbrake = in.buttons & Button.handbrake_jump != 0;
                     const in_water = v.flags & c.Vehicle.flag_in_water != 0;
-                    const keep = v.flags & (c.Vehicle.flag_ai | c.Vehicle.flag_burning | c.Vehicle.flag_wrecked | c.Vehicle.flag_in_water);
+                    const keep = v.flags & (c.Vehicle.flag_ai | c.Vehicle.flag_burning | c.Vehicle.flag_wrecked | c.Vehicle.flag_in_water | c.Vehicle.flag_crushed);
                     v.flags = keep | (if (handbrake) c.Vehicle.flag_handbrake else 0) | (if (in.buttons & Button.special != 0) c.Vehicle.flag_horn else 0);
                     v.steer = in.steer;
 
@@ -120,10 +120,18 @@ pub fn Sys(comptime Self: type) type {
                     var force = [2]Fx{ 0, 0 };
                     var torque: Fx = 0;
                     const ra = fx.div(fx.mul(angle, T.steer_speed_ref - speed), T.rear_steer_div);
+                    const oiled = v.oil > 0;
                     inline for (.{ true, false }) |front| {
                         const d = if (front) m.front_axle else m.rear_axle;
+                        const share = if (front) fx.mul(engine, m.front_drive_bias) else engine - fx.mul(engine, m.front_drive_bias);
+                        // On oil, an axle with no engine force on it exerts
+                        // no force at all; one with engine force keeps its
+                        // grip, ignores the brakes and is turned 30 degrees,
+                        // the front one way and the rear the other.
+                        const skip = oiled and share == 0;
+                        const off: u16 = if (!oiled) 0 else if ((v.oil_dir == 0) == front) T.oil_axle_angle else 0 -% T.oil_axle_angle;
                         const a_rad = if (front) angle else -ra;
-                        const a = t.heading +% radToAngle(a_rad);
+                        const a = t.heading +% radToAngle(a_rad) +% off;
                         const ax = fx.cos(a);
                         const ay = fx.sin(a);
                         // Velocity of the axle point, with the spin.
@@ -135,12 +143,14 @@ pub fn Sys(comptime Self: type) type {
                         const v_lat = fx.mul(px, -ay) + fx.mul(py, ax);
                         var grip: Fx = fx.one;
                         if (steering) grip = if (front) fx.one + m.turn_in else fx.one - m.turn_in;
-                        if (!front and handbrake) grip = fx.mul(grip, m.handbrake_slide);
-                        var drag = T.rolling_drag + fx.mul(brake_force, if (front) T.front_brake_share else T.rear_brake_share);
-                        if (!front) drag += fx.mul(m.brake_friction, frac(v.handbrake_n, T.handbrake_ramp));
-                        const share = if (front) fx.mul(engine, m.front_drive_bias) else engine - fx.mul(engine, m.front_drive_bias);
-                        const f_lat = -fx.mul(v_lat, grip);
-                        const f_long = -fx.mul(v_long, drag) + share;
+                        if (!front and handbrake and !oiled) grip = fx.mul(grip, m.handbrake_slide);
+                        var drag = T.rolling_drag;
+                        if (!oiled) {
+                            drag += fx.mul(brake_force, if (front) T.front_brake_share else T.rear_brake_share);
+                            if (!front) drag += fx.mul(m.brake_friction, frac(v.handbrake_n, T.handbrake_ramp));
+                        }
+                        const f_lat = if (skip) 0 else -fx.mul(v_lat, grip);
+                        const f_long = if (skip) 0 else -fx.mul(v_long, drag) + share;
                         var fwx = fx.mul(f_long, ax) - fx.mul(f_lat, ay);
                         var fwy = fx.mul(f_long, ay) + fx.mul(f_lat, ax);
                         if (!front) {
@@ -150,6 +160,22 @@ pub fn Sys(comptime Self: type) type {
                         force[0] += fwx;
                         force[1] += fwy;
                         torque += fx.mul(rx, fwy) - fx.mul(ry, fwx);
+                    }
+
+                    // 9. Steep-slope roll-back: on a 45 degree ramp with
+                    // neither brake on, 0.04 x mass pushes it downhill.
+                    if (v.brake == 0 and !handbrake) {
+                        const cell = map.floorCell(sim.grid, t.x, t.y, t.z, T.car_step);
+                        const code = map.codeOf(cell);
+                        if (map.shapeOf(cell) == map.Shape.slope and code >= 41 and code <= 44) {
+                            const push = fx.mul(T.slope_rollback, mass);
+                            switch (code - 41) {
+                                0 => force[1] += push, // high end toward -y
+                                1 => force[1] -= push,
+                                2 => force[0] += push, // high end toward -x
+                                else => force[0] -= push,
+                            }
+                        }
                     }
 
                     // 10. Integrate, with dead zones.
@@ -177,7 +203,7 @@ pub fn Sys(comptime Self: type) type {
                     // 13. Arrow snap: no steering, moving forwards on a road
                     // with one-axis arrows, within 25 degrees of the lane:
                     // a nudge of the heading toward it.
-                    if (driven and !steering and !back and sp > 0 and (!player or pedal >= 8)) {
+                    if (driven and !steering and !back and sp > 0 and v.oil == 0 and (!player or pedal >= 8)) {
                         const cell = map.floorCell(sim.grid, t.x, t.y, t.z, T.car_step);
                         const arrows = map.arrowsOf(cell);
                         if (map.groundOf(cell) == map.Ground.road and arrows != 0) {
@@ -195,8 +221,14 @@ pub fn Sys(comptime Self: type) type {
                             }
                         }
                     }
+                    oilTick(v);
                 }
             }.f);
+        }
+
+        /// Count down the oil spin, once a tick (step 13).
+        pub fn oilTick(v: *c.Vehicle) void {
+            if (v.oil > 0) v.oil -= 1;
         }
 
         /// Damp velocity in the car's frame (lateral, longitudinal) and spin.

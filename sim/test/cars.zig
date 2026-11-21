@@ -189,3 +189,45 @@ test "an off-centre car hit spins the car struck; a glancing wall hit spins the 
     }
     try std.testing.expect(turned);
 }
+
+test "a heavy car driven into an ordinary car crushes it and rides up; an ordinary car bounces" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    const w = &h.sim.state.world;
+    // Two models: 0 ordinary, 1 heavy (a tank).
+    var models = [2]T.CarModel{ T.default_car_models[0], T.default_car_models[0] };
+    models[1].heavy = 1;
+    models[1].tank = 1;
+    T.setCarModels(&models);
+    defer T.setCarModels(&T.default_car_models);
+    const tank = h.sim.spawnCarAt(blk(16), blk(20), 0, 1).?;
+    const victim = h.sim.spawnCarAt(blk(19), blk(20), 0, 0).?;
+    const vt = w.get(tank, c.Velocity).?;
+    var top: fx.Fx = 0;
+    for (0..40) |_| {
+        vt.vx = fx.ratio(3, 10);
+        h.run(1);
+        top = @max(top, h.sim.transformOf(tank).?.z);
+        if (!w.isAlive(victim) or w.get(victim, c.Health).?.hp <= 0) break;
+    }
+    try std.testing.expect(!w.isAlive(victim) or w.get(victim, c.Health).?.hp <= 0 or w.get(victim, c.Vehicle).?.flags & c.Vehicle.flag_wrecked != 0);
+    try std.testing.expect(top > fx.one);
+}
+
+test "a car landing on another bounces off it and damages it" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    const w = &h.sim.state.world;
+    const under = h.sim.spawnCarAt(blk(20), blk(20), 0, 0).?;
+    const top = h.sim.spawnCarAt(blk(20), blk(20) + fx.ratio(3, 10), 0, 0).?;
+    const tt = h.sim.transformOf(top).?;
+    tt.z = fx.one + fx.ratio(3, 10);
+    w.get(top, c.Collider).?.flags &= ~c.Collider.flag_grounded;
+    w.get(top, c.Velocity).?.vz = -fx.ratio(1, 8);
+    const hp0 = w.get(under, c.Health).?.hp;
+    h.run(1);
+    try std.testing.expect(w.get(under, c.Health).?.hp < hp0);
+    h.run(60);
+    // It ends up beside the other car, on the ground, not inside it.
+    try std.testing.expectEqual(fx.one, tt.z);
+}
