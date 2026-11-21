@@ -857,7 +857,7 @@ fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
         if (!isSp() or o.value >= game_sp.state.sp.objects.doors.len) return first;
         const sp = &game_sp.state.sp.objects;
         const d = sp.doors[o.value];
-        const start: u8 = if (d.anim < sp.anims.len) sp.anims[d.anim].start else 0;
+        const start: u16 = if (d.anim < sp.anims.len) sp.anims[d.anim].start else 0;
         return first + (d.frame -| start);
     }
     const info = s.objectSprites(o.model) orelse return 0;

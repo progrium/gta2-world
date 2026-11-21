@@ -125,7 +125,7 @@ pub const Style = struct {
     /// First sprite of object `model` within the map-object sprite group
     /// (the sum of the sprite counts of the OBJI entries before it) and its
     /// sprite count, or null for a model the style lacks.
-    pub fn objectSprites(s: *const Style, model: u8) ?struct { first: u16, count: u8 } {
+    pub fn objectSprites(s: *const Style, model: u16) ?struct { first: u16, count: u8 } {
         var n: u16 = 0;
         for (s.objects) |o| {
             if (o.model == model) return .{ .first = n, .count = o.sprites };
