@@ -746,10 +746,12 @@ export fn buildList(alpha: f32, now_ms: f64) usize {
         if (!cl.started) return 0;
         const st = cl.renderState(net_now);
         const n = list.build(&layout, null, st, 1, bases(), &instances);
+        soundSources(st);
         return decorate(st, n, now_ms, cl.own_slot);
     }
     if (!running) return 0;
     const n = list.build(curLayout(), prevState(), curState(), alpha, bases(), &instances);
+    soundSources(curState());
     return decorate(curState(), n, now_ms, 0);
 }
 
@@ -1042,6 +1044,69 @@ var own_cooldown: u16 = 0;
 var own_weapon: u8 = 0;
 var own_ped: abi.EntityId = .none;
 
+// ------------------------------------------------------------------ sound sources
+
+/// What keeps sounding, refreshed each render frame: a car (kind 1, `extra`
+/// 1 when someone drives it) or a player on foot (kind 2, `extra` the walk
+/// animation in bits 0-7 and the ground under them in bits 8-9: 0 none,
+/// 1 road, 2 pavement, 3 field; bit 10 set when standing in water). Blocks
+/// and blocks per tick.
+pub const SoundSource = extern struct { kind: u32, id: u32, x: f32, y: f32, z: f32, speed: f32, extra: u32, _pad: u32 = 0 };
+pub const sound_car: u32 = 1;
+pub const sound_walker: u32 = 2;
+var sound_src: [160]SoundSource = undefined;
+var sound_len: usize = 0;
+export fn soundSourcesLen() usize {
+    return sound_len;
+}
+export fn soundSourcesPtr() [*]const u8 {
+    return @ptrCast(&sound_src);
+}
+
+fn soundSources(state: []const u8) void {
+    sound_len = 0;
+    const f: f32 = 1.0 / @as(f32, abi.fx_one);
+    // Cars: every live one that is driven or moving.
+    const tc = columnOf(.car, .transform);
+    const vc = columnOf(.car, .velocity);
+    const hc = columnOf(.car, .vehicle);
+    const slots = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.car) and v.component == abi.ColumnDesc.Special.slot) break v;
+    } else null;
+    if (tc != null and slots != null) for (0..slots.?.count) |i| {
+        if (sound_len == sound_src.len - 8) break;
+        if (state[slots.?.offset + i] != 1) continue;
+        const t = readAt(abi.Transform, state, tc.?, @intCast(i)) orelse continue;
+        const v = if (vc) |c| readAt(abi.Velocity, state, c, @intCast(i)) orelse std.mem.zeroes(abi.Velocity) else std.mem.zeroes(abi.Velocity);
+        const driven = if (hc) |c| if (readAt(sim.c.Vehicle, state, c, @intCast(i))) |veh| !veh.driver.isNone() else false else false;
+        const vx = @as(f32, @floatFromInt(v.vx)) * f;
+        const vy = @as(f32, @floatFromInt(v.vy)) * f;
+        const speed = @sqrt(vx * vx + vy * vy);
+        if (!driven and speed < 0.004) continue;
+        sound_src[sound_len] = .{ .kind = sound_car, .id = @intCast(i), .x = @as(f32, @floatFromInt(t.x)) * f, .y = @as(f32, @floatFromInt(t.y)) * f, .z = @as(f32, @floatFromInt(t.z)) * f, .speed = speed, .extra = @intFromBool(driven) };
+        sound_len += 1;
+    };
+    // Players on foot, with the ground under their feet.
+    const rows = for (curViews()) |v| {
+        if (v.component == abi.ColumnDesc.Special.player_rows) break v;
+    } else null;
+    if (rows) |rv| for (0..@min(rv.count, max_players)) |slot| {
+        const row = readAt(abi.PlayerRow, state, rv, @intCast(slot)) orelse continue;
+        if (row.flags & abi.PlayerRow.flag_active == 0 or row.ped.isNone() or !row.car.isNone()) continue;
+        const t = readComp(abi.Transform, state, row.ped) orelse continue;
+        const p = readComp(sim.c.Pedestrian, state, row.ped) orelse continue;
+        var ground: u32 = 0;
+        if (grid) |g| {
+            const cell = sim.map.floorCell(g, t.x, t.y, t.z, sim.tuning.ped_step);
+            ground = sim.map.groundOf(cell);
+            const here = sim.map.cellAt(g, sim.fx.toInt(t.x), sim.fx.toInt(t.y), sim.fx.toInt(t.z));
+            if (sim.map.shapeOf(here) == sim.map.Shape.water) ground |= 4;
+        }
+        sound_src[sound_len] = .{ .kind = sound_walker, .id = @intCast(slot), .x = @as(f32, @floatFromInt(t.x)) * f, .y = @as(f32, @floatFromInt(t.y)) * f, .z = @as(f32, @floatFromInt(t.z)) * f, .speed = 0, .extra = p.anim | (ground << 8) };
+        sound_len += 1;
+    };
+}
+
 fn watch(state: []const u8, own_slot: u32) void {
     var own: abi.EntityId = .none;
     if (own_slot < max_players) {
@@ -1333,6 +1398,24 @@ test "a player joins the test map, walks, gets in a car and drives" {
     const moved = list.target(&layout, game.stateBytes(), 0);
     try std.testing.expect(@abs(moved.x - start.x) + @abs(moved.y - start.y) > 0.5);
     try std.testing.expect(buildList(0.5, 0) > 0);
+}
+
+test "sound sources: the walking player, with their ground" {
+    loadTestMap();
+    try std.testing.expectEqual(@as(i32, 0), gameStart(1, false, 0, 0));
+    for (0..10) |t| {
+        frames[0] = .{ .steer = 0, .throttle = 127, .buttons = 0, .aim = 0, .seq = @truncate(t) };
+        gameStep();
+    }
+    _ = buildList(1, 0);
+    var walker: ?SoundSource = null;
+    for (sound_src[0..sound_len]) |src| if (src.kind == sound_walker and src.id == 0) {
+        walker = src;
+    };
+    try std.testing.expect(walker != null);
+    const anim = walker.?.extra & 0xff;
+    try std.testing.expect(anim == sim.c.Pedestrian.anim_walk or anim == sim.c.Pedestrian.anim_run);
+    try std.testing.expect((walker.?.extra >> 8) & 3 != 0);
 }
 
 test "tuning round trip" {
