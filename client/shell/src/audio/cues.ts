@@ -2,7 +2,7 @@
 // samples in their own sound banks. The mapping is made by ear on the sound
 // board, kept in localStorage and exported as JSON.
 
-export type CueGroup = "Weapons" | "Hits and deaths" | "On foot" | "Vehicles" | "Pickups" | "Announcer" | "Player and missions" | "Not in the game yet";
+export type CueGroup = "Weapons" | "Hits and deaths" | "On foot" | "Vehicles" | "Pickups" | "Announcer" | "Player and missions" | "Pedestrians and police" | "Not in the game yet";
 
 export interface CueInfo {
   label: string;
@@ -17,6 +17,7 @@ export interface CueInfo {
 // Order is the board's order. Cues in "Not in the game yet" can be mapped now;
 // nothing plays them until the game has the event.
 const NY = "Not in the game yet";
+const PP = "Pedestrians and police";
 const INFO = {
   // Weapons: one per weapon id, then the weapon change.
   pistol: { label: "Pistol shot", group: "Weapons" },
@@ -84,6 +85,16 @@ const INFO = {
   level_complete: { label: "Level complete", group: "Player and missions", fallback: "mission_pass" },
   round_end: { label: "Round over (multiplayer)", group: "Player and missions", fallback: "mission_pass" },
   player_joined: { label: "Player joined (multiplayer)", group: "Player and missions", fallback: "pager" },
+  // Pedestrians and police: voices from the people around you.
+  ped_bumped: { label: "Pedestrian bumped (“Watch it, buddy!”)", group: PP },
+  ped_panic: { label: "Pedestrian panic (“He's got a gun!”, “Help!”)", group: PP },
+  mugger: { label: "Mugger (“Give me your wallet”)", group: PP },
+  driver_angry: { label: "Angry driver (“Asshole!”, “Maniac”)", group: PP },
+  carjacked: { label: "Carjacked driver (“Get out of my car!”)", group: PP },
+  cop_shout: { label: "Cop shout (“Freeze!”, “Hold it!”)", group: PP },
+  police_radio: { label: "Police radio", group: PP },
+  gang_shout: { label: "Gang member shout", group: PP },
+  elvis: { label: "Elvis (“Hey man, it's the king!”)", group: PP },
   // Not in the game yet: world and pedestrian sounds
   punch: { label: "Punch", group: NY },
   glass_break: { label: "Glass breaking", group: NY },
@@ -94,17 +105,8 @@ const INFO = {
   crowd: { label: "Crowd", group: NY },
   dog_bark: { label: "Dog bark", group: NY },
   ped_chatter: { label: "Pedestrian chatter (“Hey”, “Huh?”)", group: NY },
-  ped_bumped: { label: "Pedestrian bumped (“Watch it, buddy!”)", group: NY },
-  ped_panic: { label: "Pedestrian panic (“He's got a gun!”, “Help!”)", group: NY },
   ped_taxi: { label: "Pedestrian hailing a taxi", group: NY },
-  mugger: { label: "Mugger (“Give me your wallet”)", group: NY },
-  driver_angry: { label: "Angry driver (“Asshole!”, “Maniac”)", group: NY },
-  carjacked: { label: "Carjacked driver (“Get out of my car!”)", group: NY },
-  cop_shout: { label: "Cop shout (“Freeze!”, “Hold it!”)", group: NY },
-  police_radio: { label: "Police radio", group: NY },
-  gang_shout: { label: "Gang member shout", group: NY },
   laugh: { label: "Laughter", group: NY },
-  elvis: { label: "Elvis (“Hey man, it's the king!”)", group: NY },
   // Not in the game yet: announcer
   say_kill_frenzy: { label: "“Kill frenzy!”", group: NY },
   frenzy_passed: { label: "Kill frenzy passed", group: NY, fallback: "mission_pass" },

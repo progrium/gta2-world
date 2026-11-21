@@ -632,6 +632,22 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
   }
 
+  // Pedestrian voices from the wasm cue watcher (kinds 5-12).
+  const VOICE_CUES: Record<number, CueName> = {
+    5: "ped_panic",
+    6: "ped_bumped",
+    7: "carjacked",
+    8: "cop_shout",
+    9: "mugger",
+    10: "gang_shout",
+    11: "elvis",
+    12: "driver_angry",
+  };
+  const VOICE_GAP_MS = 900;
+  const voiceAt = new Map<CueName, number>();
+  // Police radio chatter while wanted, in seconds until the next line.
+  let radioIn = 3;
+
   // Footstep timers by player slot, in seconds since the last step.
   const stepClock = new Map<number, number>();
   /** Engines for the nearest cars and footsteps for players on foot. */
@@ -641,6 +657,13 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     const srcs = g.soundSources();
     const cars = srcs.filter((s) => s.kind === "car" && near(s) < 26).sort((a, b) => near(a) - near(b));
     for (const s of cars.slice(0, 8)) audio.setEngine(s.id, s.speed, s.x, s.y, s.z);
+    if (spHud && g.spInfo().stars > 0) {
+      radioIn -= dt;
+      if (radioIn <= 0) {
+        radioIn = 7 + Math.random() * 8;
+        audio.play("police_radio");
+      }
+    } else radioIn = 3;
     for (const s of srcs) {
       if (s.kind !== "walker") continue;
       const stride = s.anim === 2 ? 0.27 : s.anim === 1 ? 0.42 : 0;
@@ -666,6 +689,15 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     else if (c.kind === 2) audio.play("ped_hurt", c.x, c.y, c.z);
     else if (c.kind === 3) audio.play("bullet_hit", c.x, c.y, c.z);
     else if (c.kind === 4) audio.play("weapon_switch");
+    else {
+      const name = VOICE_CUES[c.kind];
+      if (!name) return;
+      // People shout over each other in a crowd; one line per voice at a time.
+      const now = performance.now();
+      if (now < (voiceAt.get(name) ?? 0)) return;
+      voiceAt.set(name, now + VOICE_GAP_MS);
+      audio.play(name, c.x, c.y, c.z);
+    }
   }
 
   let scoresKey = "";
