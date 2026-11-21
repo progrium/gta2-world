@@ -111,6 +111,12 @@ test("mapping: a saved pick that shipped by mistake gets today's default", () =>
   assert.deepEqual(back.cues.car_bump, defaultMapping().cues.car_bump);
   assert.equal(back.cues.car_bump.samples.length, 0, "borrows the crash samples");
   assert.equal(back.cues.tyre_screech.samples.length, 2, "a pick the player changed is kept");
+  m.cues.tyre_screech = { samples: [], gain: 1 };
+  m.cues.footstep = { samples: [198, 200, 206, 208].map((index) => ({ bank: "map" as const, index })), gain: 0.5 };
+  saveMapping(m, st);
+  const again = loadMapping(st);
+  assert.deepEqual(again.cues.tyre_screech, defaultMapping().cues.tyre_screech, "the old built-in squeal gives way to the real ones");
+  assert.ok(!again.cues.footstep.samples.some((r) => r.bank === "map" && r.index === 206), "the woody step is gone");
 });
 
 test("cue fallbacks end, and point at real cues", () => {
