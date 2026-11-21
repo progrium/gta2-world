@@ -755,6 +755,7 @@ export fn buildList(alpha: f32, now_ms: f64) usize {
     if (client_p) |cl| return buildOnline(cl, &layout_p, now_ms);
     if (!running) return 0;
     const n = list.build(curLayout(), prevState(), curState(), alpha, bases(), &instances);
+    soundSources(curState());
     return decorate(curState(), n, now_ms, 0);
 }
 
@@ -762,6 +763,7 @@ fn buildOnline(cl: anytype, lay: *const list.Layout, now_ms: f64) usize {
     if (!cl.started) return 0;
     const st = cl.renderState(net_now);
     const n = list.build(lay, null, st, 1, bases(), &instances);
+    soundSources(st);
     return decorate(st, n, now_ms, cl.own_slot);
 }
 
@@ -810,6 +812,15 @@ const spr = struct {
     const ped_fall: u16 = 81;
     const ped_down: u16 = 89;
     const ped_shocked: u16 = 152;
+
+    /// Ped remaps (within the style's ped remap group) that read as
+    /// everyday clothes, picked by eye from the player's own styles; the
+    /// bright ones are left for gangs and scripts. Used for peds the sim
+    /// gives no remap, spread by entity index.
+    const civilian_remaps = [_]u8{ 0, 1, 2, 3, 4, 5, 9, 10, 11, 12, 13, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 35, 36, 37, 38, 39, 40, 41, 42, 43, 47, 48, 49, 51 };
+    fn civilianRemap(index: u32) u32 {
+        return civilian_remaps[(index *% 7 +% 3) % civilian_remaps.len];
+    }
     const ped_shocked_frames: u16 = 4;
     const ped_cycle: u16 = 8;
 };
@@ -965,6 +976,11 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 const p = readAt(sim.c.Pedestrian, state, ped_col orelse continue, in.index) orelse continue;
                 const wp = if (wpn_col) |wc| readAt(sim.c.Weapon, state, wc, in.index) else null;
                 in.sprite +%= pedFrame(p, wp, frame16 +% in.index *% 3);
+                // A ped sprite's own palette leaves the arms in a marker
+                // green: peds are only meant to be drawn through a ped
+                // remap. Peds the sim gives no remap get an everyday one.
+                if (in.palette == list.Instance.own_palette)
+                    in.palette = @intCast(s.palette_base.base(.ped_remap) + spr.civilianRemap(in.index));
                 if (p.burn > 0 and n < instances.len) {
                     instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
                     n += 1;
@@ -1026,6 +1042,16 @@ pub const cue_shot: u32 = 1;
 pub const cue_hurt_ped: u32 = 2;
 pub const cue_hurt_car: u32 = 3;
 pub const cue_switch: u32 = 4;
+// What AI peds and drivers do that has a voice. Seen here, on the client,
+// from state changes; the sim has no events for them.
+pub const cue_ped_panic: u32 = 5;
+pub const cue_ped_bumped: u32 = 6;
+pub const cue_carjacked: u32 = 7;
+// 8 was the cop shout; the sim now sends police voices itself (event 19).
+pub const cue_mugger: u32 = 9;
+pub const cue_gang_shout: u32 = 10;
+pub const cue_elvis: u32 = 11;
+pub const cue_driver_angry: u32 = 12;
 var cues: [64]Cue = undefined;
 var cues_len: usize = 0;
 var cues_out: [64]Cue = undefined;
@@ -1053,8 +1079,152 @@ var seen_gen: [2][max_body]u16 = @splat(@splat(0xFFFF));
 var own_cooldown: u16 = 0;
 var own_weapon: u8 = 0;
 var own_ped: abi.EntityId = .none;
+var seen_ped_gen: [max_body]u16 = @splat(0xFFFF);
+var seen_ped_state: [max_body]u8 = @splat(0);
+var seen_ped_internal: [max_body]u8 = @splat(0);
+var seen_ped_on_player: [max_body]bool = @splat(false);
+
+// ------------------------------------------------------------------ sound sources
+
+/// What keeps sounding, refreshed each render frame: a car (kind 1, `extra`
+/// 1 when someone drives it) or a player on foot (kind 2, `extra` the walk
+/// animation in bits 0-7 and the ground under them in bits 8-9: 0 none,
+/// 1 road, 2 pavement, 3 field; bit 10 set when standing in water). Blocks
+/// and blocks per tick.
+pub const SoundSource = extern struct { kind: u32, id: u32, x: f32, y: f32, z: f32, speed: f32, extra: u32, _pad: u32 = 0 };
+pub const sound_car: u32 = 1;
+pub const sound_walker: u32 = 2;
+var sound_src: [160]SoundSource = undefined;
+var sound_len: usize = 0;
+export fn soundSourcesLen() usize {
+    return sound_len;
+}
+export fn soundSourcesPtr() [*]const u8 {
+    return @ptrCast(&sound_src);
+}
+
+fn soundSources(state: []const u8) void {
+    sound_len = 0;
+    const f: f32 = 1.0 / @as(f32, abi.fx_one);
+    // Cars: every live one that is driven or moving.
+    const tc = columnOf(.car, .transform);
+    const vc = columnOf(.car, .velocity);
+    const hc = columnOf(.car, .vehicle);
+    const slots = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.car) and v.component == abi.ColumnDesc.Special.slot) break v;
+    } else null;
+    if (tc != null and slots != null) for (0..slots.?.count) |i| {
+        if (sound_len == sound_src.len - 8) break;
+        if (state[slots.?.offset + i] != 1) continue;
+        const t = readAt(abi.Transform, state, tc.?, @intCast(i)) orelse continue;
+        const v = if (vc) |c| readAt(abi.Velocity, state, c, @intCast(i)) orelse std.mem.zeroes(abi.Velocity) else std.mem.zeroes(abi.Velocity);
+        const driven = if (hc) |c| if (readAt(sim.c.Vehicle, state, c, @intCast(i))) |veh| !veh.driver.isNone() else false else false;
+        const vx = @as(f32, @floatFromInt(v.vx)) * f;
+        const vy = @as(f32, @floatFromInt(v.vy)) * f;
+        const speed = @sqrt(vx * vx + vy * vy);
+        if (!driven and speed < 0.004) continue;
+        sound_src[sound_len] = .{ .kind = sound_car, .id = @intCast(i), .x = @as(f32, @floatFromInt(t.x)) * f, .y = @as(f32, @floatFromInt(t.y)) * f, .z = @as(f32, @floatFromInt(t.z)) * f, .speed = speed, .extra = @intFromBool(driven) };
+        sound_len += 1;
+    };
+    // Players on foot, with the ground under their feet.
+    const rows = for (curViews()) |v| {
+        if (v.component == abi.ColumnDesc.Special.player_rows) break v;
+    } else null;
+    if (rows) |rv| for (0..@min(rv.count, max_players)) |slot| {
+        const row = readAt(abi.PlayerRow, state, rv, @intCast(slot)) orelse continue;
+        if (row.flags & abi.PlayerRow.flag_active == 0 or row.ped.isNone() or !row.car.isNone()) continue;
+        const t = readComp(abi.Transform, state, row.ped) orelse continue;
+        const p = readComp(sim.c.Pedestrian, state, row.ped) orelse continue;
+        var ground: u32 = 0;
+        if (grid) |g| {
+            const cell = sim.map.floorCell(g, t.x, t.y, t.z, sim.tuning.ped_step);
+            ground = sim.map.groundOf(cell);
+            const here = sim.map.cellAt(g, sim.fx.toInt(t.x), sim.fx.toInt(t.y), sim.fx.toInt(t.z));
+            if (sim.map.shapeOf(here) == sim.map.Shape.water) ground |= 4;
+        }
+        sound_src[sound_len] = .{ .kind = sound_walker, .id = @intCast(slot), .x = @as(f32, @floatFromInt(t.x)) * f, .y = @as(f32, @floatFromInt(t.y)) * f, .z = @as(f32, @floatFromInt(t.z)) * f, .speed = 0, .extra = p.anim | (ground << 8) };
+        sound_len += 1;
+    };
+}
+
+fn isPlayerPed(players: []const abi.EntityId, id: abi.EntityId) bool {
+    for (players) |p| if (sim.ecs.eql(p, id)) return true;
+    return false;
+}
+
+/// Voices from AI peds: a ped knocked over without being hurt, pulled out of
+/// a car, starting to flee, or turning on a player (by occupation:
+/// muggers, gang members, Elvis). Objectives exist only in single-player
+/// state; without them only the first two are heard.
+fn watchPeds(state: []const u8, players: []const abi.EntityId) void {
+    const pc = columnOf(.ped, .pedestrian) orelse return;
+    const tc = columnOf(.ped, .transform) orelse return;
+    const hc = columnOf(.ped, .health);
+    const oc = columnOf(.ped, .objective);
+    const gens = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.ped) and v.component == abi.ColumnDesc.Special.generation) break v;
+    } else return;
+    const slots = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.ped) and v.component == abi.ColumnDesc.Special.slot) break v;
+    } else return;
+    // Internal objective kinds that mean fleeing (flee_ped, flee_till_safe,
+    // flee_ped_always, flee_on_car_stop in sim/ai/objectives.zig).
+    const flee_kinds = [_]u8{ 7, 8, 17, 18 };
+    const Occ = sim.ids.Occupation;
+    for (0..@min(pc.count, max_body)) |i| {
+        if (state[slots.offset + i] != 1) continue;
+        const g = readAt(u16, state, gens, @intCast(i)) orelse continue;
+        const p = readAt(sim.c.Pedestrian, state, pc, @intCast(i)) orelse continue;
+        const fresh = g != seen_ped_gen[i];
+        seen_ped_gen[i] = g;
+        const id = abi.EntityId.make(.ped, @intCast(i), g);
+        if (isPlayerPed(players, id)) continue;
+        const t = readAt(abi.Transform, state, tc, @intCast(i)) orelse continue;
+        var internal: u8 = 0;
+        var on_player = false;
+        var occ: Occ = .civilian;
+        if (oc) |c| if (readAt(sim.c.Objective, state, c, @intCast(i))) |o| {
+            internal = o.internal;
+            occ = @enumFromInt(o.occupation);
+            const tgt = if (!o.internal_target.isNone()) o.internal_target else o.main_target;
+            on_player = !tgt.isNone() and isPlayerPed(players, tgt);
+        };
+        defer {
+            seen_ped_state[i] = p.state;
+            seen_ped_internal[i] = internal;
+            seen_ped_on_player[i] = on_player;
+        }
+        if (fresh) continue;
+        if (p.state != seen_ped_state[i]) {
+            if (p.state == sim.c.Pedestrian.state_pulled_out) cue(cue_carjacked, 0, t);
+            const hurt = if (hc) |c| if (readAt(abi.Health, state, c, @intCast(i))) |h| h.hp < seen_hp[1][i] - 4 else false else false;
+            if (p.state == sim.c.Pedestrian.state_over and !hurt) cue(cue_ped_bumped, 0, t);
+        }
+        if (internal != seen_ped_internal[i]) {
+            const flee = std.mem.indexOfScalar(u8, &flee_kinds, internal) != null;
+            if (flee and (occ == .civilian or occ == .customer or occ == .passenger or occ == .driver)) cue(cue_ped_panic, 0, t);
+        }
+        if (on_player and !seen_ped_on_player[i]) switch (occ) {
+            .mugger => cue(cue_mugger, 0, t),
+            .gang_member => cue(cue_gang_shout, 0, t),
+            .elvis => cue(cue_elvis, 0, t),
+            else => {},
+        };
+    }
+}
 
 fn watch(state: []const u8, own_slot: u32) void {
+    var players: [max_players]abi.EntityId = undefined;
+    var n_players: usize = 0;
+    if (for (curViews()) |v| {
+        if (v.component == abi.ColumnDesc.Special.player_rows) break v;
+    } else null) |rv| for (0..@min(rv.count, max_players)) |slot| {
+        const row = readAt(abi.PlayerRow, state, rv, @intCast(slot)) orelse continue;
+        if (row.ped.isNone()) continue;
+        players[n_players] = row.ped;
+        n_players += 1;
+    };
+    watchPeds(state, players[0..n_players]);
     var own: abi.EntityId = .none;
     if (own_slot < max_players) {
         const pr_off = for (curViews()) |v| {
@@ -1118,7 +1288,13 @@ fn watch(state: []const u8, own_slot: u32) void {
                 const g = readAt(u16, state, gens.?, @intCast(i)) orelse continue;
                 const hp = (readAt(abi.Health, state, hc.?, @intCast(i)) orelse continue).hp;
                 if (g == seen_gen[ki][i] and hp < seen_hp[ki][i] - 4) {
-                    if (readAt(abi.Transform, state, tc.?, @intCast(i))) |t| cue(if (ki == 0) cue_hurt_car else cue_hurt_ped, 0, t);
+                    if (readAt(abi.Transform, state, tc.?, @intCast(i))) |t| {
+                        cue(if (ki == 0) cue_hurt_car else cue_hurt_ped, 0, t);
+                        // A car someone else drives, hit: its driver shouts.
+                        if (ki == 0) if (columnOf(.car, .vehicle)) |vc| if (readAt(sim.c.Vehicle, state, vc, @intCast(i))) |veh| {
+                            if (!veh.driver.isNone() and !isPlayerPed(players[0..n_players], veh.driver)) cue(cue_driver_angry, 0, t);
+                        };
+                    }
                 }
                 seen_gen[ki][i] = g;
                 seen_hp[ki][i] = hp;
@@ -1390,6 +1566,53 @@ test "a player joins the test map, walks, gets in a car and drives" {
     const moved = list.target(&layout, game.stateBytes(), 0);
     try std.testing.expect(@abs(moved.x - start.x) + @abs(moved.y - start.y) > 0.5);
     try std.testing.expect(buildList(0.5, 0) > 0);
+}
+
+test "sound sources: the walking player, with their ground" {
+    loadTestMap();
+    try std.testing.expectEqual(@as(i32, 0), gameStart(1, false, 0, 0));
+    for (0..10) |t| {
+        frames[0] = .{ .steer = 0, .throttle = 127, .buttons = 0, .aim = 0, .seq = @truncate(t) };
+        gameStep();
+    }
+    _ = buildList(1, 0);
+    var walker: ?SoundSource = null;
+    for (sound_src[0..sound_len]) |src| if (src.kind == sound_walker and src.id == 0) {
+        walker = src;
+    };
+    try std.testing.expect(walker != null);
+    const anim = walker.?.extra & 0xff;
+    try std.testing.expect(anim == sim.c.Pedestrian.anim_walk or anim == sim.c.Pedestrian.anim_run);
+    try std.testing.expect((walker.?.extra >> 8) & 3 != 0);
+}
+
+test "ped voices: a pedestrian pulled from a car is heard" {
+    loadTestMap();
+    try std.testing.expectEqual(@as(i32, 0), gameStart(1, false, 0, 0));
+    for (0..5) |_| gameStep();
+    const st = try std.testing.allocator.dupe(u8, curState());
+    defer std.testing.allocator.free(st);
+    const pc = columnOf(.ped, .pedestrian).?;
+    const slots = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.ped) and v.component == abi.ColumnDesc.Special.slot) break v;
+    } else unreachable;
+    const players = [_]abi.EntityId{};
+    // An AI ped: any live slot, since no player is listed.
+    const i: u32 = for (0..pc.count) |k| {
+        if (st[slots.offset + k] == 1) break @intCast(k);
+    } else return error.SkipZigTest;
+    watchPeds(st, &players);
+    cues_len = 0;
+    const off = pc.offset + i * pc.stride + @offsetOf(sim.c.Pedestrian, "state");
+    st[off] = sim.c.Pedestrian.state_pulled_out;
+    watchPeds(st, &players);
+    var heard = false;
+    for (cues[0..cues_len]) |c| heard = heard or c.kind == cue_carjacked;
+    try std.testing.expect(heard);
+    cues_len = 0;
+    // Nothing changed: nothing more is heard.
+    watchPeds(st, &players);
+    try std.testing.expectEqual(@as(usize, 0), cues_len);
 }
 
 test "tuning round trip" {

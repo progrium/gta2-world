@@ -11,7 +11,7 @@
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
-import { type Cue, type GameEvent, GameModule, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
+import { type Cue, type GameEvent, GameModule, type SoundSource, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
 import { type ConnectOptions, Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
@@ -26,6 +26,8 @@ import { SpHudView } from "./spHud.ts";
 import { textChoice } from "./importScreen.ts";
 import { deathKey } from "../game/text.ts";
 import { demoHud } from "./spDemo.ts";
+import { touchPad } from "./touchPad.ts";
+import { PlayerArrows, type ArrowTarget, playerColour } from "./playerArrows.ts";
 
 export interface GameScreenOpts {
   input: InputSystem;
@@ -69,6 +71,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const banner = h("div", { class: "banner hidden" });
   const scores = h("div", { class: "scores hidden" });
   let showScores = false;
+  // Deathmatch: edge arrows toward the other players.
+  const arrows = new PlayerArrows();
   // Single player: a story level offline (the SP sim, its script and text).
   const sp = !!o.map.story && !remote;
   const hudDemo = new URLSearchParams(location.search).has("hudtest");
@@ -117,7 +121,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         input.players[0]!.scheme = (e.target as HTMLSelectElement).value as SchemeSetting;
       },
     },
-    h("option", { value: "auto" }, "On foot: auto (pad direct, keys tank)"),
+    h("option", { value: "auto" }, "On foot: auto (pad/touch direct, keys tank)"),
     h("option", { value: "tank" }, "On foot: tank"),
     h("option", { value: "direct" }, "On foot: direct"),
   ) as HTMLSelectElement;
@@ -129,6 +133,19 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     title: "Turn off to stop this tab reading controllers, e.g. when two windows on one computer play each other.",
     onchange: (e: Event) => (input.padsEnabled = (e.target as HTMLInputElement).checked),
   });
+  // On-screen gamepad for phones and tablets; remembered across visits.
+  const touchView = touchPad(input);
+  const touchBtn = h("button", {
+    class: "touchtoggle",
+    title: "Show an on-screen stick and buttons for touch screens",
+    onclick: () => (input.touchEnabled = !input.touchEnabled),
+  });
+  const renderTouch = (): void => {
+    touchBtn.textContent = input.touchEnabled ? "Touch pad: on" : "Touch pad: off";
+    touchBtn.setAttribute("aria-pressed", String(input.touchEnabled));
+    touchView.setVisible(input.touchEnabled);
+  };
+  renderTouch();
   const rumbleBox = h("input", { type: "checkbox", checked: rumbleSettings.enabled, onchange: (e: Event) => (rumbleSettings.enabled = (e.target as HTMLInputElement).checked) });
 
   const closeOverlay = (): void => {
@@ -173,6 +190,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       h(
         "span",
         { class: "row" },
+        touchBtn,
         schemeSel,
         h("label", { title: "Turn off to stop this tab reading controllers, e.g. when two windows on one computer play each other." }, padBox, " controller"),
         h("label", {}, rumbleBox, " rumble"),
@@ -221,6 +239,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   };
   const offInput = input.on(() => {
     padBox.checked = input.padsEnabled;
+    renderTouch();
     renderPads();
   });
   addEventListener("focus", renderPads);
@@ -330,7 +349,6 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         lastScreech = performance.now();
         audio.play("tyre_screech");
       }
-      if (p.inCar) audio.setEngine(slot, p.speed);
       if (f.buttons & Button.special && p.inCar && !(lastButtons & Button.special)) audio.play("horn");
       lastButtons = f.buttons;
       lastInCar = p.inCar;
@@ -360,8 +378,11 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
     if (spHud) spHud.update(hudDemo ? demoHud(game.tick) : game.spInfo(), t.found ? { x: t.x, y: t.y } : null);
     const list = game.renderList(paused ? 1 : alpha, now);
-    renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
+    const view = camera.view();
+    renderer.draw(view, list.bytes, list.count, now / 1000);
+    if (!sp) drawArrows(view, paused ? 1 : alpha, t.found ? { x: t.x, y: t.y } : null);
     for (const c of game.takeCues()) playCue(c);
+    soundTick(game, dt);
     if (bannerUntil && now > bannerUntil) {
       bannerUntil = 0;
       banner.classList.add("hidden");
@@ -656,6 +677,46 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
   }
 
+  // Pedestrian voices from the wasm cue watcher (kinds 5-12).
+  const VOICE_CUES: Record<number, CueName> = {
+    5: "ped_panic",
+    6: "ped_bumped",
+    7: "carjacked",
+    9: "mugger",
+    10: "gang_shout",
+    11: "elvis",
+    12: "driver_angry",
+  };
+  const VOICE_GAP_MS = 900;
+  const voiceAt = new Map<CueName, number>();
+
+  // Footstep timers by player slot, in seconds since the last step.
+  const stepClock = new Map<number, number>();
+  /** Engines for the nearest cars and footsteps for players on foot. */
+  function soundTick(g: GameModule, dt: number): void {
+    const l = audio.listenerAt;
+    const near = (s: SoundSource): number => Math.hypot(s.x - l.x, s.y - l.y);
+    const srcs = g.soundSources();
+    const cars = srcs.filter((s) => s.kind === "car" && near(s) < 26).sort((a, b) => near(a) - near(b));
+    for (const s of cars.slice(0, 8)) audio.setEngine(s.id, s.speed, s.x, s.y, s.z);
+    for (const s of srcs) {
+      if (s.kind !== "walker") continue;
+      const stride = s.anim === 2 ? 0.27 : s.anim === 1 ? 0.42 : 0;
+      if (!stride) {
+        // Standing: the first step comes as soon as they move.
+        stepClock.set(s.id, 1);
+        continue;
+      }
+      const t = (stepClock.get(s.id) ?? stride) + dt;
+      if (t < stride) {
+        stepClock.set(s.id, t);
+        continue;
+      }
+      stepClock.set(s.id, 0);
+      audio.play(s.water ? "footstep_water" : s.ground === 3 ? "footstep_grass" : "footstep", s.x, s.y, s.z);
+    }
+  }
+
   function playCue(c: Cue): void {
     if (c.kind === 1) {
       audio.play(SHOT_CUES[c.a] ?? "pistol", c.x, c.y, c.z);
@@ -663,6 +724,28 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     else if (c.kind === 2) audio.play("ped_hurt", c.x, c.y, c.z);
     else if (c.kind === 3) audio.play("bullet_hit", c.x, c.y, c.z);
     else if (c.kind === 4) audio.play("weapon_switch");
+    else {
+      const name = VOICE_CUES[c.kind];
+      if (!name) return;
+      // People shout over each other in a crowd; one line per voice at a time.
+      const now = performance.now();
+      if (now < (voiceAt.get(name) ?? 0)) return;
+      voiceAt.set(name, now + VOICE_GAP_MS);
+      audio.play(name, c.x, c.y, c.z);
+    }
+  }
+
+  function drawArrows(view: ReturnType<ChaseCamera["view"]>, alpha: number, me: { x: number; y: number } | null): void {
+    const g = game!;
+    const targets: ArrowTarget[] = [];
+    for (let s = 0; s < MAX_PLAYERS; s++) {
+      if (s === ownSlot) continue;
+      const p = g.player(s);
+      if (!p.active || p.respawnTimer > 0) continue;
+      const c = g.camera(alpha, s);
+      if (c.found) targets.push({ slot: s, name: nameOf(s), x: c.x, y: c.y, z: c.z });
+    }
+    arrows.update(view, me, targets, canvas.clientWidth, canvas.clientHeight);
   }
 
   let scoresKey = "";
@@ -686,13 +769,13 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         "table",
         {},
         h("tr", {}, h("th", {}, "Player"), h("th", {}, "Frags"), h("th", {}, "Points"), h("th", {}, "Deaths")),
-        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, nameOf(r.slot)), h("td", {}, String(r.kills)), h("td", {}, r.score.toLocaleString("en-US")), h("td", {}, String(r.deaths)))),
+        ...rows.map((r) => h("tr", { class: r.slot === ownSlot ? "mine" : "" }, h("td", {}, h("span", { class: "pdot", style: `background:${playerColour(r.slot)}` }), nameOf(r.slot)), h("td", {}, String(r.kills)), h("td", {}, r.score.toLocaleString("en-US")), h("td", {}, String(r.deaths)))),
       ),
       h("div", { class: "muted small" }, "First to 10 frags wins the round. Points: 2,000 a player shot, 1,000 run over, 5,000 electrocuted; civilians, car hits, hijacks and wrecks score too. Hold Tab for scores."),
     );
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, status, weaponLine, feed, banner, scores), hud);
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();
@@ -706,6 +789,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     closeOverlay();
     audio.stopAll();
     offInput();
+    touchView.dispose();
     removeEventListener("focus", renderPads);
     removeEventListener("blur", renderPads);
     removeEventListener("keydown", onKey);
