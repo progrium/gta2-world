@@ -5,6 +5,7 @@
 
 const fx = @import("../fixed.zig");
 const Fx = fx.Fx;
+const T = @import("../tuning.zig");
 
 /// Points for 0-6 stars (notes: wanted-level.md 3.1).
 pub const star_points = [7]u16{ 0, 600, 1600, 3000, 5000, 8000, 12000 };
@@ -59,6 +60,15 @@ pub const swat_crew_size: u8 = 4;
 pub const police_hp_low: i32 = 60;
 pub const police_hp: i32 = 100;
 pub const swat_hp: i32 = 200;
+/// The FBI and army units reskinned from passing traffic (police-ai.md
+/// 3.6: "more heavily armed and tougher than a dispatched police crew";
+/// the numbers are ours).
+pub const fbi_crew_size: u8 = 2;
+pub const fbi_hp: i32 = 250;
+pub const fbi_weapon: u8 = T.weapon_smg;
+pub const army_crew_size: u8 = 2;
+pub const army_hp: i32 = 300;
+pub const army_weapon: u8 = T.weapon_smg;
 /// Where a crew's car appears: a road block this many blocks from the last
 /// known position, out of the way (ours).
 pub const spawn_radius: i32 = 18;

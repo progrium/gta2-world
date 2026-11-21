@@ -176,7 +176,9 @@ pub fn Sys(comptime Self: type) type {
         /// stars and up every police and SWAT crew does (police-ai.md 3.6).
         fn trimCrews(self: *Self, slot: u8, s: *wanted.State) void {
             const police: u8 = @intFromEnum(ids.Occupation.police);
-            if (s.tier >= 5) return releaseCrews(self, slot, 0);
+            // FBI and army tiers send police and SWAT home; the units
+            // reskinned from traffic for this tier stay (police-ai.md 3.6).
+            if (s.tier >= 5) return releaseCrews(self, slot, if (s.tier == 5) @intFromEnum(ids.Occupation.fbi) else @intFromEnum(ids.Occupation.army));
             if (s.tier < 4) {
                 for (&self.state.sp.police.crews) |*cr| {
                     if (cr.slot == slot and cr.kind == @intFromEnum(ids.Occupation.swat) and cr.phase != @intFromEnum(crew_mod.Phase.free) and cr.phase != @intFromEnum(crew_mod.Phase.escort)) crew.release(self, cr);
@@ -274,6 +276,7 @@ pub fn Sys(comptime Self: type) type {
                 dispatchCrews(self, slot, s);
             }
             // Crews act (wanted-level.md 4.3).
+            crew.adoptReskins(self);
             for (&self.state.sp.police.crews) |*cr| crew.update(self, cr);
             roadblock.upkeep(self);
             takeDoubles(self);
