@@ -4,7 +4,9 @@
 //! sub-scripts in <name>/*.scr from the player's data, attaches them as the
 //! sim's `Level`, joins the player, and lets the autopilot play: it goes to
 //! the mission arrow when the HUD shows one, else to the last phone that
-//! rang, else to road waypoints, and is teleported after `--limit` ticks.
+//! rang, else to the nearest phone it has not stood at yet (a level's
+//! missions start from phones), else to road waypoints, and is teleported
+//! after `--limit` ticks.
 //!
 //! Reports, per level: missions started, passed and failed with the ticks
 //! each took, phone rings, wasted and busted, threads that sat on one
@@ -101,11 +103,15 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
     var mission_log: std.ArrayList(u8) = .empty;
     var phone: ?[2]fx.Fx = null;
     var teleports: u32 = 0;
+    var phones_visited: u32 = 0;
     var arrow_ticks: u64 = 0;
     var stuck: std.ArrayList(Stuck) = .empty;
     const times = try gpa.alloc(i64, o.ticks);
     defer gpa.free(times);
     var max_threads: u32 = 0;
+    // Phones stood at, by entity id.
+    var visited: std.ArrayList(u32) = .empty;
+    var phone_visit: ?abi.EntityId = null;
 
     for (0..o.ticks) |ti| {
         // Target: the arrow, else the last phone that rang, else waypoints.
@@ -119,13 +125,40 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
             ap.setTarget(a[0], a[1]);
         } else if (phone) |p| {
             ap.setTarget(p[0], p[1]);
-        } else if (!ap.has_target) {
+        } else if (phone_visit == null) if (Autopilot.bodyTransform(S, &s, 0)) |bt| {
+            phone_visit = nearestPhone(bt.x, bt.y, visited.items);
+            if (phone_visit) |pv| if (s.state.world.get(pv, c.Transform)) |pt| ap.setTarget(pt.x, pt.y);
+        };
+        if (arrow == null and phone == null and phone_visit == null and !ap.has_target) {
             if (Autopilot.bodyTransform(S, &s, 0)) |t| {
                 const w = main.pickWaypoint(&rng, roads, t.x, t.y);
                 ap.setTarget(w[0], w[1]);
             }
         }
         frames[0] = ap.frame(S, &s, 0);
+        // A phone visit ends once the player has stood on it a moment.
+        if (phone_visit) |pv| {
+            const w = &s.state.world;
+            var done = !w.isAlive(pv) or arrow != null or phone != null;
+            if (!done) if (Autopilot.bodyTransform(S, &s, 0)) |bt| if (w.get(pv, c.Transform)) |pt| {
+                const d = fx.length(pt.x - bt.x, pt.y - bt.y);
+                if (d < Autopilot.arrive_dist) {
+                    // Walk the last blocks straight onto it.
+                    if (d > fx.half) {
+                        frames[0].buttons = sim.input.Button.direct;
+                        frames[0].aim = fx.atan2(pt.y - bt.y, pt.x - bt.x);
+                        frames[0].throttle = 127;
+                    } else done = true;
+                }
+            };
+            if (done) {
+                try visited.append(arena, pv.raw);
+                phone_visit = null;
+                ap.has_target = false;
+                phones_visited += 1;
+            }
+        }
+
         const t0 = std.Io.Timestamp.now(io, .awake).nanoseconds;
         s.step(&frames, if (ti == 0) &.{.{ .op = .join, .slot = 0, .arg = 0 }} else &.{});
         times[ti] = @intCast(std.Io.Timestamp.now(io, .awake).nanoseconds - t0);
@@ -162,9 +195,14 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
         if (ap.has_target and s.pedOf(0) != null) {
             if (ap.distance(S, &s, 0)) |d| {
                 if (d < Autopilot.arrive_dist) {
-                    if (arrow == null and phone == null) ap.has_target = false;
+                    if (arrow == null and phone == null and phone_visit == null) ap.has_target = false;
                     // At a phone that has stopped ringing: forget it.
                     if (arrow == null and phone != null and ap.age > 300) phone = null;
+                } else if (ap.age >= o.limit and phone_visit != null and arrow == null and phone == null) {
+                    // Stand on the phone: the touch is what starts a mission.
+                    teleports += 1;
+                    ap.teleport(S, &s, 0);
+                    ap.age = 0;
                 } else if (ap.age >= o.limit) {
                     teleports += 1;
                     ap.teleport(S, &s, 0);
@@ -194,7 +232,7 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
     try main.appendf(report, arena, "- scripts: main plus {d} mission sub-scripts; up to {d} threads live\n", .{ parsed.items.len, max_threads });
     try main.appendf(report, arena, "- ran {d} ticks{s}{s}\n", .{ ps.ticks, if (game_over) ", ended in game over" else "", if (level_complete) ", level complete" else "" });
     try main.appendf(report, arena, "- missions: {d} started, {d} passed, {d} failed; phones rang {d} times\n", .{ started, passed, failed, rings });
-    try main.appendf(report, arena, "- player: wasted {d}, busted {d}; arrow shown {d} ticks; teleports {d}\n", .{ wasted, busted, arrow_ticks, teleports });
+    try main.appendf(report, arena, "- player: wasted {d}, busted {d}; arrow shown {d} ticks; teleports {d}; phones stood at {d}\n", .{ wasted, busted, arrow_ticks, teleports, phones_visited });
     try main.appendf(report, arena, "- unhandled commands met: {d}\n", .{s.state.sp.script.unhandled});
     try main.appendf(report, arena, "- threads on one command for {d}+ ticks: {d}\n", .{ stuck_ticks, stuck.items.len });
     for (stuck.items[0..@min(stuck.items.len, 20)]) |x|
@@ -210,4 +248,20 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
     try w.print("```\n\n", .{});
     try report.appendSlice(arena, w.buffered());
     return checker.total() == 0;
+}
+
+/// The nearest live phone not in `skip`.
+fn nearestPhone(x: fx.Fx, y: fx.Fx, skip: []const u32) ?abi.EntityId {
+    const Best = struct { id: ?abi.EntityId = null, d: fx.Fx = std.math.maxInt(fx.Fx) };
+    var best: Best = .{};
+    const Ctx = struct { best: *Best, x: fx.Fx, y: fx.Fx, skip: []const u32 };
+    s.state.world.each(.{ c.Object, c.Transform }, Ctx{ .best = &best, .x = x, .y = y, .skip = skip }, struct {
+        fn f(ctx: Ctx, id: abi.EntityId, o: *c.Object, t: *c.Transform) void {
+            if (o.kind != @intFromEnum(sim.ids.ObjectKind.phone)) return;
+            if (std.mem.indexOfScalar(u32, ctx.skip, id.raw) != null) return;
+            const d = fx.length(t.x - ctx.x, t.y - ctx.y);
+            if (d < ctx.best.d) ctx.best.* = .{ .id = id, .d = d };
+        }
+    }.f);
+    return best.id;
 }
