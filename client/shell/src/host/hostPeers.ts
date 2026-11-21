@@ -158,6 +158,11 @@ export class HostPeers {
     });
   }
 
+  /** Host debug aid: add points to a player slot's score. */
+  addPoints(slot: number, amount: number): void {
+    this.post({ t: "points", slot, amount });
+  }
+
   peers(): PeerView[] {
     return [...this.peersById.values()].map((p) => p.view);
   }

@@ -98,6 +98,11 @@ export class HostSession {
     for (const f of this.listeners) f();
   }
 
+  /** Host debug aid: add points to a player slot's score (e.g. the host's own, to pay a spray shop). */
+  addPoints(slot: number, amount: number): void {
+    this.peers?.addPoints(slot, amount);
+  }
+
   async stop(): Promise<void> {
     await this.peers?.stop();
     this.peers = null;

@@ -23,6 +23,7 @@ interface Exports {
   synthMap(): number;
   loadCars(styPtr: number, styLen: number, gciPtr: number, gciLen: number): number;
   loadScript?(ptr: number, len: number): number;
+  addPoints?(slot: number, amount: number): number;
   opened(peer: number, transport: number, now: number): number;
   stream(peer: number, p: number, n: number, now: number): void;
   datagram(peer: number, p: number, n: number, now: number): void;
@@ -138,6 +139,11 @@ export class HostModule {
     } finally {
       this.w.free(p, Math.max(total, 1));
     }
+  }
+
+  /** Host debug aid: add points to a slot's score (a host.wasm without the export ignores it). */
+  addPoints(slot: number, amount: number): void {
+    this.w.addPoints?.(slot >>> 0, amount | 0);
   }
 
   /** The map's main .scr, for its car shops. Before start; a host.wasm without the export skips it. */

@@ -100,6 +100,9 @@ function handle(m: ToHost): void {
     case "closed":
       host.closed(m.peer, now);
       break;
+    case "points":
+      host.addPoints(m.slot, m.amount);
+      break;
     case "stop": {
       running = false;
       if (timer !== undefined) clearTimeout(timer);

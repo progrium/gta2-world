@@ -70,7 +70,7 @@ function playHosted(s: HostSession): void {
     input,
     store,
     sessionId: s.room,
-    net: { transport: "loopback", loopback: s.loopback(), label: `hosting ${s.room}`, police: s.police, gciHash: s.gciHash },
+    net: { transport: "loopback", loopback: s.loopback(), label: `hosting ${s.room}`, police: s.police, gciHash: s.gciHash, addPoints: (slot, n) => s.addPoints(slot, n) },
     extraHud: panel.el,
     map: s.map,
     onBack: showHost,

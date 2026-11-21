@@ -353,6 +353,18 @@ export fn datagram(peer: u32, ptr: [*]const u8, len: usize, now: f64) void {
     mg.hub().datagram(pr.id, ptr[0..len]);
 }
 
+/// Host debug aid: adds `amount` points (negative takes them away) to
+/// `slot`'s score between ticks, e.g. to pay a spray shop in a police
+/// room. The new score reaches every player in the next snapshot. A game
+/// being recorded will not replay the same afterwards.
+export fn addPoints(slot: u32, amount: i32) i32 {
+    const s = sess orelse return -1;
+    if (slot >= Sim.config.max_players) return -1;
+    const row = &s.sim.state.players[slot];
+    row.score +|= amount;
+    return 0;
+}
+
 /// Mirrors Hub.closed. Forgets the peer.
 export fn closed(peer: u32, now: f64) void {
     const mg = mgr orelse return;

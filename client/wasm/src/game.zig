@@ -589,6 +589,15 @@ export fn gameLeave(slot: u32) void {
     if (slot < max_players) queue(.{ .op = .leave, .slot = @intCast(slot), .arg = 0 });
 }
 
+/// Debug aid: adds `amount` points to `slot`'s score in offline
+/// deathmatch (single player uses `spDebug` 7). Offline play only.
+export fn gameAddScore(slot: u32, amount: i32) bool {
+    if (!running or offline != .dm or online() or slot >= Sim.config.max_players) return false;
+    game.state.players[slot].score +|= amount;
+    savePrev();
+    return true;
+}
+
 /// Debug and tuning aid: drops a car 1.1 blocks in front of the slot's ped,
 /// facing the same way. Returns false if the player is in a car or the car
 /// table is full. Changes the state, so offline play only.

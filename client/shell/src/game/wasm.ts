@@ -245,6 +245,11 @@ export class GameModule {
     };
   }
 
+  /** Debug aid: add points to a slot's score in offline deathmatch. */
+  addScore(slot: number, amount: number): boolean {
+    return this.w.gameAddScore?.(slot >>> 0, amount | 0) ? true : false;
+  }
+
   start(seed: number, hint?: { x: number; y: number }): void {
     const rc = this.w.gameStart!(seed >>> 0, hint ? 1 : 0, hint?.x ?? 0, hint?.y ?? 0);
     if (rc !== 0) throw new Error(this.error());

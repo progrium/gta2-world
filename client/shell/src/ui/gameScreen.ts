@@ -41,7 +41,13 @@ export interface GameScreenOpts {
    * A browser-hosted game. `gciHash` is the .gci the host built its car
    * models from (null: style only); this client builds the same ones.
    */
-  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string; police?: boolean; gciHash: string | null };
+  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & {
+    label: string;
+    police?: boolean;
+    gciHash: string | null;
+    /** Only when this tab hosts the game: add points to a player slot's score. */
+    addPoints?: (slot: number, amount: number) => void;
+  };
   /** Extra HUD content, e.g. the host's join link and player list. */
   extraHud?: HTMLElement;
   map: MapChoice;
@@ -54,6 +60,8 @@ const hex = (f: Frame): string => {
   return Array.from(new Uint8Array(b.buffer), (x) => x.toString(16).padStart(2, "0")).join(" ");
 };
 
+/** What the debug money button (K) adds: cash in single player, points otherwise. */
+const MONEY_STEP = 10000;
 const BUTTON_NAMES: [number, string][] = Object.entries(Button).map(([k, v]) => [v, k]);
 
 let modulePromise: Promise<GameModule> | null = null;
@@ -204,6 +212,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         h("button", { onclick: toggleSound }, "Sound (B)"),
         remote ? null : h("button", { onclick: () => game?.spawnCar(0) }, "Car here (V)"),
         remote ? null : h("button", { onclick: () => dropPickup() }, "Pickup here (P)"),
+        !remote || o.net?.addPoints ? h("button", { title: "Debug: add money (single player) or points, e.g. to pay a spray shop", onclick: () => addMoney() }, `+${MONEY_STEP.toLocaleString()} ${sp ? "cash" : "points"} (K)`) : null,
         remote ? null : h("button", { onclick: respawn }, sp ? "Restart level (R)" : "Respawn (R)"),
         h("button", {
           onclick: () => {
@@ -270,6 +279,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     else if (e.code === "KeyR") respawn();
     else if (e.code === "KeyV" && !remote) game?.spawnCar(0);
     else if (e.code === "KeyP" && !remote) dropPickup();
+    else if (e.code === "KeyK") addMoney();
     else if (e.code === "Escape" && overlay) closeOverlay();
   };
   addEventListener("keydown", onKey);
@@ -537,6 +547,16 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     "say_health", "say_armour", "say_invulnerability", "say_double_damage", "say_fast_reload",
   ];
   const secs = (ticks: number): number => Math.ceil(ticks / 30);
+  // Debug: add cash (single player) or points, offline or as the host.
+  function addMoney(): void {
+    if (o.net?.addPoints) {
+      if (online) o.net.addPoints(ownSlot, MONEY_STEP);
+    } else if (game && !remote) {
+      if (sp) game.spDebug(7, MONEY_STEP);
+      else game.addScore(0, MONEY_STEP);
+    } else return;
+    feedLine(`+${MONEY_STEP.toLocaleString()} ${sp ? "cash" : "points"}`, true);
+  }
   // Debug: each press drops the next kind of pickup, weapons then power-ups.
   let nextPickup = 1;
   function dropPickup(): void {

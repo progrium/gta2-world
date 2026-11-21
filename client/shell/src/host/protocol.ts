@@ -38,7 +38,9 @@ export type ToHost =
   /** Mirrors Hub.closed. */
   | { t: "closed"; peer: PeerId }
   /** End the session: send bye(3) to everyone, then reply "stopped". */
-  | { t: "stop" };
+  | { t: "stop" }
+  /** Host debug aid: add points (negative to take) to a player slot's score. */
+  | { t: "points"; slot: number; amount: number };
 
 /** Worker -> page. */
 export type FromHost =
