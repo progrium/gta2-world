@@ -45,6 +45,9 @@ pub const Opts = struct {
     against_flow_south: bool = false,
     /// Expansion bound (0 means `TF.route_max_nodes`).
     max_nodes: u32 = 0,
+    /// The way the car faces now (0 +x, 1 +y, 2 -x, 3 -y), if known: the
+    /// route never starts by reversing.
+    facing: ?u2 = null,
 };
 
 /// A road cell: block (x, y) at map level l.
@@ -182,8 +185,22 @@ inline fn key(n: Node) u32 {
     return @as(u32, @intCast(n.x)) | (@as(u32, @intCast(n.y)) << 8) | (@as(u32, @intCast(n.l)) << 16);
 }
 inline fn unkey(k: u32) Node {
-    return .{ .x = @intCast(k & 0xFF), .y = @intCast((k >> 8) & 0xFF), .l = @intCast((k >> 16) & 0xFF) };
+    return .{ .x = @intCast(k & 0xFF), .y = @intCast((k >> 8) & 0xFF), .l = @intCast((k >> 16) & 7) };
 }
+// Search states carry the direction of the last move (4: none yet) and the
+// straight blocks since the last turn (capped at `TF.route_min_run`), so a
+// route never reverses and never turns again before the car's turning
+// circle allows (ours): no U-turns inside a junction.
+inline fn kdir(k: u32) u8 {
+    return @intCast((k >> 19) & 7);
+}
+inline fn krun(k: u32) u8 {
+    return @intCast((k >> 22) & 3);
+}
+inline fn stateKey(n: Node, dir: u8, run: u8) u32 {
+    return key(n) | (@as(u32, dir) << 19) | (@as(u32, run) << 22);
+}
+
 inline fn manhattan(n: Node, gx: i32, gy: i32) u16 {
     return @intCast(@min(@abs(n.x - gx) + @abs(n.y - gy), 0xFFFF));
 }
@@ -278,7 +295,7 @@ pub fn plan(g: *const abi.Grid, from: Node, gx: i32, gy: i32, opts: Opts) ?Steps
     if (from.x == gx and from.y == gy) return null;
     const max_nodes = if (opts.max_nodes == 0) TF.route_max_nodes else opts.max_nodes;
     var s: Search = .{};
-    const k0 = key(from);
+    const k0 = stateKey(from, if (opts.facing) |f| f else 4, TF.route_min_run);
     const s0 = s.slot(k0).?;
     s.keys[s0] = k0 + 1;
     s.gs[s0] = 0;
@@ -301,10 +318,20 @@ pub fn plan(g: *const abi.Grid, from: Node, gx: i32, gy: i32, opts: Opts) ?Steps
         }
         expanded += 1;
         if (expanded >= max_nodes) break;
+        const sk = s.keys[sl] - 1;
+        const sdir = kdir(sk);
+        const srun = krun(sk);
         var d: u3 = 0;
         while (d < 4) : (d += 1) {
+            if (sdir < 4 and d != sdir) {
+                if ((d + 2) & 3 == sdir) continue; // no reversing
+                if (srun < TF.route_min_run) continue; // too soon to turn again
+            }
             const m = move(g, n, @intCast(d), opts) orelse continue;
-            const k = key(m.to);
+            const nrun: u8 = if (sdir == d) @min(srun + 1, TF.route_min_run) else 0;
+            // Past the horizon the car will re-plan before it gets there:
+            // plain block states keep long searches inside the bound.
+            const k = if (gn >= TF.route_turn_horizon) stateKey(m.to, 4, TF.route_min_run) else stateKey(m.to, d, nrun);
             const ts = s.slot(k) orelse continue;
             const ng = gn +| m.cost;
             if (s.keys[ts] != 0 and s.gs[ts] <= ng) continue;

@@ -256,6 +256,34 @@ test "junction right-of-way: crossing cars arriving together don't collide and b
     try std.testing.expect(h.block(south)[1] > 84 or h.block(south)[0] > 84 or h.block(south)[0] < 80);
 }
 
+test "forced turn: at a T junction a car turns into the correct lane and stays in it" {
+    // Close the road east of the junction at x = 64..67, y = 48..51: an
+    // eastbound car (+x lanes, rows 50 and 51) must turn left (-y lanes,
+    // columns 66 and 67) or right (+y lanes, columns 64 and 65).
+    for (0..2) |seed| {
+        var h = try SpHarness.init();
+        defer h.deinit();
+        for (68..80) |x| for (48..52) |y| map.set(h.grid, @intCast(x), @intCast(y), 0, map.makeCell(map.Shape.solid, 0, map.Ground.pavement, 0));
+        const car = h.aiCar(54, 50 + @as(i32, @intCast(seed)), 0);
+        var away: u32 = 0;
+        for (0..900) |_| {
+            h.run(1);
+            const b = h.block(car);
+            if (b[1] < 48 - 3 or b[1] > 51 + 3) {
+                // Out of the junction: on the lane for its way, every tick.
+                if (b[1] < 48) {
+                    try std.testing.expect(b[0] == 66 or b[0] == 67);
+                } else {
+                    try std.testing.expect(b[0] == 64 or b[0] == 65);
+                }
+                away += 1;
+            }
+        }
+        try std.testing.expect(away > 100);
+        try std.testing.expectEqual(T.car_damage_max, h.sim.state.world.get(car, c.Health).?.hp);
+    }
+}
+
 test "crossing marker: a rolling stop on every pass, never on a task" {
     var h = try SpHarness.init();
     defer h.deinit();

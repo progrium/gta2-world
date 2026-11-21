@@ -264,10 +264,16 @@ pub fn Sys(comptime Self: type) type {
                     if (ct.route_from == from and ct.route_to == to and ct.timer > 0) return;
                     if (cx.plans >= TF.route_plans_per_tick) return;
                     cx.plans += 1;
-                    const opts: route.Opts = .{ .against_flow_south = ct.flags & c.CarTask.flag_against_flow != 0 };
+                    const facing: u2 = @intCast(((@as(u32, t.heading) + 8192) >> 14) & 3);
+                    var opts: route.Opts = .{ .against_flow_south = ct.flags & c.CarTask.flag_against_flow != 0, .facing = facing };
                     const goal = route.nearestRoad(sim.grid, gx, gy, l, TF.route_goal_radius) orelse route.Node{ .x = gx, .y = gy, .l = l };
                     const here: route.Node = .{ .x = bx, .y = by, .l = l };
-                    const st = route.plan(sim.grid, here, goal.x, goal.y, opts);
+                    var st = route.plan(sim.grid, here, goal.x, goal.y, opts);
+                    if (st == null) {
+                        // No way forward without turning round: plan freely.
+                        opts.facing = null;
+                        st = route.plan(sim.grid, here, goal.x, goal.y, opts);
+                    }
                     const dirs: [3]u8 = if (st) |x| x.dirs else .{ route.no_dir, route.no_dir, route.no_dir };
                     ct.route_dir = dirs[0];
                     ct.next_dir = dirs[1];
