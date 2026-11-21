@@ -76,6 +76,8 @@ pub fn Sys(comptime Self: type) type {
                         sc.stats.shot_hits += 1;
                         const e = sc.entries[best];
                         sim.countPlayerHit(p, e.id);
+                        // Scripts test what hit what (mission-scripts.md 3.4).
+                        Self.hooks.entityHit(sim, e.id, p.weapon, p.owner);
                         const def = T.shotDef(p.weapon);
                         const ww = &sim.state.world;
                         // Double damage on the shooter doubles the bullet
