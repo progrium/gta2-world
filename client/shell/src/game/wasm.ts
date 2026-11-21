@@ -89,19 +89,33 @@ export interface SpHud {
   careerFlags: number;
   /** Wasted or busted and not yet back on the street. */
   out: boolean;
-  /** Banner message text id (0 none) and ticks left. */
+  /** Banner message text id (0 none), ticks left and voice line (0 none, 1 job complete, 2 job fail). */
   banner: number;
   bannerTicks: number;
-  /** Queued brief text ids, the showing one first. */
-  briefs: number[];
-  /** Countdown in ticks (0 none). */
-  timer: number;
-  counters: [number, number];
+  bannerVoice: number;
+  /** The brief on screen (text id, 0 none), ticks it has been up and will stay. */
+  brief: number;
+  briefTicks: number;
+  briefTotal: number;
+  /** Briefs queued, the one showing included. */
+  briefsQueued: number;
+  /** The four timer/counter display slots; a slot can show both. */
+  displays: SpDisplay[];
   /** Where the arrow points, in blocks, or null. */
   arrow: { x: number; y: number; entity: boolean } | null;
   hudFlags: number;
   tick: number;
 }
+
+export interface SpDisplay {
+  /** Countdown ticks when shown (clamped at 0), else null. */
+  timer: number | null;
+  /** Counter value when shown, else null. */
+  counter: number | null;
+}
+
+/** Text ids with this bit are fixed texts the client supplies (sim/sp/hud.zig `text_named`). */
+export const TEXT_NAMED = 0x8000_0000;
 
 export interface CameraTarget {
   x: number;
@@ -280,8 +294,12 @@ export class GameModule {
   }
 
   spInfo(): SpHud {
-    const a = new Int32Array(this.buf, this.w.spInfo!(), 24);
-    const n = Math.max(0, Math.min(4, a[10]!));
+    const a = new Int32Array(this.buf, this.w.spInfo!(), 32);
+    const displays: SpDisplay[] = [];
+    for (let i = 0; i < 4; i++) {
+      const f = a[15 + i * 3]!;
+      displays.push({ timer: f & 1 ? Math.max(0, a[16 + i * 3]!) : null, counter: f & 2 ? a[17 + i * 3]! : null });
+    }
     return {
       lives: a[0]!,
       multiplier: a[1]!,
@@ -293,12 +311,15 @@ export class GameModule {
       out: a[7] !== 0,
       banner: a[8]! >>> 0,
       bannerTicks: a[9]!,
-      briefs: Array.from(a.subarray(11, 11 + n), (x) => x >>> 0),
-      timer: a[15]! >>> 0,
-      counters: [a[16]!, a[17]!],
-      arrow: a[18] ? { x: a[19]! / 65536, y: a[20]! / 65536, entity: a[18] === 1 } : null,
-      hudFlags: a[21]!,
-      tick: a[22]! >>> 0,
+      bannerVoice: a[10]!,
+      brief: a[11]! >>> 0,
+      briefTicks: a[12]!,
+      briefTotal: a[13]!,
+      briefsQueued: a[14]!,
+      displays,
+      arrow: a[27] ? { x: a[28]! / 65536, y: a[29]! / 65536, entity: a[27] === 1 } : null,
+      hudFlags: a[30]!,
+      tick: a[31]! >>> 0,
     };
   }
 
