@@ -69,3 +69,91 @@ test "a car fully in deep water loses drive and sinks with its driver; one half 
     try std.testing.expect(!w.isAlive(car));
     try std.testing.expect(h.sim.pedOf(0) == null);
 }
+
+test "a passenger riding a sinking car drowns with it" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 36, 40);
+    h.join(1, 36, 41);
+    const w = &h.sim.state.world;
+    const z = h.ped(0).z;
+    flood(&h, 38, 33, 46, 35, z);
+    const car = h.sim.spawnCarAt(blk(43), blk(34), 0, 0).?;
+    const rider = h.sim.pedOf(1).?;
+    w.get(rider, c.Riding).?.vehicle = car;
+    var n: u32 = 0;
+    while (w.isAlive(car) and n < 60) : (n += 1) h.run(1);
+    try std.testing.expect(!w.isAlive(car));
+    // Gone in the same tick as the car, drowned.
+    try std.testing.expect(h.sim.pedOf(1) == null or w.get(rider, c.Health).?.hp <= 0);
+}
+
+test "an electrified floor shocks a ped standing on it until he dies" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 20, 20);
+    const id = h.sim.pedOf(0).?;
+    const t = h.ped(0);
+    const w = &h.sim.state.world;
+    // The ground slab under (20, 20) is layer 0.
+    h.grid.surface[0][20][20] |= map.Surface.electrified;
+    h.run(1);
+    const p = w.get(id, c.Pedestrian).?;
+    // +3, -1 decay: net +2 a tick.
+    try std.testing.expectEqual(@as(u8, 2), p.shock);
+    var n: u32 = 0;
+    while (h.sim.pedOf(0) != null and w.get(id, c.Health).?.hp > 0 and n < 200) : (n += 1) h.run(1);
+    try std.testing.expect(n < 60);
+    // Off the tile: no shock builds.
+    var h2 = try Harness.init(.authoritative);
+    defer h2.deinit();
+    h2.join(0, 20, 20);
+    h2.grid.surface[0][21][21] |= map.Surface.electrified;
+    h2.run(10);
+    try std.testing.expectEqual(@as(u8, 0), h2.sim.state.world.get(h2.sim.pedOf(0).?, c.Pedestrian).?.shock);
+    _ = t;
+}
+
+test "oil: a car on a slick spins for 30 ticks, takes damage and its brakes do nothing" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    const w = &h.sim.state.world;
+    const car = h.sim.spawnCarAt(blk(20), blk(20), 0, 0).?;
+    const v = w.get(car, c.Vehicle).?;
+    const hp0 = w.get(car, c.Health).?.hp;
+    S.surfaces.oilCar(h.sim, car, .none);
+    try std.testing.expectEqual(T.oil_ticks, v.oil);
+    try std.testing.expect(w.get(car, c.Health).?.hp < hp0);
+    // A second slick while spinning does nothing more.
+    const hp1 = w.get(car, c.Health).?.hp;
+    S.surfaces.oilCar(h.sim, car, .none);
+    try std.testing.expectEqual(hp1, w.get(car, c.Health).?.hp);
+    // Coasting on oil with no engine force: neither axle grips, so a
+    // sideways slide is not stopped by the tyres (only damping).
+    const vel = w.get(car, c.Velocity).?;
+    vel.vy = fx.ratio(2, 10);
+    h.run(1);
+    const oily = vel.vy;
+    var h2 = try Harness.init(.authoritative);
+    defer h2.deinit();
+    const car2 = h2.sim.spawnCarAt(blk(20), blk(20), 0, 0).?;
+    const vel2 = h2.sim.state.world.get(car2, c.Velocity).?;
+    vel2.vy = fx.ratio(2, 10);
+    h2.run(1);
+    try std.testing.expect(oily > vel2.vy);
+    h.run(T.oil_ticks);
+    try std.testing.expectEqual(@as(u8, 0), v.oil);
+}
+
+test "a car left on a 45 degree ramp rolls back down it" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    // 45 degree ramps at (20..22, 20) rising toward +x, level 1.
+    for (18..23) |y| map.set(h.grid, 21, @intCast(y), 1, map.makeCell(map.Shape.slope, map.Code.ramp45(3), map.Ground.road, 0));
+    const car = h.sim.spawnCarAt(fx.fromInt(21) + fx.half, blk(20), 0, 0).?;
+    const t = h.sim.transformOf(car).?;
+    h.run(1);
+    const x0 = t.x;
+    h.run(20);
+    try std.testing.expect(t.x < x0);
+}

@@ -102,6 +102,8 @@ test "career: a player starts with lives and a multiplier of 1" {
     try std.testing.expectEqual(TC.start_lives, Sp.career.lives(h.sim, 0));
     try std.testing.expectEqual(@as(u8, 1), Sp.career.multiplier(h.sim, 0));
     try std.testing.expect(!Sp.career.isOut(h.sim, 0));
+    // Unarmed: no deathmatch pistol.
+    for (h.weapon().rounds()) |r| try std.testing.expectEqual(@as(u16, 0), r);
     // Lives and multiplier clamp (script-player.md 2.1-2.2).
     Sp.career.addLives(h.sim, 0, -50);
     try std.testing.expectEqual(@as(u8, 0), Sp.career.lives(h.sim, 0));
@@ -544,9 +546,35 @@ test "accuracy: the player's projectile hits are counted by weapon (scoring.md 3
     w.get(victim, c.Pedestrian).?.ai_timer = 1000;
     w.get(h.me(), c.Transform).?.heading = 0;
     h.weapon().kind = T.weapon_pistol;
+    h.weapon().rounds()[T.weapon_pistol] = 100;
     h.frames[0].buttons = Button.fire;
     h.run(1);
     h.frames[0].buttons = 0;
     h.run(10);
     try std.testing.expectEqual(@as(u16, 1), h.cs().hits_other[T.weapon_pistol]);
+}
+
+test "car weapons: mines drop behind the car on a fresh press, credited to the driver" {
+    var h = try H.init();
+    defer h.deinit();
+    const w = &h.sim.state.world;
+    const car = h.sim.spawnCarAt(blk(44), blk(34), 0, 0).?;
+    h.run(1);
+    h.sim.board(h.me(), car);
+    try std.testing.expect(Sp.car_weapons.arm(h.sim, car, .mines, 3));
+    const before = w.count(Sp.MapObject);
+    h.frames[0].buttons = Button.fire;
+    h.run(2);
+    h.run(5); // held: no second mine
+    h.frames[0].buttons = 0;
+    try std.testing.expectEqual(before + 1, w.count(Sp.MapObject));
+    try std.testing.expectEqual(@as(u16, 20), Sp.car_weapons.armOf(h.sim, car).?.ammo);
+    const Ctx = struct { me: EntityId, found: *bool };
+    var found = false;
+    w.each(.{c.Object}, Ctx{ .me = h.me(), .found = &found }, struct {
+        fn f(cx: Ctx, _: EntityId, o: *c.Object) void {
+            if (o.kind == @intFromEnum(simmod.ids.ObjectKind.mine) and eql(o.owner, cx.me)) cx.found.* = true;
+        }
+    }.f);
+    try std.testing.expect(found);
 }

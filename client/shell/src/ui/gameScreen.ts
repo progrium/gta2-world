@@ -542,6 +542,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         feedLine("Job failed", true);
         break;
       case 17:
+        // On the last life this comes instead of wasted, at the body.
+        if (e.x || e.y) hold();
         spHud!.showCentre(spHud!.keyText("g_over"), tick, 1 << 30, "over");
         break;
       case 18:

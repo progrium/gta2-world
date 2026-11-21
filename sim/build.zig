@@ -27,6 +27,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .imports = &.{
             .{ .name = "interfaces", .module = ifaces.module("interfaces") },
+            // Tests only: the script tests assemble their scripts with scrasm.
+            .{ .name = "formats", .module = b.dependency("formats", .{ .target = target, .optimize = optimize }).module("formats") },
         },
     }) });
     _ = mod;

@@ -115,6 +115,9 @@ export const FALLBACK_TEXT: Record<string, string> = {
   mfail: "JOB FAILED",
   gam_cmp: "LEVEL COMPLETE",
   loading: "GET READY",
+  kfstart: "KILL FRENZY",
+  kfpass: "FRENZY PASSED",
+  kffail: "FRENZY FAILED",
 };
 
 /**

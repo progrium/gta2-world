@@ -103,10 +103,11 @@ pub fn Sys(comptime Self: type) type {
         }
 
         /// Close on (x, y) as a chaser (ped-ai.md 3.7): stop within 1/8
-        /// block unless mid-jump, otherwise slow down in three steps over
+        /// block (`chase_stop_at`: just outside body contact, so a chaser
+        /// never shoves its target) unless mid-jump, otherwise slow down in three steps over
         /// the last half block.
         pub fn chase(self: *Self, p: P, x: Fx, y: Fx, dist: Fx) void {
-            if (dist <= A.chase_stop and p.ped.jump == 0) return stand(p, bearing(p.t, x, y), false);
+            if (dist <= A.chase_stop_at and p.ped.jump == 0) return stand(p, bearing(p.t, x, y), false);
             const tier: usize = if (dist > A.chase_tier1) 0 else if (dist > A.chase_tier2) 1 else if (dist > A.chase_tier3) 2 else 3;
             goToward(self, p, x, y, A.chase_throttle[tier], tier == 0);
         }

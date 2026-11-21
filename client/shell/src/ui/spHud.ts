@@ -10,7 +10,7 @@
 // typing at 3 ticks a character, timer and counter displays) and
 // power-ups-death-and-arrest.md (death messages by cause).
 
-import type { SpHud } from "../game/wasm.ts";
+import { type SpHud, TEXT_NAMED } from "../game/wasm.ts";
 import { BRIEF_TICKS_PER_CHAR, FALLBACK_TEXT, PORTRAIT_COLOURS, type TextSpan, arrowAngle, formatPoints, formatTimer, parseGameText, truncateSpans } from "../game/text.ts";
 import { clear, h } from "./dom.ts";
 
@@ -24,6 +24,9 @@ export interface TextSource {
 /** Ticks a big centre message stays up (ours; the sim's own countdown is 70). */
 const CENTRE_TICKS = 70;
 const MAX_STARS = 6;
+
+/** Fixed texts by `text_named` number (sim/sp/hud.zig): the player's .gxt keys. */
+const NAMED_KEYS: Record<number, string> = { 1: "mfail", 2: "mfail", 3: "kfstart", 4: "kfpass", 5: "kffail" };
 
 export class SpHudView {
   readonly el: HTMLElement;
@@ -40,8 +43,6 @@ export class SpHudView {
   private arrow = h("div", { class: "sp-arrow hidden" }, "➤");
   private centre = h("div", { class: "sp-centre hidden" });
   private centreUntil = 0;
-  private briefId = 0;
-  private briefStart = 0;
   private lastKey = "";
 
   private readonly src: TextSource;
@@ -57,6 +58,15 @@ export class SpHudView {
   keyText(key: string): string {
     const t = this.src.textKey(key);
     return t !== null ? parseGameText(t).plain : (FALLBACK_TEXT[key] ?? key.toUpperCase());
+  }
+
+  /** A HUD text id: a .gxt message number, or a fixed text (top bit set). */
+  private idText(id: number): string | null {
+    if (id >= TEXT_NAMED) {
+      const key = NAMED_KEYS[id - TEXT_NAMED];
+      return key ? (this.src.textKey(key) ?? FALLBACK_TEXT[key] ?? null) : null;
+    }
+    return this.src.text(id);
   }
 
   /** Shows a big centre message (wasted, busted, ...) for `ticks`. */
@@ -83,37 +93,39 @@ export class SpHudView {
     }
     // Banner: the one-line message while its ticks last.
     if (s.banner && s.bannerTicks > 0) {
-      const t = this.src.text(s.banner);
+      const t = this.idText(s.banner);
       setSpans(this.banner, t === null ? [{ text: `[${s.banner}]`, hi: false }] : parseGameText(t).spans);
       this.banner.classList.remove("hidden");
     } else this.banner.classList.add("hidden");
-    // Brief: the front of the queue types itself out.
-    const front = s.briefs[0] ?? 0;
-    if (front !== this.briefId) {
-      this.briefId = front;
-      this.briefStart = s.tick;
-    }
-    if (front) {
-      const raw = this.src.text(front);
-      const g = raw === null ? { portrait: null, spans: [{ text: `[${front}]`, hi: false }], plain: "" } : parseGameText(raw);
-      const shown = Math.floor((s.tick - this.briefStart) / BRIEF_TICKS_PER_CHAR) + 1;
-      setSpans(this.briefText, truncateSpans(g.spans, shown));
+    // Brief: the one on screen types itself out (the sim counts its ticks).
+    if (s.brief) {
+      const raw = this.idText(s.brief);
+      const g = raw === null ? { portrait: null, spans: [{ text: `[${s.brief}]`, hi: false }], plain: "" } : parseGameText(raw);
+      setSpans(this.briefText, truncateSpans(g.spans, Math.floor(s.briefTicks / BRIEF_TICKS_PER_CHAR) + 1));
       const colour = (g.portrait && PORTRAIT_COLOURS[g.portrait.toLowerCase()]) || "#8a8f98";
       this.portrait.style.background = colour;
       this.portrait.textContent = g.portrait ? g.portrait.toUpperCase() : "";
       this.brief.classList.remove("hidden");
     } else this.brief.classList.add("hidden");
-    // Pager: countdown and counters.
+    // Pager: each display slot's countdown and counter.
     const parts: string[] = [];
-    if (s.timer > 0) parts.push(formatTimer(s.timer));
-    for (const c of s.counters) if (c !== 0) parts.push(String(c));
-    const key = parts.join("  ");
+    let low = false;
+    for (const d of s.displays) {
+      const p: string[] = [];
+      if (d.timer !== null) {
+        p.push(formatTimer(d.timer));
+        if (d.timer <= 10 * 30) low = true;
+      }
+      if (d.counter !== null) p.push(String(d.counter));
+      if (p.length) parts.push(p.join(" "));
+    }
+    const key = parts.join("  ·  ");
     if (key !== this.lastKey) {
       this.lastKey = key;
       this.pager.textContent = key;
       this.pager.classList.toggle("hidden", !key);
     }
-    this.pager.classList.toggle("flash", s.timer > 0 && s.timer <= 10 * 30 && Math.floor(s.tick / 8) % 2 === 0);
+    this.pager.classList.toggle("flash", low && Math.floor(s.tick / 8) % 2 === 0);
     // Arrow: around the screen centre, toward the target.
     if (s.arrow && player) {
       const a = arrowAngle(player.x, player.y, s.arrow.x, s.arrow.y);
@@ -127,7 +139,6 @@ export class SpHudView {
   /** Hides the timed parts (a new game). */
   reset(): void {
     this.centreUntil = 0;
-    this.briefId = 0;
     this.centre.classList.add("hidden");
   }
 }

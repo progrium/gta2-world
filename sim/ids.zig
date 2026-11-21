@@ -52,6 +52,8 @@ pub const ObjectKind = enum(u8) {
     destructor = 11,
     decoration = 12,
     pickup = 13,
+    /// A solid roadblock barrier (E places them; B makes them solid).
+    barrier = 14,
     _,
 };
 

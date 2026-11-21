@@ -35,6 +35,14 @@ pub fn Sys(comptime Self: type) type {
             for (&self.state.players, 0..) |*pl, i| {
                 if (pl.flags & abi.PlayerRow.flag_active == 0) continue;
                 const slot: u8 = @intCast(i);
+                if (self.state.sp.career[slot].flags & CS.flag_started == 0) {
+                    // A single-player career starts unarmed: the joining
+                    // ped's infinite pistol is a deathmatch rule.
+                    if (self.state.world.get(pl.ped, c.Weapon)) |wpn| {
+                        for (wpn.rounds()) |*r| r.* = 0;
+                        wpn.kind = T.weapon_pistol;
+                    }
+                }
                 Self.career.start(self, slot);
                 const cs = &self.state.sp.career[slot];
                 powerUpTick(self, slot, cs);
@@ -52,46 +60,26 @@ pub fn Sys(comptime Self: type) type {
         /// Timers count down once a tick (3.1); the combos' windows too.
         /// Electro-fingers zaps everyone close by (ped-ai.md 3.14).
         fn powerUpTick(self: *Self, slot: u8, cs: *CS) void {
-            if (cs.invisible > 0) cs.invisible -= 1;
+            const ped = self.state.players[slot].ped;
+            if (cs.invisible > 0) {
+                cs.invisible -= 1;
+                // The effects are the ped AI's (ped-ai.md 3.14-3.15): its
+                // flags are set when a power-up starts and cleared here when
+                // it runs out.
+                if (cs.invisible == 0 and cs.flags & CS.flag_always_invisible == 0) Self.objectives.setInvisible(self, ped, false);
+            }
             if (cs.elvis_timer > 0) cs.elvis_timer -= 1;
             if (cs.emergency_timer > 0) {
                 cs.emergency_timer -= 1;
                 if (cs.emergency_timer == 0) cs.emergency_kinds = 0;
             }
-            const ped = self.state.players[slot].ped;
             if (cs.flags & CS.flag_unlimited_double != 0) {
                 if (self.state.world.get(ped, c.Pedestrian)) |p| p.double_damage = TC.double_damage_ticks;
             }
-            if (cs.electro_fingers == 0) return;
-            cs.electro_fingers -= 1;
-            if (cs.phase != CS.phase_playing) return;
-            electroFingers(self, ped);
-        }
-
-        /// Every ped within half a block of the player, in sight, takes 3
-        /// damage credited to him, with a spark drawn (ped-ai.md 3.14).
-        /// Ours: only while he is on foot.
-        pub fn electroFingers(self: *Self, ped: EntityId) void {
-            const w = &self.state.world;
-            const t = w.get(ped, c.Transform) orelse return;
-            const r = w.get(ped, c.Riding) orelse return;
-            if (!r.vehicle.isNone()) return;
-            const Ctx = struct { sim: *Self, ped: EntityId, t: c.Transform };
-            w.each(.{ c.Pedestrian, c.Transform, c.Collider }, Ctx{ .sim = self, .ped = ped, .t = t.* }, struct {
-                fn f(cx: Ctx, id: EntityId, _: *c.Pedestrian, tt: *c.Transform, col: *c.Collider) void {
-                    if (eql(id, cx.ped) or col.flags & c.Collider.flag_disabled != 0) return;
-                    const sim = cx.sim;
-                    if (Self.career.isDouble(sim, id)) return;
-                    if (fx.abs(tt.z - cx.t.z) > fx.half) return;
-                    const dx = tt.x - cx.t.x;
-                    const dy = tt.y - cx.t.y;
-                    if (fx.abs(dx) > TC.electro_fingers_radius or fx.abs(dy) > TC.electro_fingers_radius) return;
-                    if (fx.length(dx, dy) > TC.electro_fingers_radius) return;
-                    if (map.moveHitsWall(sim.grid, cx.t.x, cx.t.y, tt.x, tt.y, cx.t.z + T.shot_height, map.bullet)) return;
-                    sim.hurt(id, TC.electro_fingers_damage, cx.ped);
-                    sim.spark(tt.x, tt.y, tt.z, cx.ped);
-                }
-            }.f);
+            if (cs.electro_fingers > 0) {
+                cs.electro_fingers -= 1;
+                if (cs.electro_fingers == 0) Self.objectives.setElectroFingers(self, ped, false);
+            }
         }
 
         /// The player's ped `ped` has died (called by `sysHealth` instead of
@@ -205,6 +193,7 @@ pub fn Sys(comptime Self: type) type {
             pl.respawn_timer = 0;
             const w = &self.state.world;
             const fresh = pl.ped;
+            Self.career.applyEffects(self, slot);
             if (w.get(old, c.Weapon)) |ow| {
                 if (w.get(fresh, c.Weapon)) |nw| nw.* = ow.*;
                 ow.* = std.mem.zeroes(c.Weapon);
@@ -303,6 +292,7 @@ pub fn Sys(comptime Self: type) type {
             }
             cs.electro_fingers = 0;
             cs.invisible = 0;
+            Self.career.applyEffects(self, slot);
             Self.car_weapons.disarm(self, cs.death_car);
         }
     };

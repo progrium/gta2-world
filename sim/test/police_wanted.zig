@@ -227,6 +227,8 @@ test "wanted: shooting near a cop gets one star; far from him, none" {
     defer h.deinit();
     const far = h.pedAt(10, 10, .police);
     _ = far;
+    // A single-player career starts unarmed (G): give him a pistol.
+    h.sim.state.world.get(h.player(), c.Weapon).?.rounds()[T.weapon_pistol] = T.infinite_ammo;
     h.frames[0].buttons = Button.fire;
     h.run(10);
     h.frames[0].buttons = 0;

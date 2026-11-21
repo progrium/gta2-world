@@ -36,11 +36,6 @@ pub const respect_max: i8 = 100;
 /// Instant gang: up to this many recruits.
 pub const instant_gang_recruits: u8 = 4;
 
-/// Electro-fingers (ped-ai.md 3.14): every tick, 3 damage to each ped within
-/// half a block in sight.
-pub const electro_fingers_radius = fx.half;
-pub const electro_fingers_damage: i32 = 3;
-
 // --- Scoring (scoring.md 3.2-3.3)
 
 /// Base points by victim class, for a kill by weapon or explosion.

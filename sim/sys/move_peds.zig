@@ -16,9 +16,11 @@ const EntityId = prelude.EntityId;
 const Frame = prelude.Frame;
 const Button = prelude.Button;
 const eql = prelude.eql;
+const anim = @import("../anim.zig");
 
 pub fn Sys(comptime Self: type) type {
     return struct {
+        const Me = @This();
         const substeps = Self.substeps;
 
         /// Peds move a step at a time; a blocked step slides along one map
@@ -29,6 +31,7 @@ pub fn Sys(comptime Self: type) type {
             self.state.world.eachFiltered(.{ c.Pedestrian, c.Transform, c.Velocity, c.Collider }, self.predicting(), self, struct {
                 fn f(sim: *Self, id: EntityId, ped: *c.Pedestrian, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
                     if (col.flags & c.Collider.flag_disabled != 0) return;
+                    if (ped.state == c.Pedestrian.state_falling) return Me.moveFalling(sim, id, ped, t, vel, col);
                     if (ped.state != c.Pedestrian.state_up) return sim.moveThrown(id, ped, t, vel, col);
                     const n = substeps(vel);
                     const sx = @divTrunc(vel.vx, n);
@@ -59,9 +62,60 @@ pub fn Sys(comptime Self: type) type {
                         col.flags |= c.Collider.flag_grounded;
                         return;
                     }
+                    const z0 = t.z;
                     sim.settle(t, vel, col, T.ped_step, T.ped_gravity, T.ped_max_fall);
+                    if (t.z < z0) sim.pushOutCircle(t, T.ped_radius, T.ped_step);
+                    // Stepped off an edge (3.5): he falls, keeping his
+                    // horizontal speed, and takes no control until he lands.
+                    if (col.flags & c.Collider.flag_grounded == 0) {
+                        ped.state = c.Pedestrian.state_falling;
+                        ped.anim = c.Pedestrian.anim_fall;
+                        ped.fall = 0;
+                        ped.turn = 0;
+                    }
                 }
             }.f);
+        }
+
+        /// A falling ped (ped-movement.md 3.5): carried at the horizontal
+        /// speed he left the edge with, stopped by walls, falling at +0.01
+        /// a tick up to 0.1. The fall animation's frames 12 and 13 each
+        /// deal 4; from frame 14 the fall is lethal and he dies on landing
+        /// unless invulnerable. Frame length is `anim.ticks_per_frame.fall`
+        /// (ours).
+        pub fn moveFalling(self: *Self, id: EntityId, ped: *c.Pedestrian, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
+            ped.anim = c.Pedestrian.anim_fall;
+            ped.jump = 0;
+            const n = substeps(vel);
+            const sx = @divTrunc(vel.vx, n);
+            const sy = @divTrunc(vel.vy, n);
+            var i: i32 = 0;
+            while (i < n) : (i += 1) {
+                if (sx != 0) {
+                    if (self.pedBlocked(t.x, t.y, t.x + sx, t.y, t.z)) vel.vx = 0 else t.x += sx;
+                }
+                if (sy != 0) {
+                    if (self.pedBlocked(t.x, t.y, t.x, t.y + sy, t.z)) vel.vy = 0 else t.y += sy;
+                }
+            }
+            ped.fall +|= 1;
+            const per = anim.ticks_per_frame.fall;
+            const frame = anim.frameAt(ped.fall, per);
+            if (ped.fall % per == 0 and frame >= anim.frames.fall_hurt_first and frame < anim.frames.fall_lethal) {
+                if (self.state.world.get(id, c.Health)) |h| self.hurt(id, T.fall_damage, h.last_hit_by);
+            }
+            const z0 = t.z;
+            self.settle(t, vel, col, T.ped_step, T.ped_gravity, T.ped_max_fall);
+            if (t.z < z0) self.pushOutCircle(t, T.ped_radius, T.ped_step);
+            if (col.flags & c.Collider.flag_grounded == 0) return;
+            // Landed.
+            const lethal = frame >= anim.frames.fall_lethal;
+            ped.fall = 0;
+            ped.state = c.Pedestrian.state_up;
+            ped.anim = c.Pedestrian.anim_stand;
+            if (lethal and ped.invulnerable == 0) {
+                if (self.state.world.get(id, c.Health)) |h| self.killPed(id, h.last_hit_by);
+            }
         }
 
         /// Can a ped at (x0, y0) step to (x1, y1)? A step can be longer
@@ -94,7 +148,9 @@ pub fn Sys(comptime Self: type) type {
                 }
             }
             const in_air = col.flags & c.Collider.flag_grounded == 0 or vel.vz > 0;
+            const z0 = t.z;
             self.settle(t, vel, col, T.ped_step, T.thrown_gravity, T.max_fall);
+            if (t.z < z0) self.pushOutCircle(t, T.ped_radius, T.ped_step);
             if (in_air) return;
             // Sliding on the ground.
             const sp = fx.length(vel.vx, vel.vy);

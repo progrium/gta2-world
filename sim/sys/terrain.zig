@@ -40,10 +40,39 @@ pub fn Sys(comptime Self: type) type {
             if (map.isVoid(self.grid, x, y, z + step_h)) return true;
             for (pts) |p| {
                 if (map.blocks(self.grid, x + p[0], y + p[1], z, step_h)) return true;
+                if (map.pastTopEdge(x + p[0], y + p[1], z)) return true;
             }
             // Wall faces, against the body's square (a ped is a small
             // square: shape-and-map-collision.md 2).
             return map.rectHitsWall(self.grid, map.Rect.square(x, y, r), z, step_h);
+        }
+
+        /// A circle body that has dropped (off a ledge, while falling or
+        /// thrown) can end with its edge inside the wall it slid down past:
+        /// its centre crossed the edge, but its radius still overlaps the
+        /// face below. Nudge it straight out, along the axes first and then
+        /// the diagonals, by the least of up to `r` + 1/16 that clears it.
+        /// Ours: the notes do not say how the original separates them.
+        pub fn pushOutCircle(self: *const Self, t: *c.Transform, r: Fx, step_h: Fx) void {
+            if (!self.circleBlocked(t.x, t.y, t.z, r, step_h)) return;
+            const dirs = [_][2]Fx{
+                .{ fx.one, 0 },                 .{ -fx.one, 0 },                .{ 0, fx.one },                  .{ 0, -fx.one },
+                .{ fx.ratio(70711, 100000), fx.ratio(70711, 100000) }, .{ -fx.ratio(70711, 100000), fx.ratio(70711, 100000) },
+                .{ fx.ratio(70711, 100000), -fx.ratio(70711, 100000) }, .{ -fx.ratio(70711, 100000), -fx.ratio(70711, 100000) },
+            };
+            const unit = fx.one >> 6;
+            var d: Fx = unit;
+            while (d <= r + (fx.one >> 4)) : (d += unit) {
+                for (dirs) |u| {
+                    const x = t.x + fx.mul(u[0], d);
+                    const y = t.y + fx.mul(u[1], d);
+                    if (!self.circleBlocked(x, y, t.z, r, step_h)) {
+                        t.x = x;
+                        t.y = y;
+                        return;
+                    }
+                }
+            }
         }
 
         /// Is a car's box blocked at (x, y)? Like `circleBlocked`, also
@@ -67,6 +96,7 @@ pub fn Sys(comptime Self: type) type {
                 const px = x + fx.mul(p[0], cx) - fx.mul(p[1], sy);
                 const py = y + fx.mul(p[0], sy) + fx.mul(p[1], cx);
                 if (map.blocks(self.grid, px, py, z, T.car_step)) return true;
+                if (map.pastTopEdge(px, py, z)) return true;
                 // Voids: checked at the middle of the front and the back.
                 if (i >= 6 and map.isVoid(self.grid, px, py, z + T.car_step)) return true;
             }

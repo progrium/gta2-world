@@ -147,7 +147,7 @@ test "ped ai: a mugger punches the player for no damage, counts a mug, and retir
 const soak_cfg: u.abi.Config = .{ .name = "sp_soak", .max_players = 1, .car_capacity = 16, .ped_capacity = 256, .projectile_capacity = 256, .pickup_capacity = 4, .map_object_capacity = 4 };
 const Soak = u.simmod.Sim(soak_cfg);
 
-fn soakRun(g: *map.Grid, seed: u64) !struct { hash: u64, sim: *Soak } {
+fn soakRun(g: *map.Grid, seed: u64, armed_player: bool) !struct { hash: u64, sim: *Soak } {
     const s = try std.testing.allocator.create(Soak);
     s.init(g, .{ .seed = seed, .mode = .authoritative });
     var frames = [_]u.Frame{u.Frame.neutral(0)};
@@ -170,6 +170,12 @@ fn soakRun(g: *map.Grid, seed: u64) !struct { hash: u64, sim: *Soak } {
     // The player wanders the middle with a gun.
     const w = s.state.world.get(s.pedOf(0).?, c.Weapon).?;
     w.kind = T.weapon_pistol;
+    // A single-player career starts unarmed (G): hand the armed player
+    // the pistol's rounds; the unarmed run empties them.
+    w.rounds()[T.weapon_pistol] = T.infinite_ammo;
+    if (!armed_player) {
+        for (w.rounds()) |*r| r.* = 0;
+    }
     for (0..3000) |k| {
         frames[0] = .{ .steer = 0, .throttle = if (k % 200 < 120) 127 else 0, .buttons = u.Button.direct | (if (k % 50 < 5) u.Button.fire else 0), .aim = @truncate(k * 97), .seq = 0 };
         s.step(&frames, &.{});
@@ -177,14 +183,14 @@ fn soakRun(g: *map.Grid, seed: u64) !struct { hash: u64, sim: *Soak } {
     return .{ .hash = s.hash(), .sim = s };
 }
 
-test "ped ai soak: 200 armed and unarmed peds for 3000 ticks: none in a wall, every reaction ends, deterministic" {
+fn soak(armed_player: bool) !void {
     const gpa = std.testing.allocator;
     const g = try gpa.create(map.Grid);
     defer gpa.destroy(g);
     u.testmap.build(g);
-    const a = try soakRun(g, 5);
+    const a = try soakRun(g, 5, armed_player);
     defer gpa.destroy(a.sim);
-    const b = try soakRun(g, 5);
+    const b = try soakRun(g, 5, armed_player);
     defer gpa.destroy(b.sim);
     try expectEqual(a.hash, b.hash);
     const s = a.sim;
@@ -202,4 +208,37 @@ test "ped ai soak: 200 armed and unarmed peds for 3000 ticks: none in a wall, ev
         if (o.internal != 0) try expect(o.internal_timeout > 0);
     }
     try expect(alive > 50);
+}
+
+test "ped ai soak: 200 armed and unarmed peds for 3000 ticks around an armed player: none in a wall, every reaction ends, deterministic" {
+    try soak(true);
+}
+
+test "ped ai soak: the same around an unarmed player (fist fights on rooftops)" {
+    try soak(false);
+}
+
+test "ped ai: a puncher waits beside a knocked-down target instead of shoving it" {
+    var wd = try u.World.init();
+    defer wd.deinit();
+    const target = still(&wd, 12, 10);
+    Obj.setThreatReaction(wd.sim, target, .flee);
+    const a = wd.ped(10, 10, .criminal);
+    Obj.setObjective(wd.sim, a, .{ .kind = .punch_ped, .target = target });
+    wd.sim.state.world.get(target, c.Health).?.hp = 15;
+    wd.o(target).prev_hp = 15;
+    const ped = wd.sim.state.world.get(target, c.Pedestrian).?;
+    var n: u32 = 0;
+    while (n < 300 and ped.state == c.Pedestrian.state_up) : (n += 1) wd.run(1);
+    try expectEqual(c.Pedestrian.state_down, ped.state);
+    // Let the knock-down slide come to rest, then watch it lie still.
+    while (n < 400 and wd.sim.state.world.get(target, c.Velocity).?.vx != 0) : (n += 1) wd.run(1);
+    const x = wd.t(target).x;
+    const y = wd.t(target).y;
+    for (0..30) |_| {
+        wd.run(1);
+        if (ped.state != c.Pedestrian.state_down) break;
+        try expectEqual(x, wd.t(target).x);
+        try expectEqual(y, wd.t(target).y);
+    }
 }

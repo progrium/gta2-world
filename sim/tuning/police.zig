@@ -122,6 +122,6 @@ pub const roadblock_cooldown: u16 = 600;
 /// (ours: "well away").
 pub const roadblock_unseen_ticks: u16 = 200;
 pub const roadblock_far: i32 = 20;
-/// Object model for a barrier (ours: the objects note isn't written; B's
-/// decoration kind with this model until it is).
+/// Object model for a barrier (B's `barrier` kind: model 0 is a solid box
+/// one block long along its heading; the objects note isn't written).
 pub const barrier_model: u8 = 0;

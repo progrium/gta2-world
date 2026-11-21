@@ -230,6 +230,15 @@ pub fn Sys(comptime Self: type) type {
             return cs.electro_fingers > 0;
         }
 
+        /// Set the ped AI's invisibility and electro-fingers flags on the
+        /// player's ped from the career's timers (ped-ai.md 3.14-3.15).
+        pub fn applyEffects(self: *Self, slot: u8) void {
+            const cs = row(self, slot) orelse return;
+            const ped = self.state.players[slot].ped;
+            Self.objectives.setInvisible(self, ped, invisible(self, slot));
+            Self.objectives.setElectroFingers(self, ped, cs.electro_fingers > 0);
+        }
+
         /// Set (or with `State.no_weapon` clear) the kill-frenzy weapon
         /// (script-characters.md 2.x, types 411 and 412). A hand weapon is
         /// given unlimited ammo until it is cleared or the player dies.
@@ -275,8 +284,14 @@ pub fn Sys(comptime Self: type) type {
                     if (self.state.sp.wanted[slot].points == 0) return false;
                     Self.wanted.clear(self, slot);
                 },
-                .electro_fingers => return refresh(&cs.electro_fingers, TC.electro_fingers_ticks),
-                .invisibility => return refresh(&cs.invisible, TC.invisible_ticks),
+                .electro_fingers => {
+                    if (!refresh(&cs.electro_fingers, TC.electro_fingers_ticks)) return false;
+                    applyEffects(self, slot);
+                },
+                .invisibility => {
+                    if (!refresh(&cs.invisible, TC.invisible_ticks)) return false;
+                    applyEffects(self, slot);
+                },
                 .respect => {
                     const t = w.get(ped_id, c.Transform) orelse return false;
                     const gang = Self.gangs.gangOfArea(self, fx.toInt(t.x), fx.toInt(t.y));
@@ -335,8 +350,14 @@ pub fn Sys(comptime Self: type) type {
             start(self, slot);
             const p = self.state.world.get(self.state.players[slot].ped, c.Pedestrian);
             switch (@as(PowerUp, @enumFromInt(which))) {
-                .electro_fingers => cs.electro_fingers = ticks,
-                .invisibility => cs.invisible = ticks,
+                .electro_fingers => {
+                    cs.electro_fingers = ticks;
+                    applyEffects(self, slot);
+                },
+                .invisibility => {
+                    cs.invisible = ticks;
+                    applyEffects(self, slot);
+                },
                 .invulnerability => if (p) |pp| {
                     pp.invulnerable = ticks;
                 },
@@ -355,6 +376,7 @@ pub fn Sys(comptime Self: type) type {
         pub fn setOption(self: *Self, slot: u8, flag: u8, on: bool) void {
             const cs = row(self, slot) orelse return;
             if (on) cs.flags |= flag else cs.flags &= ~flag;
+            applyEffects(self, slot);
         }
 
         /// Count a projectile hit by `slot` for the accuracy statistics

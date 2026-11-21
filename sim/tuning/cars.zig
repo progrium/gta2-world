@@ -51,6 +51,12 @@ pub const CarModel = struct {
     /// The `.gci` value: points for stealing it, x5 for destroying it
     /// (scoring.md 3.3). Plain integer.
     value: i32,
+    /// Heavy (the style's car info [sty]): may crush cars that are not
+    /// (car-collision.md 3.6). A tank crushes even when AI-driven. Hosts set
+    /// these after `deriveModel`; which style bit is "heavy" is not in the
+    /// notes yet, so nothing sets them today.
+    heavy: i32 = 0,
+    tank: i32 = 0,
 };
 
 /// What `deriveModel` takes: one `.gci` record's numbers (16.16) and the

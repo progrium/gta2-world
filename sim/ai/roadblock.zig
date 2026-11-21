@@ -126,7 +126,7 @@ pub fn Sys(comptime Self: type) type {
                 const along_y = fx.mul(fx.sin(@as(u16, dir) *% 16384), fx.ratio(1, 4));
                 for ([2]i32{ -1, 1 }) |sgn| {
                     if (nb >= TP.roadblock_max_barriers) break;
-                    if (Self.objects.spawnObject(self, .decoration, TP.barrier_model, cx + along_x * sgn, cy + along_y * sgn, fx.fromInt(l + 1), heading)) |b| {
+                    if (Self.objects.spawnObject(self, .barrier, TP.barrier_model, cx + along_x * sgn, cy + along_y * sgn, fx.fromInt(l + 1), heading)) |b| {
                         rb.barriers[nb] = b;
                         nb += 1;
                     }

@@ -4,10 +4,10 @@ Rules from [docs/behaviour/script-missions.md](../behaviour/script-missions.md).
 
 | rule | status | test | notes |
 |---|---|---|---|
-| 2.1 Starting a mission | todo | | |
-| 2.2 Ending a mission | todo | | |
-| 2.3 Timed bonus challenges | todo | | |
-| 2.4 The kill-frenzy weapon template | todo | | |
-| 2.5 Bonus-stage start/end | todo | | |
-| 2.6 Rewards | todo | | |
-| 2.7 Retrying a mission | todo | | |
+| 2.1 Starting a mission | ours | sim/test/script_vm.zig | 274 and the 263 gate (329 has the same layout and is read the same way). Layout from the data: base, passed, failed, mission 2, general flag, own gang, two other gangs, gang, respect, mission 1. Ours: which canned line goes with which reason (base-7 low respect, -6 zero, -5 own job, -4 negative, -3/-2 other gangs' jobs), read from the text layout. |
+| 2.2 Ending a mission | done | sim/test/script_vm.zig | 273 = RETURN; 391 removes the cleanup list. The follower group and the wanted-car-model marker are not cleared yet (D2, unclaimed). |
+| 2.3 Timed bonus challenges | ours | sim/test/script_vm.zig | 288-294 and 402, results kept in the handle slot. Ours: field order from the data, but the kind, vehicle and cause numbering is not settled, so any ped kill (or car of the given model) by the player in the zone counts. Needs hooks.pedKilled and carModelDestroyed from G. |
+| 2.4 The kill-frenzy weapon template | stubbed | sim/test/script_vm.zig | 422/423 flow, displays, rewards (1 score, 2 multiplier, 3 lives: ours) and the keyframe bit. The weapon grant and take-back wait on G; the secrets totals on A2. |
+| 2.5 Bonus-stage start/end | done |  | No script command, per the note. |
+| 2.6 Rewards | done |  | Through the player family (A2). |
+| 2.7 Retrying a mission | done | sim/test/script_vm.zig | Through the gate's passed/failed counters. |

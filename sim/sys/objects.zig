@@ -325,6 +325,7 @@ pub fn Sys(comptime Self: type) type {
             sysObjectPickups(self);
             sysOilAndMines(self);
             sysDestructors(self);
+            sysBarriers(self);
         }
 
         /// The map's own objects (`Level.objects`), once, as decorations
@@ -531,6 +532,83 @@ pub fn Sys(comptime Self: type) type {
                 }
             }.f);
         }
+
+        /// Barriers are solid boxes (ours: the objects note is not written).
+        /// After contacts, a ped (a circle) or a car (three circles along
+        /// its length, its half width across) overlapping one is pushed out
+        /// along the shallower axis and loses its speed into the barrier.
+        fn sysBarriers(self: *Self) void {
+            self.state.world.each(.{ c.Object, c.Transform }, self, struct {
+                fn f(sim: *Self, _: EntityId, o: *c.Object, bt: *c.Transform) void {
+                    if (kindOf(o) != .barrier) return;
+                    const m = @min(o.model, OT.barrier_half_len.len - 1);
+                    const box = Box{ .t = bt.*, .hl = OT.barrier_half_len[m], .hw = OT.barrier_half_wid[m] };
+                    sim.state.world.each(.{ c.Transform, c.Velocity, c.Collider }, box, struct {
+                        fn g(b: Box, id: EntityId, t: *c.Transform, v: *c.Velocity, col: *c.Collider) void {
+                            _ = id;
+                            if (col.flags & c.Collider.flag_disabled != 0) return;
+                            if (fx.abs(t.z - b.t.z) > fx.half) return;
+                            if (fx.abs(t.x - b.t.x) > 4 * fx.one or fx.abs(t.y - b.t.y) > 4 * fx.one) return;
+                            b.pushOut(t, v, 0, T.ped_radius);
+                        }
+                    }.g);
+                    sim.state.world.each(.{ c.Vehicle, c.Transform, c.Velocity, c.Collider }, box, struct {
+                        fn g(b: Box, _: EntityId, veh: *c.Vehicle, t: *c.Transform, v: *c.Velocity, col: *c.Collider) void {
+                            if (col.flags & c.Collider.flag_disabled != 0) return;
+                            if (fx.abs(t.z - b.t.z) > fx.half) return;
+                            if (fx.abs(t.x - b.t.x) > 4 * fx.one or fx.abs(t.y - b.t.y) > 4 * fx.one) return;
+                            const cm = T.carModel(veh.model);
+                            const off = cm.half_len - cm.half_wid;
+                            for ([_]Fx{ off, 0, -off }) |along| b.pushOut(t, v, along, cm.half_wid);
+                        }
+                    }.g);
+                }
+            }.f);
+        }
+
+        const Box = struct {
+            t: c.Transform,
+            hl: Fx,
+            hw: Fx,
+
+            /// Push the circle `r` at `along` on the body's heading out of
+            /// the box, moving the whole body.
+            fn pushOut(b: Box, t: *c.Transform, v: *c.Velocity, along: Fx, r: Fx) void {
+                const px = t.x + fx.mul(along, fx.cos(t.heading));
+                const py = t.y + fx.mul(along, fx.sin(t.heading));
+                const cs = fx.cos(b.t.heading);
+                const sn = fx.sin(b.t.heading);
+                const dx = px - b.t.x;
+                const dy = py - b.t.y;
+                const u = fx.mul(dx, cs) + fx.mul(dy, sn);
+                const w = fx.mul(dy, cs) - fx.mul(dx, sn);
+                const pu = b.hl + r - fx.abs(u);
+                const pw = b.hw + r - fx.abs(w);
+                if (pu <= 0 or pw <= 0) return;
+                // Unit normal out of the box (world), and the depth.
+                var nx: Fx = undefined;
+                var ny: Fx = undefined;
+                var depth: Fx = undefined;
+                if (pw <= pu) {
+                    const s: Fx = if (w < 0) -fx.one else fx.one;
+                    nx = fx.mul(-sn, s);
+                    ny = fx.mul(cs, s);
+                    depth = pw;
+                } else {
+                    const s: Fx = if (u < 0) -fx.one else fx.one;
+                    nx = fx.mul(cs, s);
+                    ny = fx.mul(sn, s);
+                    depth = pu;
+                }
+                t.x += fx.mul(nx, depth);
+                t.y += fx.mul(ny, depth);
+                const into = fx.mul(v.vx, nx) + fx.mul(v.vy, ny);
+                if (into < 0) {
+                    v.vx -= fx.mul(into, nx);
+                    v.vy -= fx.mul(into, ny);
+                }
+            }
+        };
 
         // ------------------------------------------------------------------
         // Helpers (shared with doors.zig, generators.zig, crusher.zig)

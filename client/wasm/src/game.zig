@@ -315,6 +315,42 @@ export fn scriptAdd(name_p: [*]const u8, name_n: usize, p: [*]const u8, n: usize
     return @intCast(script_count);
 }
 
+/// The parsed scripts the level points into (freed on the next load).
+var parsed_main: ?formats.scr.Parsed = null;
+var parsed_missions: std.ArrayList(formats.scr.Parsed) = .empty;
+var mission_scripts: []sim.level.Script = &.{};
+
+fn freeScripts() void {
+    if (parsed_main) |*m| m.deinit();
+    parsed_main = null;
+    for (parsed_missions.items) |*m| m.deinit();
+    parsed_missions.clearAndFree(gpa);
+    gpa.free(mission_scripts);
+    mission_scripts = &.{};
+    level_sp.script = .{};
+    level_sp.missions = &.{};
+}
+
+/// Parses the added script files into the level: the first one added is
+/// the main script, the rest its mission sub-scripts (sorted by name; the
+/// VM finds a mission by its name).
+fn loadScripts() !void {
+    freeScripts();
+    if (script_count == 0) return;
+    parsed_main = try formats.scr.parseMain(gpa, script_files[0].bytes);
+    level_sp.script = parsed_main.?.script;
+    const subs = script_files[1..script_count];
+    std.mem.sort(ScriptFile, subs, {}, struct {
+        fn lt(_: void, x: ScriptFile, y: ScriptFile) bool {
+            return std.mem.order(u8, x.name, y.name) == .lt;
+        }
+    }.lt);
+    for (subs) |f| try parsed_missions.append(gpa, try formats.scr.parseMission(gpa, f.bytes, formats.scr.stem(f.name)));
+    mission_scripts = try gpa.alloc(sim.level.Script, parsed_missions.items.len);
+    for (parsed_missions.items, mission_scripts) |p, *o| o.* = p.script;
+    level_sp.missions = mission_scripts;
+}
+
 /// A loaded script file by name, for the script loader.
 pub fn scriptFile(name: []const u8) ?[]const u8 {
     for (script_files[0..script_count]) |f| if (std.ascii.eqlIgnoreCase(f.name, name)) return f.bytes;
@@ -334,7 +370,39 @@ export fn loadText(p: [*]const u8, n: usize) i32 {
     text_bytes = &.{};
     text_bytes = gpa.dupe(u8, p[0..n]) catch |e| return setError("text", e);
     text_table = formats.gxt.parse(text_bytes) catch |e| return setError("text", e);
+    buildTextLengths() catch |e| return setError("text", e);
     return @intCast(text_table.?.count());
+}
+
+/// Characters shown for each numeric text id (markup and the portrait
+/// marker left out), for `Level.text_lengths`: the sim times briefs by it.
+var text_lengths: []u16 = &.{};
+
+fn buildTextLengths() !void {
+    gpa.free(text_lengths);
+    text_lengths = &.{};
+    const t = &text_table.?;
+    var max: u32 = 0;
+    for (0..t.count()) |i| {
+        const id = std.fmt.parseInt(u32, t.keyAt(i), 10) catch continue;
+        if (id < 1 << 16) max = @max(max, id);
+    }
+    if (max == 0) return;
+    text_lengths = try gpa.alloc(u16, max + 1);
+    @memset(text_lengths, 0);
+    for (0..t.count()) |i| {
+        const id = std.fmt.parseInt(u32, t.keyAt(i), 10) catch continue;
+        if (id > max) continue;
+        const units = t.get(t.keyAt(i)) orelse continue;
+        var n: u32 = 0;
+        var k: usize = 0;
+        while (k + 1 < units.len) : (k += 2) {
+            const u = std.mem.readInt(u16, units[k..][0..2], .little);
+            if (u == '#' or (k == 0 and u >> 8 == 0x21)) continue;
+            n += 1;
+        }
+        text_lengths[id] = @intCast(@min(n, 0xFFFF));
+    }
 }
 
 /// Looks up a script message number; returns its length in 16-bit units
@@ -360,11 +428,18 @@ export fn textPtr() [*]const u8 {
 
 // ------------------------------------------------------------------ single-player HUD
 
-/// [lives, multiplier, points, jail cards, stars, wanted points, career
-///  flags, out (wasted or busted), banner text, banner ticks, brief count,
-///  briefs x4, timer ticks, counter 0, counter 1, arrow (0 none, 1 entity,
-///  2 point), arrow x, arrow y (fx), hud flags, tick]
-var sp_buf: [24]i32 = undefined;
+/// The single-player HUD state, i32 each:
+///   0 lives, 1 multiplier, 2 points, 3 jail cards, 4 stars, 5 wanted
+///   points, 6 career flags, 7 out (wasted or busted)
+///   8 banner text id, 9 banner ticks left, 10 banner voice
+///   11 brief on screen (text id, 0 none), 12 its ticks up, 13 its total
+///   ticks, 14 briefs queued (with the one showing)
+///   15-26 four display slots of (flags: 1 timer 2 counter, timer ticks,
+///   counter value)
+///   27 arrow (0 none, 1 entity, 2 point), 28 arrow x, 29 arrow y (fx)
+///   30 hud flags, 31 tick
+/// Text ids with the top bit set are fixed texts (`sim.sp_state.hud.text_named`).
+var sp_buf: [32]i32 = undefined;
 export fn spInfo() [*]const i32 {
     sp_buf = @splat(0);
     if (!running or offline != .sp or client != null) return &sp_buf;
@@ -375,31 +450,40 @@ export fn spInfo() [*]const i32 {
     sp_buf[0] = SimSp.career.lives(g, 0);
     sp_buf[1] = SimSp.career.multiplier(g, 0);
     sp_buf[2] = SimSp.career.score(g, 0);
-    sp_buf[3] = cs.jail_cards;
+    sp_buf[3] = SimSp.career.jailCards(g, 0);
     sp_buf[4] = SimSp.wanted.stars(g, 0);
     sp_buf[5] = ws.points;
     sp_buf[6] = cs.flags;
     sp_buf[7] = @intFromBool(SimSp.career.isOut(g, 0));
-    sp_buf[8] = @bitCast(hs.banner);
-    sp_buf[9] = hs.banner_ticks;
-    sp_buf[10] = hs.brief_len;
-    for (0..4) |i| sp_buf[11 + i] = @bitCast(hs.briefs[i]);
-    sp_buf[15] = @bitCast(hs.timer);
-    sp_buf[16] = hs.counters[0];
-    sp_buf[17] = hs.counters[1];
+    if (hs.banner_ticks > 0) {
+        sp_buf[8] = @bitCast(hs.banner);
+        sp_buf[9] = hs.banner_ticks;
+        sp_buf[10] = hs.banner_voice;
+    }
+    if (hs.brief_showing != 0 and hs.brief_len > 0) {
+        sp_buf[11] = @bitCast(hs.briefs[0].text);
+        sp_buf[12] = hs.brief_ticks;
+        sp_buf[13] = hs.brief_total;
+    }
+    sp_buf[14] = hs.brief_len;
+    for (hs.display, 0..) |d, i| {
+        sp_buf[15 + i * 3] = d.flags;
+        sp_buf[16 + i * 3] = d.timer;
+        sp_buf[17 + i * 3] = d.counter;
+    }
     if (!hs.arrow.isNone()) {
         if (g.state.world.isAlive(hs.arrow)) if (g.transformOf(hs.arrow)) |t| {
-            sp_buf[18] = 1;
-            sp_buf[19] = t.x;
-            sp_buf[20] = t.y;
+            sp_buf[27] = 1;
+            sp_buf[28] = t.x;
+            sp_buf[29] = t.y;
         };
     } else if (hs.arrow_x != 0 or hs.arrow_y != 0) {
-        sp_buf[18] = 2;
-        sp_buf[19] = hs.arrow_x;
-        sp_buf[20] = hs.arrow_y;
+        sp_buf[27] = 2;
+        sp_buf[28] = hs.arrow_x;
+        sp_buf[29] = hs.arrow_y;
     }
-    sp_buf[21] = hs.flags;
-    sp_buf[22] = @bitCast(g.tick());
+    sp_buf[30] = hs.flags;
+    sp_buf[31] = @bitCast(g.tick());
     return &sp_buf;
 }
 
@@ -452,6 +536,8 @@ export fn gameStart(seed: u32, hint: bool, hint_x: u32, hint_y: u32) i32 {
 /// Player slot 0 joins as in `gameStart`.
 export fn spStart(seed: u32, hint: bool, hint_x: u32, hint_y: u32) i32 {
     const g = grid orelse return setError("start", error.NoMap);
+    loadScripts() catch |e| return setError("script", e);
+    level_sp.text_lengths = text_lengths;
     game_sp.init(g, .{ .seed = seed, .mode = .authoritative });
     game_sp.attachLevel(&level_sp);
     offline = .sp;
@@ -1213,9 +1299,11 @@ test "single player starts on the test map, steps and reports its HUD" {
     for (0..10) |_| gameStep();
     try std.testing.expectEqual(@as(i32, 1), playerInfo(0)[0]);
     const info = spInfo();
-    try std.testing.expectEqual(@as(i32, 10), info[22]);
+    try std.testing.expectEqual(@as(i32, 10), info[31]);
     try std.testing.expect(buildList(0.5, 0) > 0);
     try std.testing.expect(spDebug(1, 500, 90));
+    gameStep();
+    try std.testing.expectEqual(@as(i32, 500), spInfo()[8]);
     try std.testing.expect(!spDebug(99, 0, 0));
     // Back to deathmatch: the other configuration draws again.
     try std.testing.expectEqual(@as(i32, 0), gameStart(1, false, 0, 0));
@@ -1233,6 +1321,8 @@ test "text table lookups by number and key" {
     try std.testing.expectEqual(@as(i32, -1), textById(501));
     try std.testing.expectEqual(@as(i32, 2), textByKey("mis_fail", 8));
     try std.testing.expectEqual(@as(u8, 'N'), textPtr()[0]);
+    try std.testing.expectEqual(@as(usize, 501), text_lengths.len);
+    try std.testing.expectEqual(@as(u16, 2), text_lengths[500]);
 }
 
 test "script files are kept by name" {
