@@ -21,8 +21,12 @@ const MAX_PER_CUE = 6;
 /** An engine not updated for this long is stopped (car left, out of view). */
 const ENGINE_STALE_MS = 500;
 const VOLUME_KEY = "gta2.sound.volume";
-/** Lowest buffer rate every browser accepts; slower banks are upsampled. */
-const MIN_RATE = 8000;
+/**
+ * Lowest buffer rate every browser accepts; slower banks are upsampled.
+ * Safari before 14.1 refused buffers under 22050 Hz (NotSupportedError), so
+ * that, not the 8000 Hz the spec allows, is the floor.
+ */
+const MIN_RATE = 22050;
 
 export type BankId = SampleRef["bank"];
 export type Bank = SoundBank | VocalBank;
@@ -116,12 +120,17 @@ export class AudioEngine {
       void this.resume();
     };
     this.unlockHandler = h;
-    for (const ev of ["pointerdown", "keydown", "touchstart"]) target.addEventListener(ev, h, { capture: true });
+    // Safari only unlocks audio from some events (touchend and click, not
+    // touchstart; pointerdown not on every version), so listen to all of them.
+    for (const ev of ["pointerdown", "pointerup", "mousedown", "click", "keydown", "touchstart", "touchend"]) target.addEventListener(ev, h, { capture: true });
+    // Coming back to the tab: Safari leaves the context suspended or interrupted.
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => document.visibilityState === "visible" && void this.resume());
   }
 
   async resume(): Promise<void> {
     const c = this.context();
-    if (c && c.state === "suspended") {
+    // Safari also has "interrupted" (a call, another app took the audio).
+    if (c && c.state !== "running" && c.state !== "closed") {
       try {
         await c.resume();
       } catch {
@@ -138,7 +147,18 @@ export class AudioEngine {
     if (this.ctx) return this.ctx;
     const AC = (globalThis as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ?? (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AC) return null;
-    this.ctx = new AC({ latencyHint: "interactive" });
+    // iOS: play through the ring/silent switch like a game, not like a ringtone.
+    try {
+      const s = (navigator as { audioSession?: { type: string } }).audioSession;
+      if (s) s.type = "playback";
+    } catch {
+      /* older Safari */
+    }
+    try {
+      this.ctx = new AC({ latencyHint: "interactive" });
+    } catch {
+      this.ctx = new AC();
+    }
     this.master = this.ctx.createGain();
     this.master.gain.value = this.muted_ ? 0 : this.volume_;
     this.master.connect(this.ctx.destination);
@@ -209,6 +229,11 @@ export class AudioEngine {
   }
 
   // ---- the game API -----------------------------------------------------
+
+  /** Where the listener is, in blocks. */
+  get listenerAt(): Readonly<Listener> {
+    return this.listener;
+  }
 
   setListener(x: number, y: number, z: number): void {
     this.listener = { x, y, z };

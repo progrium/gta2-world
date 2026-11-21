@@ -143,9 +143,11 @@ test("spatial: full level close, quieter far, silent past range, pans by x", () 
 });
 
 test("upsample keeps slow banks above the lowest buffer rate", () => {
-  const u = upsample(Float32Array.from([0, 1, 0]), 5500);
-  assert.equal(u.rate, 11000);
-  assert.deepEqual([...u.data], [0, 0.5, 1, 0.5, 0, 0]);
+  // 22050 Hz is the floor: older Safari refuses slower buffers.
+  const u = upsample(Float32Array.from([0, 1]), 5500);
+  assert.equal(u.rate, 27500);
+  assert.deepEqual([...u.data].map((v) => Math.round(v * 10) / 10), [0, 0.2, 0.4, 0.6, 0.8, 1, 1, 1, 1, 1]);
+  assert.equal(upsample(new Float32Array(4), 11025).rate, 22050);
   assert.equal(upsample(new Float32Array(4), 22050).factor, 1);
 });
 

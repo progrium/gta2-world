@@ -11,7 +11,7 @@
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
-import { type Cue, type GameEvent, GameModule, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
+import { type Cue, type GameEvent, GameModule, type SoundSource, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
 import { type ConnectOptions, Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
@@ -322,7 +322,6 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         lastScreech = performance.now();
         audio.play("tyre_screech");
       }
-      if (p.inCar) audio.setEngine(slot, p.speed);
       if (f.buttons & Button.special && p.inCar && !(lastButtons & Button.special)) audio.play("horn");
       lastButtons = f.buttons;
       lastInCar = p.inCar;
@@ -354,6 +353,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     const list = game.renderList(paused ? 1 : alpha, now);
     renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
     for (const c of game.takeCues()) playCue(c);
+    soundTick(game, dt);
     if (bannerUntil && now > bannerUntil) {
       bannerUntil = 0;
       banner.classList.add("hidden");
@@ -629,6 +629,33 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         spHud!.showCentre(spHud!.keyText("gam_cmp"), tick, 1 << 30, "done");
         audio.play("level_complete");
         break;
+    }
+  }
+
+  // Footstep timers by player slot, in seconds since the last step.
+  const stepClock = new Map<number, number>();
+  /** Engines for the nearest cars and footsteps for players on foot. */
+  function soundTick(g: GameModule, dt: number): void {
+    const l = audio.listenerAt;
+    const near = (s: SoundSource): number => Math.hypot(s.x - l.x, s.y - l.y);
+    const srcs = g.soundSources();
+    const cars = srcs.filter((s) => s.kind === "car" && near(s) < 26).sort((a, b) => near(a) - near(b));
+    for (const s of cars.slice(0, 8)) audio.setEngine(s.id, s.speed, s.x, s.y, s.z);
+    for (const s of srcs) {
+      if (s.kind !== "walker") continue;
+      const stride = s.anim === 2 ? 0.27 : s.anim === 1 ? 0.42 : 0;
+      if (!stride) {
+        // Standing: the first step comes as soon as they move.
+        stepClock.set(s.id, 1);
+        continue;
+      }
+      const t = (stepClock.get(s.id) ?? stride) + dt;
+      if (t < stride) {
+        stepClock.set(s.id, t);
+        continue;
+      }
+      stepClock.set(s.id, 0);
+      audio.play(s.water ? "footstep_water" : s.ground === 3 ? "footstep_grass" : "footstep", s.x, s.y, s.z);
     }
   }
 

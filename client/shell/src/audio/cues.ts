@@ -2,7 +2,7 @@
 // samples in their own sound banks. The mapping is made by ear on the sound
 // board, kept in localStorage and exported as JSON.
 
-export type CueGroup = "Weapons" | "Hits and deaths" | "Vehicles" | "Pickups" | "Announcer" | "Player and missions" | "Not in the game yet";
+export type CueGroup = "Weapons" | "Hits and deaths" | "On foot" | "Vehicles" | "Pickups" | "Announcer" | "Player and missions" | "Not in the game yet";
 
 export interface CueInfo {
   label: string;
@@ -36,7 +36,11 @@ const INFO = {
   explosion: { label: "Explosion", group: "Hits and deaths" },
   ped_hurt: { label: "Pedestrian hurt", group: "Hits and deaths" },
   ped_death: { label: "Pedestrian death", group: "Hits and deaths" },
-  // Vehicles
+  // On foot: a step every stride while a player walks or runs, by the ground.
+  footstep: { label: "Footstep (road, pavement, floors)", group: "On foot" },
+  footstep_grass: { label: "Footstep on grass", group: "On foot", fallback: "footstep" },
+  footstep_water: { label: "Footstep in water", group: "On foot", fallback: "splash" },
+  // Vehicles: an engine loop for every car nearby that is driven or moving.
   engine: { label: "Engine loop (pitch follows speed)", group: "Vehicles" },
   horn: { label: "Horn", group: "Vehicles" },
   car_door: { label: "Car door (get in or out)", group: "Vehicles" },
@@ -81,7 +85,6 @@ const INFO = {
   round_end: { label: "Round over (multiplayer)", group: "Player and missions", fallback: "mission_pass" },
   player_joined: { label: "Player joined (multiplayer)", group: "Player and missions", fallback: "pager" },
   // Not in the game yet: world and pedestrian sounds
-  footstep: { label: "Footstep", group: NY },
   punch: { label: "Punch", group: NY },
   glass_break: { label: "Glass breaking", group: NY },
   splash: { label: "Splash (into water)", group: NY },
@@ -206,7 +209,7 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
   explosion: [186, 187, 188, 68],
   ped_hurt: [269, 228, 232, 233, 236, 238],
   ped_death: [229, 230, 231, 234, 235, 237],
-  engine: [3],
+  engine: [4],
   horn: [17],
   car_door: [25, 27, 26, 28],
   car_crash: [37, 38, 39, 40, 33],
@@ -276,7 +279,7 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
  * (nothing in the banks sounds like a bump), so it plays them quieter. No
  * sample sounds like a tyre screech either, so that cue uses its built-in sound.
  */
-const DEFAULT_GAIN: Partial<Record<Cue, number>> = { car_bump: 0.45 };
+const DEFAULT_GAIN: Partial<Record<Cue, number>> = { car_bump: 0.45, footstep: 0.5, footstep_grass: 0.35, footstep_water: 0.5 };
 
 export function defaultMapping(): SoundMapping {
   const m = emptyMapping();
@@ -325,6 +328,8 @@ export function normalizeMapping(input: unknown, base: SoundMapping = defaultMap
 const RETIRED: Partial<Record<Cue, number[][]>> = {
   car_bump: [[44]],
   tyre_screech: [[24], [146]],
+  // Soft noise that didn't read as an engine; #4 is the idling chug.
+  engine: [[3]],
 };
 
 function retire(m: SoundMapping): SoundMapping {
