@@ -138,6 +138,10 @@ button.link { border: 0; background: none; padding: 0 2px; color: var(--accent);
 .tp-prev { right: 162px; bottom: 82px; width: 48px; height: 48px; }
 .tp-next { right: 98px; bottom: 140px; width: 48px; height: 48px; }
 @media (max-height: 420px) { .tp-buttons { transform: scale(.8); transform-origin: right bottom; } }
+/* Internet Archive download (ui/importScreen.ts) */
+.archive { display: grid; gap: 8px; margin: 0 0 16px; }
+.archive p { margin: 0; }
+.archive progress { width: 100%; }
 
 /* Deathmatch: arrows at the screen edge toward off-screen players (src/ui/playerArrows.ts). Our own design. */
 .player-arrows { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
