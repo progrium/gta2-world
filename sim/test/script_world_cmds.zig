@@ -457,14 +457,17 @@ test "script world: doors, generators, areas and phones reach B's objects" {
     const t = e.get(e.ctx.handles[211], c.Transform);
     const push = S.objects.conveyorPush(e.sim, blk(41), blk(41), t.z).?;
     try std.testing.expectEqual(W.decl.conveyor_unit, push.vx);
-    // A phone rung by 168 is neither answered nor timed out yet.
+    // A phone model (178) becomes a phone; rung by 168 it is ringing but
+    // neither answered nor timed out yet.
     var ph: B = .{};
-    _ = ph.pos2d(4, 43, 43).u16_(16, 1);
+    _ = ph.pos2d(4, 43, 43).u16_(16, 178);
     _ = e.run(16, 300, ph.s());
     const phone = e.ctx.handles[300];
     try std.testing.expect(!phone.isNone());
     var r: B = .{};
+    try std.testing.expectEqual(@as(u8, @backingInt(@import("../ids.zig").ObjectKind.phone)), e.get(phone, c.Object).kind);
     _ = e.run(168, 1, r.u16_(0, 300).u16_(4, 50).s());
+    try std.testing.expect(e.get(phone, c.Object).state & 1 != 0); // ringing
     _ = e.run(227, 1, r.s());
     try std.testing.expect(!e.ctx.cond);
     _ = e.run(228, 1, r.s());

@@ -32,6 +32,17 @@ pub fn isPickupModel(model: u16) bool {
     return (model >= 64 and model <= 108) or (model >= 200 and model <= 244);
 }
 
+/// Object models the levels use as phones: every declared object a phone
+/// trigger (213) or 229/245 names has one of these, and no other declared
+/// object does (from Jeff's level scripts; script-objects.md 2.6 only says
+/// "one of the game's phone models").
+pub fn isPhoneModel(model: u16) bool {
+    return switch (model) {
+        163, 176, 178, 180 => true,
+        else => false,
+    };
+}
+
 /// Which creation forms apply their value byte (2.1's scrambled routing).
 /// Ours: the six runtime numbers are matched to the four shapes by size
 /// (47 carries a value, 49 is plain, 52 has a ground height); the note's
@@ -53,7 +64,7 @@ pub fn Sys(comptime Self: type) type {
             const p = W.params(cmd);
             const model = p.u16_(16);
             const pos = H.place(self, p.pos(4), T.ped_step);
-            const kind: ids.ObjectKind = if (isPickupModel(model)) .pickup else .none;
+            const kind: ids.ObjectKind = if (isPickupModel(model)) .pickup else if (isPhoneModel(model)) .phone else .none;
             // B classifies by model (phones, decorations); models above
             // 255 exist in the levels and wait on B widening `model`.
             const id = Self.objects.spawnObject(self, kind, @truncate(model), pos.x, pos.y, pos.z, W.heading(p.u16_(18))) orelse return null;
