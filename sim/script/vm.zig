@@ -474,7 +474,7 @@ pub fn Sys(comptime Self: type) type {
                 return x.self.pedOf(slot) orelse .none;
             }
             /// A2's trigger declarations (211-214, 434).
-            pub fn addTrigger(x: Ctx, t: anytype) world.Outcome {
+            pub fn addTrigger(x: Ctx, t: anytype) void {
                 const kind: u8 = switch (@intFromEnum(t.kind)) {
                     0 => trig_car,
                     1 => trig_phone,
@@ -482,7 +482,7 @@ pub fn Sys(comptime Self: type) type {
                     3 => trig_area_on_foot,
                     else => trig_area_any,
                 };
-                const ok = Vm.addTrigger(x.self, .{
+                _ = Vm.addTrigger(x.self, .{
                     .kind = kind,
                     .enabled = 1,
                     .decl = x.num,
@@ -495,7 +495,6 @@ pub fn Sys(comptime Self: type) type {
                     .w = t.w,
                     .h = t.h,
                 });
-                return if (ok) .done else .stubbed;
             }
         };
 
