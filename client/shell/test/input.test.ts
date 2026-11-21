@@ -21,7 +21,7 @@ class MemKV implements KV {
 test("controller ids normalise across browsers (S6 gap 9)", () => {
   const chrome = normalizeControllerId("Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)");
   const firefox = normalizeControllerId("45e-b13-Xbox Wireless Controller");
-  const safari = normalizeControllerId("Xbox Wireless Controller");
+  const safari = normalizeControllerId("Xbox Wireless Controller Extended Gamepad");
   assert.equal(chrome.key, "045e:0b13");
   assert.equal(firefox.key, "045e:0b13");
   assert.equal(chrome.name, "Xbox Wireless Controller");
@@ -31,6 +31,8 @@ test("controller ids normalise across browsers (S6 gap 9)", () => {
   assert.equal(macChrome.key, "name:dualsense wireless controller");
   assert.equal(macChrome.name, "DualSense Wireless Controller");
   assert.equal(padFamily(macChrome), "playstation");
+  // Safari 27 on macOS, same pad: same key as Chrome on macOS, so remaps carry over.
+  assert.equal(normalizeControllerId("DualSense Wireless Controller Extended Gamepad").key, macChrome.key);
   const xinput = normalizeControllerId("Xbox 360 Controller (XInput STANDARD GAMEPAD)");
   assert.equal(xinput.key, "name:xbox 360 controller");
   assert.equal(padFamily(chrome), "xbox");
@@ -155,6 +157,8 @@ test("rumble: trigger effects go only to pads that list trigger-rumble (DualSens
   rumble(mk(["dual-rumble", "trigger-rumble"]), { strong: 0, weak: 0, durationMs: 100, rightTrigger: 1 });
   assert.deepEqual(played, ["dual-rumble", "trigger-rumble"]);
   assert.equal(rumbleSupport({}), "none");
+  // Safari 27 reports effects: null with type "dual-rumble" (S6).
+  assert.equal(rumbleSupport({ vibrationActuator: { type: "dual-rumble", effects: null, playEffect: () => Promise.resolve() } }), "dual");
 });
 
 test("gamepad: radial deadzone and clamp on a square gate (S6: diagonals reach 1.22)", () => {

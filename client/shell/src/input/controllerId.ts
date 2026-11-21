@@ -2,7 +2,7 @@
 // others. S6: the same pad reports a different `id` in each browser.
 //   Chrome:  "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)"
 //   Firefox: "045e-0b13-Xbox Wireless Controller"
-//   Safari:  "Xbox Wireless Controller" (no vendor or product)
+//   Safari:  "Xbox Wireless Controller Extended Gamepad" (no vendor or product)
 //   Chrome on macOS can also omit them: "DualSense Wireless Controller (STANDARD GAMEPAD)"
 //   (S6, Jeff's DualSense run), and XInput pads on Windows always do.
 // The key is "vid:pid" when the id carries them, otherwise "name:<lowercased name>".
@@ -36,6 +36,9 @@ export function normalizeControllerId(id: string): ControllerKey {
   }
   // Chrome's XInput path: "Xbox 360 Controller (XInput STANDARD GAMEPAD)".
   name = name.replace(/\((?:[^()]*\b)?STANDARD GAMEPAD[^()]*\)\s*$/i, "");
+  // Safari (Apple's GameController framework) appends the profile name:
+  // "DualSense Wireless Controller Extended Gamepad" (S6, Jeff's Safari 27 run).
+  name = name.replace(/\s+(?:Extended|Micro)\s+Gamepad\s*$/i, "");
   name = name.replace(/\s+/g, " ").trim() || "unknown controller";
   const key = vidPid ? vidPid : `name:${name.toLowerCase()}`;
   return { key, vidPid, name };
