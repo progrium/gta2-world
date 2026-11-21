@@ -9,16 +9,18 @@ pub const Object = extern struct {
     pub const id = abi.ComponentId.object;
     /// `ids.ObjectKind`.
     kind: u8 = 0,
-    /// The object model (the map or script's object type).
-    model: u8 = 0,
     /// Per-kind state (door open/closed, phone ringing, ...).
     state: u8 = 0,
-    /// The value byte from the script declaration.
-    value: u8 = 0,
+    /// The object model (the map or script's object type; levels use
+    /// models above 255).
+    model: u16 = 0,
     /// Per-kind countdown in ticks.
     timer: u16 = 0,
     /// Per-kind extra (a mine's arming countdown, a crusher's shrink).
     aux: u16 = 0,
+    /// The value byte from the script declaration.
+    value: u8 = 0,
+    _pad: [3]u8 = @splat(0),
     /// Who placed or last used it (a mine's layer, a phone's caller).
     owner: EntityId = .none,
 };
