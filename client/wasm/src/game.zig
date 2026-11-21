@@ -27,6 +27,7 @@ const net = @import("net");
 
 const gpa = if (builtin.cpu.arch == .wasm32) std.heap.wasm_allocator else std.heap.page_allocator;
 const mesh = render.mesh;
+const skids = @import("skids.zig");
 const list = render.list;
 const Sim = sim.Sim16;
 /// Single player (story levels): one player, the SP state block and systems.
@@ -202,6 +203,7 @@ export fn loadMap(p: [*]const u8, n: usize, bake_lights: bool) i32 {
     anim_table = &.{};
     level_data.deinit(gpa);
     level_sp = .empty;
+    skids.clear();
     map = formats.gmp.parse(gpa, p[0..n]) catch |e| return setError("map", e);
     level_data = .{ .inner = formats.level.build(gpa, &map.?) catch |e| return setError("level", e) };
     level_sp = level_data.inner.?.level;
@@ -746,10 +748,12 @@ export fn buildList(alpha: f32, now_ms: f64) usize {
         if (!cl.started) return 0;
         const st = cl.renderState(net_now);
         const n = list.build(&layout, null, st, 1, bases(), &instances);
+        soundSources(st);
         return decorate(st, n, now_ms, cl.own_slot);
     }
     if (!running) return 0;
     const n = list.build(curLayout(), prevState(), curState(), alpha, bases(), &instances);
+    soundSources(curState());
     return decorate(curState(), n, now_ms, 0);
 }
 
@@ -776,8 +780,31 @@ const spr = struct {
     /// gun, shotgun, rockets, dual pistols, silenced machine gun,
     /// flamethrower, electro gun, grenades, molotovs; then health, armour,
     /// invulnerability, double damage, fast reload.
-    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 98, 90, 82, 42, 58, 50, 167, 175, 247, 215, 159 };
+    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 98, 90, 82, 42, 58, 50, 167, 175, 199, 207, 215 };
     const pickup_frames: u16 = 8;
+
+    /// The code-object sprite of collectable n (0-44), the order the public
+    /// script docs number them (COLLECT_00 pistol .. COLLECT_40 instant
+    /// gang), matched to the style by eye: hand weapons 0-10 spin through
+    /// 8 frames from 18; the empty slots 11-14 are the yellow letters L-O
+    /// (one frame); car weapons 15-18 spin from 110; 19-27 are the blue
+    /// letters E-M; power-ups 28-40 spin from 151 (multiplier, life,
+    /// health, armour, jail card, bribe, invulnerability, double damage,
+    /// fast reload, electrofingers, respect, invisibility, instant gang).
+    /// Past 40 the docs list nothing: drawn as the last letter.
+    fn collect(n: u16, t: u16) u16 {
+        if (n <= 10) return 18 + n * 8 + t % 8;
+        if (n <= 14) return 106 + (n - 11);
+        if (n <= 18) return 110 + (n - 15) * 8 + t % 8;
+        if (n <= 27) return 142 + (n - 19);
+        if (n <= 40) return 151 + (n - 28) * 8 + t % 8;
+        return 150;
+    }
+    /// Traffic light lamps: 18x4 lit bars in red, green and amber, the
+    /// last three code objects in all three districts' styles.
+    const lamp_red: u16 = 549;
+    const lamp_green: u16 = 550;
+    const lamp_amber: u16 = 551;
     /// Thrown grenade and molotov in flight: the pickup's first frame.
     const grenade: u16 = 58;
     const molotov: u16 = 50;
@@ -798,6 +825,15 @@ const spr = struct {
     const ped_fall: u16 = 81;
     const ped_down: u16 = 89;
     const ped_shocked: u16 = 152;
+
+    /// Ped remaps (within the style's ped remap group) that read as
+    /// everyday clothes, picked by eye from the player's own styles; the
+    /// bright ones are left for gangs and scripts. Used for peds the sim
+    /// gives no remap, spread by entity index.
+    const civilian_remaps = [_]u8{ 0, 1, 2, 3, 4, 5, 9, 10, 11, 12, 13, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 35, 36, 37, 38, 39, 40, 41, 42, 43, 47, 48, 49, 51 };
+    fn civilianRemap(index: u32) u32 {
+        return civilian_remaps[(index *% 7 +% 3) % civilian_remaps.len];
+    }
     const ped_shocked_frames: u16 = 4;
     const ped_cycle: u16 = 8;
 };
@@ -844,22 +880,10 @@ fn pedFrame(p: sim.c.Pedestrian, wp: ?sim.c.Weapon, t: u16) u16 {
 
 /// The sprite of map object `o` within the style's map-object group: its
 /// model's first sprite (OBJI) plus a frame. Phones flash while ringing,
-/// doors show their animation frame, other many-sprite models cycle
-/// (ours until the objects note says how each animates).
+/// other many-sprite models cycle (ours until the objects note says how
+/// each animates). Doors are wall faces (`doorFaces`), not sprites.
 fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
     const K = sim.ids.ObjectKind;
-    if (@as(K, @enumFromInt(o.kind)) == .door) {
-        // The objects system steps the door's frame from its animation's
-        // start to end (`state.sp.objects.doors[value]`); drawn as an offset
-        // from the model's first sprite (ours: the note doesn't say what
-        // the frame numbers count).
-        const first: u16 = if (s.objectSprites(o.model)) |i| i.first else 0;
-        if (!isSp() or o.value >= game_sp.state.sp.objects.doors.len) return first;
-        const sp = &game_sp.state.sp.objects;
-        const d = sp.doors[o.value];
-        const start: u16 = if (d.anim < sp.anims.len) sp.anims[d.anim].start else 0;
-        return first + (d.frame -| start);
-    }
     const info = s.objectSprites(o.model) orelse return 0;
     if (info.count <= 1) return info.first;
     if (@as(K, @enumFromInt(o.kind)) == .phone) {
@@ -867,6 +891,132 @@ fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
     }
     return info.first + (t / 2) % info.count;
 }
+
+/// A traffic light's lamps: the lit bar for what its lights show now (red,
+/// green or amber code-object sprite), lying across the lane at the top of
+/// the light's gantry (the map blocks over the stop line), drawn lit. The
+/// sim places one lamp object per side of the light, at its first approach
+/// lane; the other approach lanes on that side get the same lamp here, so
+/// each lane's head on the gantry lights up. Extra lamps go at
+/// `instances[n.*..]`.
+fn lampLook(in: *list.Instance, o: sim.c.Object, code: u32, n: *usize) void {
+    if (!isSp()) {
+        in.kind = hidden_kind;
+        return;
+    }
+    // `value` 0 is the north-south lamp, 1 the east-west one (sys/lights.zig).
+    const shows = SimSp.lights.phase(game_sp.state.sp.lights.cycle, o.value == 0);
+    in.sprite = @intCast(code + switch (shows) {
+        .green => spr.lamp_green,
+        .amber => spr.lamp_amber,
+        else => spr.lamp_red,
+    });
+    in.palette = list.Instance.own_palette;
+    in.flags |= list.Instance.flag_glow;
+    in.kind = list.Instance.kind_effect;
+    const bx: i32 = @intFromFloat(@floor(in.x));
+    const by: i32 = @intFromFloat(@floor(in.y));
+    // The lamp stands on the approach block next to the light's zone; `d`
+    // is the way traffic heads into the zone.
+    const steps = [4][2]i32{ .{ 1, 0 }, .{ -1, 0 }, .{ 0, 1 }, .{ 0, -1 } };
+    const d = for (steps) |st| {
+        if (level_sp.zoneAt(.traffic_light, bx + st[0], by + st[1]) != null) break st;
+    } else {
+        lampAt(in, bx, by, .{ 0, 0 });
+        return;
+    };
+    const base = in.*;
+    lampAt(in, bx, by, d);
+    const arrow: u4 = if (d[0] > 0) sim.map.Arrow.pos_x else if (d[0] < 0) sim.map.Arrow.neg_x else if (d[1] > 0) sim.map.Arrow.pos_y else sim.map.Arrow.neg_y;
+    for ([2]i32{ 1, -1 }) |sign| {
+        var k: i32 = 1;
+        while (k < 8 and n.* < instances.len) : (k += 1) {
+            const x = bx + sign * k * d[1];
+            const y = by + sign * k * d[0];
+            if (level_sp.zoneAt(.traffic_light, x + d[0], y + d[1]) == null or !approach(x, y, arrow)) break;
+            var extra = base;
+            extra.x += @floatFromInt(x - bx);
+            extra.y += @floatFromInt(y - by);
+            lampAt(&extra, x, y, d);
+            instances[n.*] = extra;
+            n.* += 1;
+        }
+    }
+}
+
+/// Puts lamp `in` (on block bx, by) on the far edge of its block from the
+/// light's zone, where the gantry's arm runs, just above the column's top.
+fn lampAt(in: *list.Instance, bx: i32, by: i32, d: [2]i32) void {
+    in.x -= @as(f32, @floatFromInt(d[0])) * 0.45;
+    in.y -= @as(f32, @floatFromInt(d[1])) * 0.45;
+    const m = &(map orelse return);
+    var z: i32 = formats.gmp.size_z - 1;
+    while (z >= 0) : (z -= 1) {
+        if (!m.getOrAir(bx, by, z).isAir()) break;
+    }
+    if (z + 1 > @as(i32, @intFromFloat(@floor(in.z)))) in.z = @as(f32, @floatFromInt(z + 1)) + 0.02;
+}
+
+/// Is the highest road block at (x, y) an approach lane, its arrows
+/// including `arrow` (as sys/lights.zig picks the first one)?
+fn approach(x: i32, y: i32, arrow: u4) bool {
+    const g = grid orelse return false;
+    if (x < 0 or y < 0 or x >= sim.map.size_x or y >= sim.map.size_y) return false;
+    var z: i32 = sim.map.size_z - 1;
+    while (z >= 0) : (z -= 1) {
+        const c = sim.map.cellAt(g, x, y, z);
+        if (sim.map.shapeOf(c) == sim.map.Shape.air) continue;
+        return sim.map.groundOf(c) == sim.map.Ground.road and sim.map.arrowsOf(c) & arrow != 0;
+    }
+    return false;
+}
+
+/// Door leaves as wall faces, rebuilt each frame from the doors' current
+/// frames: a door's animation frames are tile numbers, closed to open
+/// (type 230), drawn on the door's block face. A double door's second leaf
+/// is on the next block along the wall, mirrored. Which way along the wall
+/// is read from the player's own maps: of the two blocks beside a double
+/// door's block, it is the one that is open (south face: west; north
+/// face: east; east face: south; west face: north).
+var door_verts: [door_vert_cap]mesh.Vertex = undefined;
+const door_vert_cap = @typeInfo(@TypeOf(game_sp.state.sp.objects.doors)).array.len * 2 * 6;
+export fn doorFaces() usize {
+    if (!isSp() or style == null) return 0;
+    const s = &game_sp.state.sp.objects;
+    var out: std.ArrayList(mesh.Vertex) = .initBuffer(&door_verts);
+    for (&s.doors) |*d| {
+        if (d.obj.isNone() or game_sp.state.world.get(d.obj, sim.c.Object) == null) continue;
+        if (d.frame == 0 or d.frame >= 1023) continue;
+        const side: mesh.Side = @enumFromInt(@min(d.face, 3));
+        const flip = d.flags & DoorRec.flag_flip != 0;
+        mesh.doorFace(&out, d.bx, d.by, d.bz, side, @intCast(d.frame), flip) catch break;
+        if (d.flags & DoorRec.flag_double != 0) {
+            const step: [2]i32 = switch (side) {
+                .south => .{ -1, 0 },
+                .north => .{ 1, 0 },
+                .east => .{ 0, 1 },
+                .west => .{ 0, -1 },
+            };
+            const x2 = @as(i32, d.bx) + step[0];
+            const y2 = @as(i32, d.by) + step[1];
+            if (x2 < 0 or y2 < 0 or x2 > 255 or y2 > 255) continue;
+            mesh.doorFace(&out, @intCast(x2), @intCast(y2), d.bz, side, @intCast(d.frame), !flip) catch break;
+        }
+    }
+    return out.items.len;
+}
+/// Tyre marks as triangles (x, y, z, opacity per vertex); the vertex count.
+export fn skidMarks(now_ms: f64) usize {
+    return skids.build(now_ms);
+}
+export fn skidMarksPtr() [*]const f32 {
+    return skids.ptr();
+}
+
+export fn doorFacesPtr() [*]const u8 {
+    return @ptrCast(&door_verts);
+}
+const DoorRec = @TypeOf(game_sp.state.sp.objects.doors[0]);
 
 /// `Instance.kind` marking an instance `decorate` drops.
 const hidden_kind = 0xFF;
@@ -918,6 +1068,8 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
     const ped_col = columnOf(.ped, .pedestrian);
     const wpn_col = columnOf(.ped, .weapon);
     const obj_col = columnOf(.map_object, .object);
+    const car_vel_col = columnOf(.car, .velocity);
+    skids.beginFrame();
     for (instances[0..n_in]) |*in| {
         switch (in.kind) {
             @intFromEnum(abi.Kind.projectile) => {
@@ -953,6 +1105,11 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 const p = readAt(sim.c.Pedestrian, state, ped_col orelse continue, in.index) orelse continue;
                 const wp = if (wpn_col) |wc| readAt(sim.c.Weapon, state, wc, in.index) else null;
                 in.sprite +%= pedFrame(p, wp, frame16 +% in.index *% 3);
+                // A ped sprite's own palette leaves the arms in a marker
+                // green: peds are only meant to be drawn through a ped
+                // remap. Peds the sim gives no remap get an everyday one.
+                if (in.palette == list.Instance.own_palette)
+                    in.palette = @intCast(s.palette_base.base(.ped_remap) + spr.civilianRemap(in.index));
                 if (p.burn > 0 and n < instances.len) {
                     instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
                     n += 1;
@@ -962,18 +1119,61 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 // Single player only (dm16's map objects have no Object).
                 const o = readAt(sim.c.Object, state, obj_col orelse continue, in.index) orelse continue;
                 switch (@as(sim.ids.ObjectKind, @enumFromInt(o.kind))) {
-                    // Traffic AI markers; lamps and lights have no known
-                    // sprite yet (model 0), so they are not drawn.
-                    .crossing_marker, .lamp, .traffic_light => {
+                    // Traffic AI markers are not drawn. Doors are drawn as
+                    // wall faces (`doorFaces`), not sprites.
+                    .crossing_marker, .traffic_light, .door => {
                         in.kind = hidden_kind;
                         continue;
                     },
+                    .lamp => {
+                        lampLook(in, o, code, &n);
+                        continue;
+                    },
                     else => {},
+                }
+                // Weapon and power-up pickups (models 200-244 and 64-108,
+                // script-objects.md 4) are code objects, spinning.
+                if (o.model >= 200 and o.model <= 244 or o.model >= 64 and o.model <= 108) {
+                    const what: u16 = if (o.model >= 200) o.model - 200 else o.model - 64;
+                    in.sprite = @intCast(code + spr.collect(what, frame16 / 2 +% in.index));
+                    in.palette = list.Instance.own_palette;
+                    in.flags |= list.Instance.flag_glow;
+                    in.angle = 0;
+                    continue;
+                }
+                // Other models are style map objects (OBJI). Script object
+                // types the style has no entry for are not drawn rather
+                // than drawn as another object's sprite.
+                if (s.objectSprites(o.model) == null) {
+                    in.kind = hidden_kind;
+                    continue;
                 }
                 in.sprite = @intCast(s.sprite_base.base(.map_obj) + objectFrame(s, o, frame16 +% in.index));
             },
             @intFromEnum(abi.Kind.car) => {
                 const v = readAt(sim.c.Vehicle, state, veh_col orelse continue, in.index) orelse continue;
+                if (car_vel_col) |vc| if (readAt(abi.Velocity, state, vc, in.index)) |vel| {
+                    const m = sim.tuning.carModel(v.model);
+                    const per: f32 = 1.0 / @as(f32, abi.fx_one);
+                    const out_of_play = sim.c.Vehicle.flag_wrecked | sim.c.Vehicle.flag_in_water | sim.c.Vehicle.flag_crushed;
+                    skids.track(.{
+                        .slot = in.index,
+                        .gen = 0,
+                        .x = in.x,
+                        .y = in.y,
+                        .z = in.z,
+                        // The drawn angle is turned half round (list.zig).
+                        .angle = in.angle - std.math.pi,
+                        .vx = @as(f32, @floatFromInt(vel.vx)) * per,
+                        .vy = @as(f32, @floatFromInt(vel.vy)) * per,
+                        .half_len = @as(f32, @floatFromInt(m.half_len)) * per,
+                        .half_wid = @as(f32, @floatFromInt(m.half_wid)) * per,
+                        .brake = v.brake,
+                        .handbrake = v.flags & sim.c.Vehicle.flag_handbrake != 0,
+                        .grounded = v.flags & out_of_play == 0 and @abs(vel.vz) < abi.fx_one / 64,
+                        .ai = v.flags & sim.c.Vehicle.flag_ai != 0,
+                    }, now_ms);
+                };
                 if (v.flags & sim.c.Vehicle.flag_wrecked != 0) {
                     in.flags |= list.Instance.flag_dark;
                     in.palette = list.Instance.own_palette;
@@ -1014,6 +1214,16 @@ pub const cue_shot: u32 = 1;
 pub const cue_hurt_ped: u32 = 2;
 pub const cue_hurt_car: u32 = 3;
 pub const cue_switch: u32 = 4;
+// What AI peds and drivers do that has a voice. Seen here, on the client,
+// from state changes; the sim has no events for them.
+pub const cue_ped_panic: u32 = 5;
+pub const cue_ped_bumped: u32 = 6;
+pub const cue_carjacked: u32 = 7;
+// 8 was the cop shout; the sim now sends police voices itself (event 19).
+pub const cue_mugger: u32 = 9;
+pub const cue_gang_shout: u32 = 10;
+pub const cue_elvis: u32 = 11;
+pub const cue_driver_angry: u32 = 12;
 var cues: [64]Cue = undefined;
 var cues_len: usize = 0;
 var cues_out: [64]Cue = undefined;
@@ -1041,8 +1251,152 @@ var seen_gen: [2][max_body]u16 = @splat(@splat(0xFFFF));
 var own_cooldown: u16 = 0;
 var own_weapon: u8 = 0;
 var own_ped: abi.EntityId = .none;
+var seen_ped_gen: [max_body]u16 = @splat(0xFFFF);
+var seen_ped_state: [max_body]u8 = @splat(0);
+var seen_ped_internal: [max_body]u8 = @splat(0);
+var seen_ped_on_player: [max_body]bool = @splat(false);
+
+// ------------------------------------------------------------------ sound sources
+
+/// What keeps sounding, refreshed each render frame: a car (kind 1, `extra`
+/// 1 when someone drives it) or a player on foot (kind 2, `extra` the walk
+/// animation in bits 0-7 and the ground under them in bits 8-9: 0 none,
+/// 1 road, 2 pavement, 3 field; bit 10 set when standing in water). Blocks
+/// and blocks per tick.
+pub const SoundSource = extern struct { kind: u32, id: u32, x: f32, y: f32, z: f32, speed: f32, extra: u32, _pad: u32 = 0 };
+pub const sound_car: u32 = 1;
+pub const sound_walker: u32 = 2;
+var sound_src: [160]SoundSource = undefined;
+var sound_len: usize = 0;
+export fn soundSourcesLen() usize {
+    return sound_len;
+}
+export fn soundSourcesPtr() [*]const u8 {
+    return @ptrCast(&sound_src);
+}
+
+fn soundSources(state: []const u8) void {
+    sound_len = 0;
+    const f: f32 = 1.0 / @as(f32, abi.fx_one);
+    // Cars: every live one that is driven or moving.
+    const tc = columnOf(.car, .transform);
+    const vc = columnOf(.car, .velocity);
+    const hc = columnOf(.car, .vehicle);
+    const slots = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.car) and v.component == abi.ColumnDesc.Special.slot) break v;
+    } else null;
+    if (tc != null and slots != null) for (0..slots.?.count) |i| {
+        if (sound_len == sound_src.len - 8) break;
+        if (state[slots.?.offset + i] != 1) continue;
+        const t = readAt(abi.Transform, state, tc.?, @intCast(i)) orelse continue;
+        const v = if (vc) |c| readAt(abi.Velocity, state, c, @intCast(i)) orelse std.mem.zeroes(abi.Velocity) else std.mem.zeroes(abi.Velocity);
+        const driven = if (hc) |c| if (readAt(sim.c.Vehicle, state, c, @intCast(i))) |veh| !veh.driver.isNone() else false else false;
+        const vx = @as(f32, @floatFromInt(v.vx)) * f;
+        const vy = @as(f32, @floatFromInt(v.vy)) * f;
+        const speed = @sqrt(vx * vx + vy * vy);
+        if (!driven and speed < 0.004) continue;
+        sound_src[sound_len] = .{ .kind = sound_car, .id = @intCast(i), .x = @as(f32, @floatFromInt(t.x)) * f, .y = @as(f32, @floatFromInt(t.y)) * f, .z = @as(f32, @floatFromInt(t.z)) * f, .speed = speed, .extra = @intFromBool(driven) };
+        sound_len += 1;
+    };
+    // Players on foot, with the ground under their feet.
+    const rows = for (curViews()) |v| {
+        if (v.component == abi.ColumnDesc.Special.player_rows) break v;
+    } else null;
+    if (rows) |rv| for (0..@min(rv.count, max_players)) |slot| {
+        const row = readAt(abi.PlayerRow, state, rv, @intCast(slot)) orelse continue;
+        if (row.flags & abi.PlayerRow.flag_active == 0 or row.ped.isNone() or !row.car.isNone()) continue;
+        const t = readComp(abi.Transform, state, row.ped) orelse continue;
+        const p = readComp(sim.c.Pedestrian, state, row.ped) orelse continue;
+        var ground: u32 = 0;
+        if (grid) |g| {
+            const cell = sim.map.floorCell(g, t.x, t.y, t.z, sim.tuning.ped_step);
+            ground = sim.map.groundOf(cell);
+            const here = sim.map.cellAt(g, sim.fx.toInt(t.x), sim.fx.toInt(t.y), sim.fx.toInt(t.z));
+            if (sim.map.shapeOf(here) == sim.map.Shape.water) ground |= 4;
+        }
+        sound_src[sound_len] = .{ .kind = sound_walker, .id = @intCast(slot), .x = @as(f32, @floatFromInt(t.x)) * f, .y = @as(f32, @floatFromInt(t.y)) * f, .z = @as(f32, @floatFromInt(t.z)) * f, .speed = 0, .extra = p.anim | (ground << 8) };
+        sound_len += 1;
+    };
+}
+
+fn isPlayerPed(players: []const abi.EntityId, id: abi.EntityId) bool {
+    for (players) |p| if (sim.ecs.eql(p, id)) return true;
+    return false;
+}
+
+/// Voices from AI peds: a ped knocked over without being hurt, pulled out of
+/// a car, starting to flee, or turning on a player (by occupation:
+/// muggers, gang members, Elvis). Objectives exist only in single-player
+/// state; without them only the first two are heard.
+fn watchPeds(state: []const u8, players: []const abi.EntityId) void {
+    const pc = columnOf(.ped, .pedestrian) orelse return;
+    const tc = columnOf(.ped, .transform) orelse return;
+    const hc = columnOf(.ped, .health);
+    const oc = columnOf(.ped, .objective);
+    const gens = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.ped) and v.component == abi.ColumnDesc.Special.generation) break v;
+    } else return;
+    const slots = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.ped) and v.component == abi.ColumnDesc.Special.slot) break v;
+    } else return;
+    // Internal objective kinds that mean fleeing (flee_ped, flee_till_safe,
+    // flee_ped_always, flee_on_car_stop in sim/ai/objectives.zig).
+    const flee_kinds = [_]u8{ 7, 8, 17, 18 };
+    const Occ = sim.ids.Occupation;
+    for (0..@min(pc.count, max_body)) |i| {
+        if (state[slots.offset + i] != 1) continue;
+        const g = readAt(u16, state, gens, @intCast(i)) orelse continue;
+        const p = readAt(sim.c.Pedestrian, state, pc, @intCast(i)) orelse continue;
+        const fresh = g != seen_ped_gen[i];
+        seen_ped_gen[i] = g;
+        const id = abi.EntityId.make(.ped, @intCast(i), g);
+        if (isPlayerPed(players, id)) continue;
+        const t = readAt(abi.Transform, state, tc, @intCast(i)) orelse continue;
+        var internal: u8 = 0;
+        var on_player = false;
+        var occ: Occ = .civilian;
+        if (oc) |c| if (readAt(sim.c.Objective, state, c, @intCast(i))) |o| {
+            internal = o.internal;
+            occ = @enumFromInt(o.occupation);
+            const tgt = if (!o.internal_target.isNone()) o.internal_target else o.main_target;
+            on_player = !tgt.isNone() and isPlayerPed(players, tgt);
+        };
+        defer {
+            seen_ped_state[i] = p.state;
+            seen_ped_internal[i] = internal;
+            seen_ped_on_player[i] = on_player;
+        }
+        if (fresh) continue;
+        if (p.state != seen_ped_state[i]) {
+            if (p.state == sim.c.Pedestrian.state_pulled_out) cue(cue_carjacked, 0, t);
+            const hurt = if (hc) |c| if (readAt(abi.Health, state, c, @intCast(i))) |h| h.hp < seen_hp[1][i] - 4 else false else false;
+            if (p.state == sim.c.Pedestrian.state_over and !hurt) cue(cue_ped_bumped, 0, t);
+        }
+        if (internal != seen_ped_internal[i]) {
+            const flee = std.mem.indexOfScalar(u8, &flee_kinds, internal) != null;
+            if (flee and (occ == .civilian or occ == .customer or occ == .passenger or occ == .driver)) cue(cue_ped_panic, 0, t);
+        }
+        if (on_player and !seen_ped_on_player[i]) switch (occ) {
+            .mugger => cue(cue_mugger, 0, t),
+            .gang_member => cue(cue_gang_shout, 0, t),
+            .elvis => cue(cue_elvis, 0, t),
+            else => {},
+        };
+    }
+}
 
 fn watch(state: []const u8, own_slot: u32) void {
+    var players: [max_players]abi.EntityId = undefined;
+    var n_players: usize = 0;
+    if (for (curViews()) |v| {
+        if (v.component == abi.ColumnDesc.Special.player_rows) break v;
+    } else null) |rv| for (0..@min(rv.count, max_players)) |slot| {
+        const row = readAt(abi.PlayerRow, state, rv, @intCast(slot)) orelse continue;
+        if (row.ped.isNone()) continue;
+        players[n_players] = row.ped;
+        n_players += 1;
+    };
+    watchPeds(state, players[0..n_players]);
     var own: abi.EntityId = .none;
     if (own_slot < max_players) {
         const pr_off = for (curViews()) |v| {
@@ -1106,7 +1460,13 @@ fn watch(state: []const u8, own_slot: u32) void {
                 const g = readAt(u16, state, gens.?, @intCast(i)) orelse continue;
                 const hp = (readAt(abi.Health, state, hc.?, @intCast(i)) orelse continue).hp;
                 if (g == seen_gen[ki][i] and hp < seen_hp[ki][i] - 4) {
-                    if (readAt(abi.Transform, state, tc.?, @intCast(i))) |t| cue(if (ki == 0) cue_hurt_car else cue_hurt_ped, 0, t);
+                    if (readAt(abi.Transform, state, tc.?, @intCast(i))) |t| {
+                        cue(if (ki == 0) cue_hurt_car else cue_hurt_ped, 0, t);
+                        // A car someone else drives, hit: its driver shouts.
+                        if (ki == 0) if (columnOf(.car, .vehicle)) |vc| if (readAt(sim.c.Vehicle, state, vc, @intCast(i))) |veh| {
+                            if (!veh.driver.isNone() and !isPlayerPed(players[0..n_players], veh.driver)) cue(cue_driver_angry, 0, t);
+                        };
+                    }
                 }
                 seen_gen[ki][i] = g;
                 seen_hp[ki][i] = hp;
@@ -1335,6 +1695,53 @@ test "a player joins the test map, walks, gets in a car and drives" {
     try std.testing.expect(buildList(0.5, 0) > 0);
 }
 
+test "sound sources: the walking player, with their ground" {
+    loadTestMap();
+    try std.testing.expectEqual(@as(i32, 0), gameStart(1, false, 0, 0));
+    for (0..10) |t| {
+        frames[0] = .{ .steer = 0, .throttle = 127, .buttons = 0, .aim = 0, .seq = @truncate(t) };
+        gameStep();
+    }
+    _ = buildList(1, 0);
+    var walker: ?SoundSource = null;
+    for (sound_src[0..sound_len]) |src| if (src.kind == sound_walker and src.id == 0) {
+        walker = src;
+    };
+    try std.testing.expect(walker != null);
+    const anim = walker.?.extra & 0xff;
+    try std.testing.expect(anim == sim.c.Pedestrian.anim_walk or anim == sim.c.Pedestrian.anim_run);
+    try std.testing.expect((walker.?.extra >> 8) & 3 != 0);
+}
+
+test "ped voices: a pedestrian pulled from a car is heard" {
+    loadTestMap();
+    try std.testing.expectEqual(@as(i32, 0), gameStart(1, false, 0, 0));
+    for (0..5) |_| gameStep();
+    const st = try std.testing.allocator.dupe(u8, curState());
+    defer std.testing.allocator.free(st);
+    const pc = columnOf(.ped, .pedestrian).?;
+    const slots = for (curViews()) |v| {
+        if (v.kind == @intFromEnum(abi.Kind.ped) and v.component == abi.ColumnDesc.Special.slot) break v;
+    } else unreachable;
+    const players = [_]abi.EntityId{};
+    // An AI ped: any live slot, since no player is listed.
+    const i: u32 = for (0..pc.count) |k| {
+        if (st[slots.offset + k] == 1) break @intCast(k);
+    } else return error.SkipZigTest;
+    watchPeds(st, &players);
+    cues_len = 0;
+    const off = pc.offset + i * pc.stride + @offsetOf(sim.c.Pedestrian, "state");
+    st[off] = sim.c.Pedestrian.state_pulled_out;
+    watchPeds(st, &players);
+    var heard = false;
+    for (cues[0..cues_len]) |c| heard = heard or c.kind == cue_carjacked;
+    try std.testing.expect(heard);
+    cues_len = 0;
+    // Nothing changed: nothing more is heard.
+    watchPeds(st, &players);
+    try std.testing.expectEqual(@as(usize, 0), cues_len);
+}
+
 test "tuning round trip" {
     const names = tune_names;
     try std.testing.expect(std.mem.indexOf(u8, names, "car.max_speed:fx") != null);
@@ -1387,4 +1794,8 @@ test "script files are kept by name" {
     try std.testing.expectEqualStrings("abc", scriptFile("WIL.SCR").?);
     try std.testing.expect(scriptFile("ste.scr") == null);
     scriptsClear();
+}
+
+test {
+    _ = skids;
 }

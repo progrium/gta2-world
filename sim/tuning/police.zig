@@ -125,3 +125,7 @@ pub const roadblock_far: i32 = 20;
 /// Object model for a barrier (B's `barrier` kind: model 0 is a solid box
 /// one block long along its heading; the objects note isn't written).
 pub const barrier_model: u8 = 0;
+
+/// Ticks between police voice lines on one pursuit, shouts and radio
+/// together (ours: the notes have no voice timing).
+pub const voice_gap: u16 = 90;

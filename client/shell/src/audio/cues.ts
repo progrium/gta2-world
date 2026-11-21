@@ -2,7 +2,7 @@
 // samples in their own sound banks. The mapping is made by ear on the sound
 // board, kept in localStorage and exported as JSON.
 
-export type CueGroup = "Weapons" | "Hits and deaths" | "Vehicles" | "Pickups" | "Announcer" | "Player and missions" | "Not in the game yet";
+export type CueGroup = "Weapons" | "Hits and deaths" | "On foot" | "Vehicles" | "Pickups" | "Announcer" | "Player and missions" | "Pedestrians and police" | "Not in the game yet";
 
 export interface CueInfo {
   label: string;
@@ -17,6 +17,7 @@ export interface CueInfo {
 // Order is the board's order. Cues in "Not in the game yet" can be mapped now;
 // nothing plays them until the game has the event.
 const NY = "Not in the game yet";
+const PP = "Pedestrians and police";
 const INFO = {
   // Weapons: one per weapon id, then the weapon change.
   pistol: { label: "Pistol shot", group: "Weapons" },
@@ -36,7 +37,11 @@ const INFO = {
   explosion: { label: "Explosion", group: "Hits and deaths" },
   ped_hurt: { label: "Pedestrian hurt", group: "Hits and deaths" },
   ped_death: { label: "Pedestrian death", group: "Hits and deaths" },
-  // Vehicles
+  // On foot: a step every stride while a player walks or runs, by the ground.
+  footstep: { label: "Footstep (road, pavement, floors)", group: "On foot" },
+  footstep_grass: { label: "Footstep on grass", group: "On foot", fallback: "footstep" },
+  footstep_water: { label: "Footstep in water", group: "On foot", fallback: "splash" },
+  // Vehicles: an engine loop for every car nearby that is driven or moving.
   engine: { label: "Engine loop (pitch follows speed)", group: "Vehicles" },
   horn: { label: "Horn", group: "Vehicles" },
   car_door: { label: "Car door (get in or out)", group: "Vehicles" },
@@ -80,8 +85,17 @@ const INFO = {
   level_complete: { label: "Level complete", group: "Player and missions", fallback: "mission_pass" },
   round_end: { label: "Round over (multiplayer)", group: "Player and missions", fallback: "mission_pass" },
   player_joined: { label: "Player joined (multiplayer)", group: "Player and missions", fallback: "pager" },
+  // Pedestrians and police: voices from the people around you.
+  ped_bumped: { label: "Pedestrian bumped (“Watch it, buddy!”)", group: PP },
+  ped_panic: { label: "Pedestrian panic (“He's got a gun!”, “Help!”)", group: PP },
+  mugger: { label: "Mugger (“Give me your wallet”)", group: PP },
+  driver_angry: { label: "Angry driver (“Asshole!”, “Maniac”)", group: PP },
+  carjacked: { label: "Carjacked driver (“Get out of my car!”)", group: PP },
+  cop_shout: { label: "Cop shout (“Freeze!”, “Hold it!”)", group: PP },
+  police_radio: { label: "Police radio", group: PP },
+  gang_shout: { label: "Gang member shout", group: PP },
+  elvis: { label: "Elvis (“Hey man, it's the king!”)", group: PP },
   // Not in the game yet: world and pedestrian sounds
-  footstep: { label: "Footstep", group: NY },
   punch: { label: "Punch", group: NY },
   glass_break: { label: "Glass breaking", group: NY },
   splash: { label: "Splash (into water)", group: NY },
@@ -91,17 +105,8 @@ const INFO = {
   crowd: { label: "Crowd", group: NY },
   dog_bark: { label: "Dog bark", group: NY },
   ped_chatter: { label: "Pedestrian chatter (“Hey”, “Huh?”)", group: NY },
-  ped_bumped: { label: "Pedestrian bumped (“Watch it, buddy!”)", group: NY },
-  ped_panic: { label: "Pedestrian panic (“He's got a gun!”, “Help!”)", group: NY },
   ped_taxi: { label: "Pedestrian hailing a taxi", group: NY },
-  mugger: { label: "Mugger (“Give me your wallet”)", group: NY },
-  driver_angry: { label: "Angry driver (“Asshole!”, “Maniac”)", group: NY },
-  carjacked: { label: "Carjacked driver (“Get out of my car!”)", group: NY },
-  cop_shout: { label: "Cop shout (“Freeze!”, “Hold it!”)", group: NY },
-  police_radio: { label: "Police radio", group: NY },
-  gang_shout: { label: "Gang member shout", group: NY },
   laugh: { label: "Laughter", group: NY },
-  elvis: { label: "Elvis (“Hey man, it's the king!”)", group: NY },
   // Not in the game yet: announcer
   say_kill_frenzy: { label: "“Kill frenzy!”", group: NY },
   frenzy_passed: { label: "Kill frenzy passed", group: NY, fallback: "mission_pass" },
@@ -206,7 +211,7 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
   explosion: [186, 187, 188, 68],
   ped_hurt: [269, 228, 232, 233, 236, 238],
   ped_death: [229, 230, 231, 234, 235, 237],
-  engine: [3],
+  engine: [4],
   horn: [17],
   car_door: [25, 27, 26, 28],
   car_crash: [37, 38, 39, 40, 33],
@@ -276,7 +281,7 @@ const DEFAULT_SAMPLES: Partial<Record<Cue, (number | string)[]>> = {
  * (nothing in the banks sounds like a bump), so it plays them quieter. No
  * sample sounds like a tyre screech either, so that cue uses its built-in sound.
  */
-const DEFAULT_GAIN: Partial<Record<Cue, number>> = { car_bump: 0.45 };
+const DEFAULT_GAIN: Partial<Record<Cue, number>> = { car_bump: 0.45, footstep: 0.5, footstep_grass: 0.35, footstep_water: 0.5 };
 
 export function defaultMapping(): SoundMapping {
   const m = emptyMapping();
@@ -325,6 +330,8 @@ export function normalizeMapping(input: unknown, base: SoundMapping = defaultMap
 const RETIRED: Partial<Record<Cue, number[][]>> = {
   car_bump: [[44]],
   tyre_screech: [[24], [146]],
+  // Soft noise that didn't read as an engine; #4 is the idling chug.
+  engine: [[3]],
 };
 
 function retire(m: SoundMapping): SoundMapping {

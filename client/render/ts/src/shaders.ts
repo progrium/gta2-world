@@ -119,3 +119,23 @@ void main() {
   if ((v_flags & 1u) != 0u) c *= 0.28;
   o = vec4((v_flags & 2u) != 0u ? c : c * u_ambient, 1.0);
 }`;
+
+// Tyre marks: flat dark streaks on the road, blended over it. Vertices are
+// x, y, z (blocks, sim axes) and an opacity.
+export const markVS = `#version 300 es
+in vec4 a_mark;
+uniform mat4 u_vp;
+out float v_alpha;
+void main() {
+  gl_Position = u_vp * vec4(a_mark.x, a_mark.z, a_mark.y, 1.0);
+  v_alpha = a_mark.w;
+}`;
+
+export const markFS = `#version 300 es
+precision mediump float;
+uniform float u_ambient;
+in float v_alpha;
+out vec4 o;
+void main() {
+  o = vec4(vec3(0.06, 0.06, 0.07) * u_ambient, v_alpha);
+}`;

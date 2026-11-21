@@ -127,6 +127,24 @@ export interface CameraTarget {
   found: boolean;
 }
 
+export interface SoundSource {
+  kind: "car" | "walker";
+  /** Car: its slot. Walker: the player slot. */
+  id: number;
+  x: number;
+  y: number;
+  z: number;
+  /** Car: blocks per tick. */
+  speed: number;
+  /** Car: someone is driving it. */
+  driven: boolean;
+  /** Walker: the ped animation (1 walk, 2 run). */
+  anim: number;
+  /** Walker: ground under the feet: 0 none, 1 road, 2 pavement, 3 field. */
+  ground: number;
+  water: boolean;
+}
+
 export interface TuneEntry {
   index: number;
   name: string;
@@ -404,6 +422,34 @@ export class GameModule {
   }
 
   /** Sound cues the render pass saw since the last call. */
+  /**
+   * What keeps sounding this frame: cars that are driven or moving, and
+   * players on foot (`soundSources` in game.zig). Empty on an older module.
+   */
+  soundSources(): SoundSource[] {
+    if (!this.w.soundSourcesLen) return [];
+    const n = this.w.soundSourcesLen();
+    const dv = new DataView(this.buf, this.w.soundSourcesPtr!(), n * 32);
+    const out: SoundSource[] = [];
+    for (let i = 0; i < n; i++) {
+      const o = i * 32;
+      const extra = dv.getUint32(o + 24, true);
+      out.push({
+        kind: dv.getUint32(o, true) === 1 ? "car" : "walker",
+        id: dv.getUint32(o + 4, true),
+        x: dv.getFloat32(o + 8, true),
+        y: dv.getFloat32(o + 12, true),
+        z: dv.getFloat32(o + 16, true),
+        speed: dv.getFloat32(o + 20, true),
+        driven: (extra & 1) !== 0,
+        anim: extra & 0xff,
+        ground: (extra >> 8) & 3,
+        water: (extra & 0x400) !== 0,
+      });
+    }
+    return out;
+  }
+
   takeCues(): Cue[] {
     const n = this.w.cuesTake!();
     const dv = new DataView(this.buf, this.w.cuesPtr!(), n * 24);
@@ -424,6 +470,20 @@ export class GameModule {
   renderList(alpha: number, nowMs = performance.now()): { bytes: Uint8Array; count: number } {
     const count = this.w.buildList!(alpha, nowMs);
     return { bytes: this.u8(this.w.instancePtr!(), count * INSTANCE_BYTES), count };
+  }
+
+  /** Tyre marks still showing at `nowMs`: x, y, z, opacity per vertex. */
+  skidMarks(nowMs = performance.now()): Float32Array {
+    if (typeof this.w.skidMarks !== "function") return new Float32Array(0);
+    const n = this.w.skidMarks(nowMs);
+    return new Float32Array(this.buf, this.w.skidMarksPtr!(), n * 4);
+  }
+
+  /** Door leaves as map vertices for this frame (single player; empty otherwise). */
+  doorFaces(): Uint8Array {
+    if (typeof this.w.doorFaces !== "function") return new Uint8Array(0);
+    const n = this.w.doorFaces();
+    return this.u8(this.w.doorFacesPtr!(), n * VERTEX_BYTES);
   }
 
   camera(alpha: number, slot = 0): CameraTarget {
