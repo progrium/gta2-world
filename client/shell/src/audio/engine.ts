@@ -117,7 +117,7 @@ export class AudioEngine {
   attach(target: EventTarget = window): void {
     if (this.unlockHandler) return;
     const h = (): void => {
-      void this.resume();
+      if (!this.running) this.unlock();
     };
     this.unlockHandler = h;
     // Safari only unlocks audio from some events (touchend and click, not
@@ -136,6 +136,26 @@ export class AudioEngine {
       } catch {
         /* needs a gesture */
       }
+    }
+  }
+
+  /**
+   * Call from inside a user gesture (a tap, click or key; a gamepad button
+   * isn't one). iOS needs the context made, resumed and a sound started all
+   * in the same gesture before it lets any audio out, so this starts a
+   * one-sample silent buffer too.
+   */
+  unlock(): void {
+    const c = this.context();
+    if (!c || c.state === "closed") return;
+    if (c.state !== "running") Promise.resolve(c.resume?.()).catch(() => undefined);
+    try {
+      const src = c.createBufferSource();
+      src.buffer = c.createBuffer(1, 1, c.sampleRate);
+      src.connect(c.destination);
+      src.start(0);
+    } catch {
+      /* not yet */
     }
   }
 
@@ -159,6 +179,8 @@ export class AudioEngine {
     } catch {
       this.ctx = new AC();
     }
+    // Let the screens show or hide their "tap for sound" prompt.
+    this.ctx.onstatechange = () => this.emit();
     this.master = this.ctx.createGain();
     this.master.gain.value = this.muted_ ? 0 : this.volume_;
     this.master.connect(this.ctx.destination);
