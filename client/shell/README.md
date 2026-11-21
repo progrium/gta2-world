@@ -23,7 +23,7 @@ Serve the folder over `localhost` or https: gamepads and OPFS need a secure cont
 
 | Path | What it does |
 | --- | --- |
-| `src/input/` | Keyboard and gamepad to I2 frames (`interfaces/I2-input-frame.md`). |
+| `src/input/` | Keyboard, gamepad and the on-screen touch pad to I2 frames (`interfaces/I2-input-frame.md`). |
 | `src/assets/` | Folder pick, drag-drop, worker hashing and checks, OPFS cache keyed by SHA-256. |
 | `src/loop.ts` | rAF-driven fixed 30 Hz clock: poll every frame, latch every tick, render with alpha. |
 | `src/session.ts` | Fixed session id `m1-local`, or `#s=<id>` from the link. |
@@ -61,6 +61,7 @@ What the HUD shows is filled in by the sim's workstreams (script engine A1, care
 - On foot: tank (steer + walk) or direct (`direct` bit, `aim` from the stick, speed from its magnitude, heading kept when centred). "Auto" uses direct after pad input and tank after keys. On foot, RT also fires.
 - Rumble through `vibrationActuator`: dual-rumble where present, trigger-rumble only where listed. Firefox has none, Safari has no trigger-rumble (S6). Never throws.
 - Hot-plug from `gamepadconnected`/`gamepaddisconnected` and from polling (events can be late in background tabs). A pad that comes back returns to its slot. The HUD asks for a button press while no pad is visible.
+- Touch pad (`src/input/touch.ts`, overlay `src/ui/touchPad.ts`): the "Touch pad" button on the game screen shows a floating move stick (left half of the view) and Fire, Jump, Car (enter/exit) and weapon buttons. It feeds slot 0 like the keyboard. On foot the auto scheme is direct; in a car the stick x steers and its y is the pedal (up accelerates, down brakes). The setting is kept in localStorage and defaults on for touch screens (`pointer: coarse`).
 - Remaps are stored in `localStorage` per normalised controller key: `vid:pid` where the id carries it (Chrome, Firefox), else `name:<name>` (Safari). Each pad remap is saved under both keys, so Safari finds a remap made elsewhere. Non-standard mappings get a warning and a guessed layout until remapped. `KNOWN_PADS` in `bindings.ts` is the per-controller table, empty until probe runs show a pad that needs an entry.
 
 Default pad layout (standard mapping, by position): RT accelerate, LT brake, X fire, Y enter/exit, A handbrake/jump, B run, RB/LB next/previous weapon, LS click horn. Home is never bound.
