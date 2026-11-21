@@ -580,3 +580,21 @@ test "car weapons: mines drop behind the car on a fresh press, credited to the d
     }.f);
     try std.testing.expect(found);
 }
+
+test "power-ups: instant gang recruits nearby peds, and an arrest breaks the gang up (3-1, 3-3)" {
+    var h = try H.init();
+    defer h.deinit();
+    const w = &h.sim.state.world;
+    var peds: [3]EntityId = undefined;
+    for (&peds, 0..) |*p, i| p.* = h.sim.spawnPed(c.Controller.no_player, simmod.spawnHint(@intCast(37 + i), 40)).?;
+    w.applyPending();
+    const me = h.me();
+    try std.testing.expect(h.take(.instant_gang));
+    var joined: u32 = 0;
+    for (peds) |p| {
+        if (eql(w.get(p, c.Group).?.leader, me)) joined += 1;
+    }
+    try std.testing.expectEqual(@as(u32, 3), joined);
+    Sp.career.bust(h.sim, 0, .none);
+    for (peds) |p| try std.testing.expect(w.get(p, c.Group).?.leader.isNone());
+}

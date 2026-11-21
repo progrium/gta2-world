@@ -145,9 +145,9 @@ pub fn Sys(comptime Self: type) type {
                     r.vehicle = .none;
                 }
             }
-            // 1: no life lost; the message, the countdown, the double (the
-            // one the police take). Breaking up the player's gang is D2's
-            // group code, which has no API yet.
+            // 1: no life lost; the message, the countdown, the player's
+            // gang broken up, the double (the one the police take).
+            Self.gangs.breakUpGang(self, slot);
             cs.flags |= CS.flag_was_out;
             cs.cause = Event.weapon_car; // unused for an arrest
             cs.death_car = pl.car;

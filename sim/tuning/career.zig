@@ -29,9 +29,6 @@ pub const double_damage_ticks: u16 = 1800;
 pub const fast_reload_ticks: u16 = 1800;
 pub const electro_fingers_ticks: u16 = 2100;
 pub const invisible_ticks: u16 = 1800;
-/// Respect pickup: one step (20) with the gang whose area you're in; refused
-/// at 100.
-pub const respect_steps: i8 = 1;
 pub const respect_max: i8 = 100;
 /// Instant gang: up to this many recruits.
 pub const instant_gang_recruits: u8 = 4;

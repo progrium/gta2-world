@@ -297,14 +297,14 @@ pub fn Sys(comptime Self: type) type {
                     const gang = Self.gangs.gangOfArea(self, fx.toInt(t.x), fx.toInt(t.y));
                     if (gang == ids.gang_none) return false;
                     if (Self.gangs.respect(self, gang) >= TC.respect_max) return false;
-                    Self.gangs.changeRespect(self, gang, TC.respect_steps);
+                    Self.gangs.respectPowerUp(self, slot);
                 },
                 .instant_gang => {
-                    // Refused unless on foot. Recruiting up to
-                    // `instant_gang_recruits` nearby peds is D1/D2's group
-                    // code (ped-ai.md 3.11), which has no API yet.
+                    // Refused unless on foot; then up to 4 nearby peds
+                    // join the player's group (D2, ped-ai.md 3.11).
                     const r = w.get(ped_id, c.Riding) orelse return false;
                     if (!r.vehicle.isNone()) return false;
+                    _ = Self.gangs.instantGang(self, slot);
                 },
                 .health => {
                     const h = w.get(ped_id, c.Health) orelse return false;
