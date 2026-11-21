@@ -14,15 +14,18 @@ const OT = @import("../tuning/objects.zig");
 
 /// One shared door animation (script-declarations.md 2.9, type 230).
 pub const DoorAnim = extern struct {
-    start: u8 = 0,
-    end: u8 = 0,
+    /// Frame numbers (levels use values above 255).
+    start: u16 = 0,
+    end: u16 = 0,
     /// Ticks per frame (ours: the note says "playback speed").
     speed: u8 = 0,
     used: u8 = 0,
+    _pad: u16 = 0,
 };
 
 /// Door open rules, in the order script-declarations.md 2.9 lists them
-/// (the numbering is ours until the script values are confirmed).
+/// (the numbering is ours until the script values are confirmed; levels
+/// use 0, 2, 4 and 6).
 pub const OpenRule = enum(u8) {
     any_player = 0,
     any_car = 1,
@@ -63,15 +66,18 @@ pub const Door = extern struct {
     close_rule: u8 = 0,
     flags: u8 = 0,
     state: u8 = 0,
-    frame: u8 = 0,
     /// Ticks into the current frame.
     frame_tick: u8 = 0,
     /// The car model for the `car_model` rule.
     target_model: u8 = 0,
+    _pad: u8 = 0,
+    /// The current animation frame (between the animation's start and end).
+    frame: u16 = 0,
     /// Close delay for `after_delay`.
     delay: u16 = 0,
     /// Ticks since fully open.
     timer: u16 = 0,
+    _pad2: u16 = 0,
     /// The presence-check area (blocks, fixed point); zero size skips it.
     area_x: Fx = 0,
     area_y: Fx = 0,
@@ -100,10 +106,9 @@ pub const Generator = extern struct {
     remaining: u16 = 0,
     /// Ammo override (0: the model's own).
     ammo: u16 = 0,
-    model: u8 = 0,
+    model: u16 = 0,
     on: u8 = 0,
     one_at_a_time: u8 = 0,
-    _pad: u8 = 0,
 };
 
 pub const AreaKind = enum(u8) { none = 0, conveyor = 1, destructor = 2, _ };
@@ -140,7 +145,7 @@ pub const State = extern struct {
 
 comptime {
     // No implicit padding (hashing reads every byte).
-    if (@sizeOf(Door) != 40 or @sizeOf(Generator) != 36 or @sizeOf(Area) != 36) @compileError("objects state padding");
+    if (@sizeOf(Door) != 44 or @sizeOf(Generator) != 36 or @sizeOf(Area) != 36) @compileError("objects state padding");
     const sum = 4 + @sizeOf([OT.door_anims]DoorAnim) + @sizeOf([OT.max_doors]Door) + @sizeOf([OT.max_generators]Generator) +
         @sizeOf([OT.max_areas]Area) + @sizeOf([OT.max_dead_phones]EntityId) + 4 + OT.car_list_len + 1;
     if (sum != @sizeOf(State)) @compileError("objects State has implicit padding");
