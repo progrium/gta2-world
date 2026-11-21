@@ -1,7 +1,7 @@
 started 1
 passed 0
 failed 0
-rings 0
+rings 2
 wasted 0
 busted 0
 heartbeat 99

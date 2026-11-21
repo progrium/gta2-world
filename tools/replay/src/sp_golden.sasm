@@ -18,7 +18,7 @@
 2 counter 0             # missions passed
 3 counter 0             # main thread's stage
 5 player_ped 0 0 L:335872 L:335872 L:4177920 90 0          # player at (20, 20)
-6 16 0 0 L:434176 L:335872 L:4177920 1 0                   # phone at (26, 20)
+6 16 0 0 L:434176 L:335872 L:4177920 178 0                 # phone (model 178) at (26, 20)
 7 10 0 0 L:368640 L:401408 L:4177920 90 0 0 0xFFFF         # parked car at (22, 24)
 8 214 0 0 0 40 L:434176 L:335872 L:16384 L:32768 L:32768 5   # on foot in a 2x2 area at (26, 20): start 40
 9 display_decl
