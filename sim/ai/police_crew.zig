@@ -174,6 +174,15 @@ pub fn Sys(comptime Self: type) type {
         /// Let a crew go: its car back to ordinary traffic, its officers to
         /// their default behaviour.
         pub fn release(self: *Self, cr: *Crew) void {
+            // Only the driver stays with the car as it rejoins traffic;
+            // the other officers get out, so nobody rides a car nobody
+            // tracks.
+            if (!cr.car.isNone() and self.state.world.isAlive(cr.car)) {
+                const driver = if (self.state.world.get(cr.car, c.Vehicle)) |v| v.driver else EntityId.none;
+                for (cr.members) |m| {
+                    if (!m.isNone() and !eql(m, driver) and eql(riding(self, m), cr.car)) getOut(self, m);
+                }
+            }
             if (carUsable(self, cr.car)) {
                 Self.car_tasks.setCarTask(self, cr.car, .none, .none, 0, 0);
                 siren(self, cr.car, false);
@@ -491,6 +500,13 @@ pub fn Sys(comptime Self: type) type {
                 } else any = true;
             }
             if (!carUsable(self, cr.car)) cr.car = .none;
+            // A car that lost its driver some other way (killed, pulled
+            // out): the officers still in it get out.
+            if (!cr.car.isNone() and cr.phase != @intFromEnum(Phase.boarding)) {
+                if (self.state.world.get(cr.car, c.Vehicle).?.driver.isNone()) {
+                    for (cr.members) |m| if (!m.isNone() and eql(riding(self, m), cr.car)) getOut(self, m);
+                }
+            }
             if (!any) {
                 release(self, cr);
                 return;
@@ -657,7 +673,8 @@ pub fn Sys(comptime Self: type) type {
 
         fn escort(self: *Self, cr: *Crew) void {
             if (cr.timer > 0) cr.timer -= 1;
-            if (cr.timer > 0 and carUsable(self, cr.car)) return;
+            const driven = carUsable(self, cr.car) and !self.state.world.get(cr.car, c.Vehicle).?.driver.isNone();
+            if (cr.timer > 0 and driven) return;
             // Gone: the double goes with it.
             const w = &self.state.world;
             if (w.isAlive(cr.members[1]) and eql(riding(self, cr.members[1]), cr.car)) w.despawn(cr.members[1]);
