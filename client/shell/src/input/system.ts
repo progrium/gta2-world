@@ -14,10 +14,24 @@ import { TickLatch } from "./latch.ts";
 import { RemapStore } from "./remapStore.ts";
 import { Effects, type RumbleEffect, rumble } from "./rumble.ts";
 import { type Sample, mergeSamples } from "./sample.ts";
+import { TouchDevice, coarsePointer } from "./touch.ts";
 
 export const MAX_LOCAL_PLAYERS = 4;
 
 const PADS_KEY = "gta2.padsEnabled";
+const TOUCH_KEY = "gta2.touchPad";
+
+/** The on-screen gamepad setting, kept in localStorage; on by default on touch screens. */
+function loadTouchEnabled(): boolean {
+  try {
+    const v = globalThis.localStorage?.getItem(TOUCH_KEY);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch {
+    /* fall through */
+  }
+  return coarsePointer();
+}
 
 function loadPadsEnabled(): boolean {
   try {
@@ -38,7 +52,7 @@ export interface LocalPlayer {
   padKey: string | null;
   scheme: SchemeSetting;
   /** Which device moved last; decides the "auto" scheme. */
-  lastDevice: "keyboard" | "pad";
+  lastDevice: "keyboard" | "pad" | "touch";
   latch: TickLatch;
   lastAim: number;
   lastFrame: Frame | null;
@@ -47,7 +61,8 @@ export interface LocalPlayer {
 export type InputEvent =
   | PadEvent
   | { type: "player-joined" | "player-left"; player: LocalPlayer }
-  | { type: "pads-toggled"; enabled: boolean };
+  | { type: "pads-toggled"; enabled: boolean }
+  | { type: "touch-toggled"; enabled: boolean };
 
 const active = (s: Sample): boolean => s.buttons !== 0 || s.accelerate > 0 || s.brake > 0 || s.moveX !== 0 || s.moveY !== 0;
 
@@ -55,6 +70,8 @@ export class InputSystem {
   readonly store: RemapStore;
   readonly keyboard: KeyboardDevice;
   readonly pads: GamepadManager;
+  /** The on-screen gamepad; drives slot 0 alongside the keyboard while touchEnabled. */
+  readonly touch = new TouchDevice();
   readonly players: LocalPlayer[] = [];
   options: ComposeOptions = { ...defaultComposeOptions };
   /** Supplied by the sim host: is this slot's ped in a vehicle? */
@@ -105,6 +122,11 @@ export class InputSystem {
         parts.push(kb);
         if (active(kb)) p.lastDevice = "keyboard";
       }
+      if (p.slot === 0 && this._touchEnabled) {
+        const t = this.touch.poll();
+        parts.push(t);
+        if (active(t)) p.lastDevice = "touch";
+      }
       if (p.pad !== null) {
         const s = padSamples.get(p.pad);
         if (s) {
@@ -131,7 +153,8 @@ export class InputSystem {
   schemeOf(p: LocalPlayer): FootScheme {
     if (p.scheme !== "auto") return p.scheme;
     // Design doc: direct mode is the gamepad default, tank the keyboard default.
-    return p.lastDevice === "pad" ? "direct" : "tank";
+    // The touch stick points the way to go, like a pad's.
+    return p.lastDevice === "keyboard" ? "tank" : "direct";
   }
 
   /** Rumble whatever pad drives a slot. Silently does nothing without one. */
@@ -160,6 +183,23 @@ export class InputSystem {
     this.emit({ type: "pads-toggled", enabled: on });
   }
   private _padsEnabled = loadPadsEnabled();
+
+  /** On-screen gamepad on or off. Kept in localStorage, so it holds across visits. */
+  get touchEnabled(): boolean {
+    return this._touchEnabled;
+  }
+  set touchEnabled(on: boolean) {
+    if (on === this._touchEnabled) return;
+    this._touchEnabled = on;
+    this.touch.releaseAll();
+    try {
+      localStorage.setItem(TOUCH_KEY, on ? "1" : "0");
+    } catch {
+      /* no storage: lasts for this page */
+    }
+    this.emit({ type: "touch-toggled", enabled: on });
+  }
+  private _touchEnabled = loadTouchEnabled();
 
   /** Ignore pads while the window isn't focused (another window has the player's attention). */
   padsNeedFocus = true;

@@ -10,6 +10,7 @@ import { TickLatch } from "../src/input/latch.ts";
 import { type KV, RemapStore } from "../src/input/remapStore.ts";
 import { emptySample, mergeSamples } from "../src/input/sample.ts";
 import { InputSystem } from "../src/input/system.ts";
+import { TOUCH_DEADZONE, TouchDevice } from "../src/input/touch.ts";
 
 class MemKV implements KV {
   m = new Map<string, string>();
@@ -282,4 +283,59 @@ test("input system: controllers can be switched off for this tab, and pause whil
   sys.poll();
   assert.equal(sys.latch(4)[0]!.throttle, 127);
   assert.deepEqual(seen, ["pads-toggled", "pads-toggled"]);
+});
+
+test("touch pad: stick deadzone and clamp, buttons held and tapped", () => {
+  const t = new TouchDevice();
+  t.setStick(TOUCH_DEADZONE / 2, 0);
+  assert.equal(t.poll().moveX, 0, "inside the deadzone reads as centred");
+  t.setStick(3, 0);
+  let s = t.poll();
+  assert.ok(Math.abs(s.moveX - 1) < 1e-9, "past the rim clamps to full");
+  t.setStick(0, -1);
+  s = t.poll();
+  assert.ok(Math.abs(s.moveY + 1) < 1e-9);
+  assert.equal(s.digitalY, s.moveY, "the stick's y is the pedal in a car");
+  t.press("fire");
+  t.release("fire");
+  assert.equal(t.poll().buttons, Button.fire, "a tap inside one frame still lands");
+  assert.equal(t.poll().buttons, 0);
+  t.press("enterExit");
+  assert.equal(t.poll().buttons, Button.enterExit);
+  assert.equal(t.poll().buttons, Button.enterExit, "held");
+  t.releaseAll();
+  assert.deepEqual(t.poll(), emptySample());
+});
+
+test("input system: touch pad drives player 1 when on, direct on foot, pedal in a car", () => {
+  const store = new RemapStore(new MemKV());
+  const sys = new InputSystem(store, new GamepadManager(store, () => []));
+  const seen: string[] = [];
+  sys.on((e) => seen.push(e.type));
+  sys.touchEnabled = false;
+  sys.touch.setStick(1, 0);
+  sys.poll();
+  assert.ok(sys.latch(0)[0]!.throttle === 0, "ignored while off");
+  sys.touchEnabled = true;
+  assert.equal(sys.touchEnabled, true);
+  sys.touch.setStick(1, 0);
+  sys.touch.press("fire");
+  sys.poll();
+  let f = sys.latch(1)[0]!;
+  assert.equal(sys.players[0]!.lastDevice, "touch");
+  assert.equal(sys.schemeOf(sys.players[0]!), "direct");
+  assert.ok(f.buttons & Button.direct && f.buttons & Button.fire);
+  assert.equal(f.throttle, 127);
+  sys.inVehicle = () => true;
+  sys.touch.setStick(0, -1);
+  sys.poll();
+  f = sys.latch(2)[0]!;
+  assert.equal(f.throttle, 127, "stick up accelerates");
+  sys.touch.setStick(0, 1);
+  sys.poll();
+  assert.equal(sys.latch(3)[0]!.throttle, -127, "stick down brakes or reverses");
+  sys.touchEnabled = false;
+  sys.poll();
+  assert.ok(sys.latch(4)[0]!.throttle === 0, "switching off lets go");
+  assert.ok(seen.filter((e) => e === "touch-toggled").length >= 2);
 });

@@ -26,6 +26,7 @@ import { SpHudView } from "./spHud.ts";
 import { textChoice } from "./importScreen.ts";
 import { deathKey } from "../game/text.ts";
 import { demoHud } from "./spDemo.ts";
+import { touchPad } from "./touchPad.ts";
 
 export interface GameScreenOpts {
   input: InputSystem;
@@ -109,7 +110,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         input.players[0]!.scheme = (e.target as HTMLSelectElement).value as SchemeSetting;
       },
     },
-    h("option", { value: "auto" }, "On foot: auto (pad direct, keys tank)"),
+    h("option", { value: "auto" }, "On foot: auto (pad/touch direct, keys tank)"),
     h("option", { value: "tank" }, "On foot: tank"),
     h("option", { value: "direct" }, "On foot: direct"),
   ) as HTMLSelectElement;
@@ -121,6 +122,19 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     title: "Turn off to stop this tab reading controllers, e.g. when two windows on one computer play each other.",
     onchange: (e: Event) => (input.padsEnabled = (e.target as HTMLInputElement).checked),
   });
+  // On-screen gamepad for phones and tablets; remembered across visits.
+  const touchView = touchPad(input);
+  const touchBtn = h("button", {
+    class: "touchtoggle",
+    title: "Show an on-screen stick and buttons for touch screens",
+    onclick: () => (input.touchEnabled = !input.touchEnabled),
+  });
+  const renderTouch = (): void => {
+    touchBtn.textContent = input.touchEnabled ? "Touch pad: on" : "Touch pad: off";
+    touchBtn.setAttribute("aria-pressed", String(input.touchEnabled));
+    touchView.setVisible(input.touchEnabled);
+  };
+  renderTouch();
   const rumbleBox = h("input", { type: "checkbox", checked: rumbleSettings.enabled, onchange: (e: Event) => (rumbleSettings.enabled = (e.target as HTMLInputElement).checked) });
 
   const closeOverlay = (): void => {
@@ -165,6 +179,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       h(
         "span",
         { class: "row" },
+        touchBtn,
         schemeSel,
         h("label", { title: "Turn off to stop this tab reading controllers, e.g. when two windows on one computer play each other." }, padBox, " controller"),
         h("label", {}, rumbleBox, " rumble"),
@@ -213,6 +228,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   };
   const offInput = input.on(() => {
     padBox.checked = input.padsEnabled;
+    renderTouch();
     renderPads();
   });
   addEventListener("focus", renderPads);
@@ -658,7 +674,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     );
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores), hud);
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores, touchView.el), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();
@@ -672,6 +688,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     closeOverlay();
     audio.stopAll();
     offInput();
+    touchView.dispose();
     removeEventListener("focus", renderPads);
     removeEventListener("blur", renderPads);
     removeEventListener("keydown", onKey);
