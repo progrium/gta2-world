@@ -307,7 +307,7 @@ test "busted without a jail card: no life lost, weapons gone, multiplier halved 
     try std.testing.expectEqual(@as(u8, 2), h.cs().multiplier);
     try std.testing.expectEqual(@as(u16, 0), h.weapon().rounds()[T.weapon_smg]);
     try std.testing.expectEqual(@as(u8, 0), h.ped().armour);
-    try std.testing.expect(!w.isAlive(old));
+    try std.testing.expect(Sp.career.bodyDouble(h.sim, 0).isNone()); // handed to the police
     // Halved again from 1 stays 1.
     h.cs().multiplier = 1;
     Sp.career.bust(h.sim, 0, .none);
@@ -597,4 +597,17 @@ test "power-ups: instant gang recruits nearby peds, and an arrest breaks the gan
     try std.testing.expectEqual(@as(u32, 3), joined);
     Sp.career.bust(h.sim, 0, .none);
     for (peds) |p| try std.testing.expect(w.get(p, c.Group).?.leader.isNone());
+}
+
+test "busted: the police take the double away in a car; the end of the countdown leaves it to them (3-3 step 3)" {
+    var h = try H.init();
+    defer h.deinit();
+    const w = &h.sim.state.world;
+    const old = h.me();
+    Sp.career.bust(h.sim, 0, .none);
+    h.run(TC.countdown_ticks);
+    try std.testing.expect(!Sp.career.isOut(h.sim, 0));
+    const r = w.get(old, c.Riding) orelse return error.TestUnexpectedResult;
+    try std.testing.expect(!r.vehicle.isNone());
+    try std.testing.expect(w.isAlive(old));
 }
