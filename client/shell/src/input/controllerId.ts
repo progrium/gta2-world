@@ -3,6 +3,8 @@
 //   Chrome:  "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)"
 //   Firefox: "045e-0b13-Xbox Wireless Controller"
 //   Safari:  "Xbox Wireless Controller" (no vendor or product)
+//   Chrome on macOS can also omit them: "DualSense Wireless Controller (STANDARD GAMEPAD)"
+//   (S6, Jeff's DualSense run), and XInput pads on Windows always do.
 // The key is "vid:pid" when the id carries them, otherwise "name:<lowercased name>".
 // Safari therefore gets a name key that differs from the other two; the remap
 // store falls back from one to the other (see remapStore.ts).

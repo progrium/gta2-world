@@ -27,6 +27,10 @@ test("controller ids normalise across browsers (S6 gap 9)", () => {
   assert.equal(chrome.name, "Xbox Wireless Controller");
   assert.equal(firefox.name, "Xbox Wireless Controller");
   assert.equal(safari.key, "name:xbox wireless controller");
+  const macChrome = normalizeControllerId("DualSense Wireless Controller (STANDARD GAMEPAD)");
+  assert.equal(macChrome.key, "name:dualsense wireless controller");
+  assert.equal(macChrome.name, "DualSense Wireless Controller");
+  assert.equal(padFamily(macChrome), "playstation");
   const xinput = normalizeControllerId("Xbox 360 Controller (XInput STANDARD GAMEPAD)");
   assert.equal(xinput.key, "name:xbox 360 controller");
   assert.equal(padFamily(chrome), "xbox");
@@ -139,6 +143,19 @@ function pad(over: Partial<MinimalGamepad> = {}): MinimalGamepad {
     ...over,
   };
 }
+
+test("rumble: trigger effects go only to pads that list trigger-rumble (DualSense lists only dual-rumble)", async () => {
+  const { rumble, rumbleSupport } = await import("../src/input/rumble.ts");
+  const played: string[] = [];
+  const mk = (effects: string[]) => ({ vibrationActuator: { type: "dual-rumble", effects, playEffect: (t: string) => (played.push(t), Promise.resolve("complete")) } });
+  const ds = mk(["dual-rumble"]);
+  assert.equal(rumbleSupport(ds), "dual");
+  rumble(ds, { strong: 0, weak: 0, durationMs: 100, rightTrigger: 1 });
+  assert.equal(rumbleSupport(mk(["dual-rumble", "trigger-rumble"])), "dual+trigger");
+  rumble(mk(["dual-rumble", "trigger-rumble"]), { strong: 0, weak: 0, durationMs: 100, rightTrigger: 1 });
+  assert.deepEqual(played, ["dual-rumble", "trigger-rumble"]);
+  assert.equal(rumbleSupport({}), "none");
+});
 
 test("gamepad: radial deadzone and clamp on a square gate (S6: diagonals reach 1.22)", () => {
   let list: (MinimalGamepad | null)[] = [pad({ axes: [0.1, 0.1, 0, 0] })];
