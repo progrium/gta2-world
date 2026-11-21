@@ -426,6 +426,13 @@ export class GameModule {
     return { bytes: this.u8(this.w.instancePtr!(), count * INSTANCE_BYTES), count };
   }
 
+  /** Tyre marks still showing at `nowMs`: x, y, z, opacity per vertex. */
+  skidMarks(nowMs = performance.now()): Float32Array {
+    if (typeof this.w.skidMarks !== "function") return new Float32Array(0);
+    const n = this.w.skidMarks(nowMs);
+    return new Float32Array(this.buf, this.w.skidMarksPtr!(), n * 4);
+  }
+
   /** Door leaves as map vertices for this frame (single player; empty otherwise). */
   doorFaces(): Uint8Array {
     if (typeof this.w.doorFaces !== "function") return new Uint8Array(0);

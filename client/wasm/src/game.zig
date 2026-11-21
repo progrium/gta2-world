@@ -27,6 +27,7 @@ const net = @import("net");
 
 const gpa = if (builtin.cpu.arch == .wasm32) std.heap.wasm_allocator else std.heap.page_allocator;
 const mesh = render.mesh;
+const skids = @import("skids.zig");
 const list = render.list;
 const Sim = sim.Sim16;
 /// Single player (story levels): one player, the SP state block and systems.
@@ -202,6 +203,7 @@ export fn loadMap(p: [*]const u8, n: usize, bake_lights: bool) i32 {
     anim_table = &.{};
     level_data.deinit(gpa);
     level_sp = .empty;
+    skids.clear();
     map = formats.gmp.parse(gpa, p[0..n]) catch |e| return setError("map", e);
     level_data = .{ .inner = formats.level.build(gpa, &map.?) catch |e| return setError("level", e) };
     level_sp = level_data.inner.?.level;
@@ -879,10 +881,14 @@ fn objectFrame(s: *const formats.sty.Style, o: sim.c.Object, t: u16) u16 {
     return info.first + (t / 2) % info.count;
 }
 
-/// A traffic light's lamp: the lit bar for what its lights show now (red,
+/// A traffic light's lamps: the lit bar for what its lights show now (red,
 /// green or amber code-object sprite), lying across the lane at the top of
-/// the light's gantry (the map blocks over the stop line), drawn lit.
-fn lampLook(in: *list.Instance, o: sim.c.Object, code: u32) void {
+/// the light's gantry (the map blocks over the stop line), drawn lit. The
+/// sim places one lamp object per side of the light, at its first approach
+/// lane; the other approach lanes on that side get the same lamp here, so
+/// each lane's head on the gantry lights up. Extra lamps go at
+/// `instances[n.*..]`.
+fn lampLook(in: *list.Instance, o: sim.c.Object, code: u32, n: *usize) void {
     if (!isSp()) {
         in.kind = hidden_kind;
         return;
@@ -899,23 +905,59 @@ fn lampLook(in: *list.Instance, o: sim.c.Object, code: u32) void {
     in.kind = list.Instance.kind_effect;
     const bx: i32 = @intFromFloat(@floor(in.x));
     const by: i32 = @intFromFloat(@floor(in.y));
-    // The lamp stands on the approach block next to the light's zone; the
-    // gantry's arm runs along that block's far edge, so slide it there.
+    // The lamp stands on the approach block next to the light's zone; `d`
+    // is the way traffic heads into the zone.
     const steps = [4][2]i32{ .{ 1, 0 }, .{ -1, 0 }, .{ 0, 1 }, .{ 0, -1 } };
-    for (steps) |d| {
-        if (level_sp.zoneAt(.traffic_light, bx + d[0], by + d[1]) == null) continue;
-        in.x -= @as(f32, @floatFromInt(d[0])) * 0.45;
-        in.y -= @as(f32, @floatFromInt(d[1])) * 0.45;
-        break;
-    }
-    if (map) |*m| {
-        var z: i32 = formats.gmp.size_z - 1;
-        while (z >= 0) : (z -= 1) {
-            if (!m.getOrAir(bx, by, z).isAir()) break;
+    const d = for (steps) |st| {
+        if (level_sp.zoneAt(.traffic_light, bx + st[0], by + st[1]) != null) break st;
+    } else {
+        lampAt(in, bx, by, .{ 0, 0 });
+        return;
+    };
+    const base = in.*;
+    lampAt(in, bx, by, d);
+    const arrow: u4 = if (d[0] > 0) sim.map.Arrow.pos_x else if (d[0] < 0) sim.map.Arrow.neg_x else if (d[1] > 0) sim.map.Arrow.pos_y else sim.map.Arrow.neg_y;
+    for ([2]i32{ 1, -1 }) |sign| {
+        var k: i32 = 1;
+        while (k < 8 and n.* < instances.len) : (k += 1) {
+            const x = bx + sign * k * d[1];
+            const y = by + sign * k * d[0];
+            if (level_sp.zoneAt(.traffic_light, x + d[0], y + d[1]) == null or !approach(x, y, arrow)) break;
+            var extra = base;
+            extra.x += @floatFromInt(x - bx);
+            extra.y += @floatFromInt(y - by);
+            lampAt(&extra, x, y, d);
+            instances[n.*] = extra;
+            n.* += 1;
         }
-        // Just above the gantry's top, so it never hides in its lid.
-        if (z + 1 > @as(i32, @intFromFloat(@floor(in.z)))) in.z = @as(f32, @floatFromInt(z + 1)) + 0.02;
     }
+}
+
+/// Puts lamp `in` (on block bx, by) on the far edge of its block from the
+/// light's zone, where the gantry's arm runs, just above the column's top.
+fn lampAt(in: *list.Instance, bx: i32, by: i32, d: [2]i32) void {
+    in.x -= @as(f32, @floatFromInt(d[0])) * 0.45;
+    in.y -= @as(f32, @floatFromInt(d[1])) * 0.45;
+    const m = &(map orelse return);
+    var z: i32 = formats.gmp.size_z - 1;
+    while (z >= 0) : (z -= 1) {
+        if (!m.getOrAir(bx, by, z).isAir()) break;
+    }
+    if (z + 1 > @as(i32, @intFromFloat(@floor(in.z)))) in.z = @as(f32, @floatFromInt(z + 1)) + 0.02;
+}
+
+/// Is the highest road block at (x, y) an approach lane, its arrows
+/// including `arrow` (as sys/lights.zig picks the first one)?
+fn approach(x: i32, y: i32, arrow: u4) bool {
+    const g = grid orelse return false;
+    if (x < 0 or y < 0 or x >= sim.map.size_x or y >= sim.map.size_y) return false;
+    var z: i32 = sim.map.size_z - 1;
+    while (z >= 0) : (z -= 1) {
+        const c = sim.map.cellAt(g, x, y, z);
+        if (sim.map.shapeOf(c) == sim.map.Shape.air) continue;
+        return sim.map.groundOf(c) == sim.map.Ground.road and sim.map.arrowsOf(c) & arrow != 0;
+    }
+    return false;
 }
 
 /// Door leaves as wall faces, rebuilt each frame from the doors' current
@@ -952,6 +994,14 @@ export fn doorFaces() usize {
     }
     return out.items.len;
 }
+/// Tyre marks as triangles (x, y, z, opacity per vertex); the vertex count.
+export fn skidMarks(now_ms: f64) usize {
+    return skids.build(now_ms);
+}
+export fn skidMarksPtr() [*]const f32 {
+    return skids.ptr();
+}
+
 export fn doorFacesPtr() [*]const u8 {
     return @ptrCast(&door_verts);
 }
@@ -1007,6 +1057,8 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
     const ped_col = columnOf(.ped, .pedestrian);
     const wpn_col = columnOf(.ped, .weapon);
     const obj_col = columnOf(.map_object, .object);
+    const car_vel_col = columnOf(.car, .velocity);
+    skids.beginFrame();
     for (instances[0..n_in]) |*in| {
         switch (in.kind) {
             @intFromEnum(abi.Kind.projectile) => {
@@ -1058,7 +1110,7 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                         continue;
                     },
                     .lamp => {
-                        lampLook(in, o, code);
+                        lampLook(in, o, code, &n);
                         continue;
                     },
                     else => {},
@@ -1084,6 +1136,28 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
             },
             @intFromEnum(abi.Kind.car) => {
                 const v = readAt(sim.c.Vehicle, state, veh_col orelse continue, in.index) orelse continue;
+                if (car_vel_col) |vc| if (readAt(abi.Velocity, state, vc, in.index)) |vel| {
+                    const m = sim.tuning.carModel(v.model);
+                    const per: f32 = 1.0 / @as(f32, abi.fx_one);
+                    const out_of_play = sim.c.Vehicle.flag_wrecked | sim.c.Vehicle.flag_in_water | sim.c.Vehicle.flag_crushed;
+                    skids.track(.{
+                        .slot = in.index,
+                        .gen = 0,
+                        .x = in.x,
+                        .y = in.y,
+                        .z = in.z,
+                        // The drawn angle is turned half round (list.zig).
+                        .angle = in.angle - std.math.pi,
+                        .vx = @as(f32, @floatFromInt(vel.vx)) * per,
+                        .vy = @as(f32, @floatFromInt(vel.vy)) * per,
+                        .half_len = @as(f32, @floatFromInt(m.half_len)) * per,
+                        .half_wid = @as(f32, @floatFromInt(m.half_wid)) * per,
+                        .brake = v.brake,
+                        .handbrake = v.flags & sim.c.Vehicle.flag_handbrake != 0,
+                        .grounded = v.flags & out_of_play == 0 and @abs(vel.vz) < abi.fx_one / 64,
+                        .ai = v.flags & sim.c.Vehicle.flag_ai != 0,
+                    }, now_ms);
+                };
                 if (v.flags & sim.c.Vehicle.flag_wrecked != 0) {
                     in.flags |= list.Instance.flag_dark;
                     in.palette = list.Instance.own_palette;
@@ -1497,4 +1571,8 @@ test "script files are kept by name" {
     try std.testing.expectEqualStrings("abc", scriptFile("WIL.SCR").?);
     try std.testing.expect(scriptFile("ste.scr") == null);
     scriptsClear();
+}
+
+test {
+    _ = skids;
 }

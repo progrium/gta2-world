@@ -8,7 +8,7 @@
 
 import type { CameraView } from './camera.js';
 import { boxVisible, frustumPlanes, lookAt, multiply, perspective, type Vec3 } from './mat.js';
-import { mapFS, mapVS, spriteFS, spriteVS } from './shaders.js';
+import { mapFS, mapVS, markFS, markVS, spriteFS, spriteVS } from './shaders.js';
 
 export const VERTEX_BYTES = 16;
 export const CHUNK_BYTES = 16;
@@ -111,6 +111,11 @@ export class Renderer {
   private extraVao: WebGLVertexArrayObject;
   private extraVbo: WebGLBuffer;
   private extraCount = 0;
+  private markProg: WebGLProgram;
+  private markVao: WebGLVertexArrayObject;
+  private markVbo: WebGLBuffer;
+  private markCount = 0;
+  private markU: Record<string, WebGLUniformLocation | null>;
   private spriteVao: WebGLVertexArrayObject;
   private instanceVbo: WebGLBuffer;
   private idxTex: WebGLTexture;
@@ -164,6 +169,17 @@ export class Renderer {
     this.mapVao = mapVertexArray(this.mapVbo);
     this.extraVbo = gl.createBuffer()!;
     this.extraVao = mapVertexArray(this.extraVbo);
+
+    // Tyre marks: x, y, z, opacity per vertex.
+    this.markProg = compile(gl, markVS, markFS);
+    this.markU = uniforms(this.markProg, ['u_vp', 'u_ambient']);
+    this.markVbo = gl.createBuffer()!;
+    this.markVao = gl.createVertexArray()!;
+    gl.bindVertexArray(this.markVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.markVbo);
+    const mk = gl.getAttribLocation(this.markProg, 'a_mark');
+    gl.enableVertexAttribArray(mk);
+    gl.vertexAttribPointer(mk, 4, gl.FLOAT, false, 16, 0);
 
     // Sprite quads: one static corner buffer, one instance buffer.
     this.spriteVao = gl.createVertexArray()!;
@@ -262,6 +278,15 @@ export class Renderer {
     this.extraCount = Math.floor(vertices.byteLength / VERTEX_BYTES);
     if (this.extraCount === 0) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, this.extraVbo);
+    gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
+  }
+
+  /// Tyre marks for this frame: triangles of x, y, z (blocks) and opacity.
+  setMarks(vertices: Float32Array): void {
+    const gl = this.gl;
+    this.markCount = Math.floor(vertices.length / 4);
+    if (this.markCount === 0) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.markVbo);
     gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.DYNAMIC_DRAW);
   }
 
@@ -373,6 +398,21 @@ export class Renderer {
         stats.drawCalls++;
         stats.triangles += this.extraCount / 3;
       }
+    }
+
+    // Tyre marks: blended over the road, without writing depth.
+    if (this.markCount > 0) {
+      gl.useProgram(this.markProg);
+      gl.uniformMatrix4fv(this.markU.u_vp, false, vpm);
+      gl.uniform1f(this.markU.u_ambient, this.lighting.ambient);
+      gl.bindVertexArray(this.markVao);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.drawArrays(gl.TRIANGLES, 0, this.markCount);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+      stats.drawCalls++;
     }
 
     // Sprites: one instanced call.

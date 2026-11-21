@@ -353,6 +353,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (spHud) spHud.update(hudDemo ? demoHud(game.tick) : game.spInfo(), t.found ? { x: t.x, y: t.y } : null);
     const list = game.renderList(paused ? 1 : alpha, now);
     if (sp) renderer.setExtraFaces(game.doorFaces());
+    renderer.setMarks(game.skidMarks(now));
     renderer.draw(camera.view(), list.bytes, list.count, now / 1000);
     for (const c of game.takeCues()) playCue(c);
     if (bannerUntil && now > bannerUntil) {
