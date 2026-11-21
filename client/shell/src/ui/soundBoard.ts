@@ -4,12 +4,12 @@
 // step through samples and play each one, Enter assigns it to the chosen cue.
 // The mapping stays in this browser and exports as JSON.
 
-import { CUES, CUE_LABELS, type Cue, type SampleRef, type SoundMapping, emptyMapping, mappingJson, normalizeMapping, sameRef } from "../audio/cues.ts";
+import { CUES, CUE_GROUPS, CUE_INFO, CUE_LABELS, type Cue, type SampleRef, type SoundMapping, defaultMapping, emptyMapping, fallbackChain, mappingJson, normalizeMapping, sameRef } from "../audio/cues.ts";
 import type { AudioEngine, BankId } from "../audio/engine.ts";
 import type { SampleFormat } from "../audio/sdt.ts";
 import { clear, h } from "./dom.ts";
 
-const clone = (m: SoundMapping): SoundMapping => normalizeMapping(JSON.parse(JSON.stringify(m)));
+const clone = (m: SoundMapping): SoundMapping => normalizeMapping(JSON.parse(JSON.stringify(m)), emptyMapping());
 const refLabel = (r: SampleRef, names: Partial<Record<BankId, string>>): string => `${(names[r.bank] ?? r.bank).replace(/\.sdt$/, "")} #${r.index}${r.format ? ` ${r.format}` : ""}`;
 
 export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement {
@@ -21,12 +21,14 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
   const status = h("div", { class: "small" });
   const cuesBody = h("tbody");
   const samplesBody = h("tbody");
+  const cuesScroll = h("div", { class: "scroll" }, h("table", { class: "bindings sound-cues" }, cuesBody));
+  const samplesScroll = h("div", { class: "scroll samples" }, h("table", { class: "bindings sound-samples" }, samplesBody));
   const out = h("pre", { class: "mono small tuneout" });
   const tabs = h("div", { class: "tabs" });
   const targetSel = h(
     "select",
     { onchange: (e: Event) => (target = (e.target as HTMLSelectElement).value as Cue) },
-    ...CUES.map((c) => h("option", { value: c }, CUE_LABELS[c])),
+    ...CUE_GROUPS.map((g) => h("optgroup", { label: g }, ...CUES.filter((c) => CUE_INFO[c].group === g).map((c) => h("option", { value: c }, CUE_LABELS[c])))),
   ) as HTMLSelectElement;
 
   const vol = h("input", {
@@ -69,8 +71,15 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
   const renderCues = (): void => {
     clear(cuesBody);
     const m = audio.mapping;
+    let group = "";
     for (const c of CUES) {
       const cm = m.cues[c];
+      const info = CUE_INFO[c];
+      if (info.group !== group) {
+        group = info.group;
+        cuesBody.append(h("tr", { class: "group" }, h("th", { colspan: "4" }, group)));
+      }
+      const borrowed = cm.samples.length ? undefined : fallbackChain(c).slice(1).find((f) => m.cues[f].samples.length);
       const chips = cm.samples.map((r) =>
         h(
           "span",
@@ -87,8 +96,8 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
         h(
           "tr",
           { class: c === target ? "changed" : "" },
-          h("td", {}, h("button", { class: "link", title: "Assign samples to this cue", onclick: () => { target = c; targetSel.value = c; renderCues(); } }, CUE_LABELS[c]), h("div", { class: "muted small mono" }, c)),
-          h("td", {}, ...(chips.length ? chips : [h("span", { class: "muted small" }, "built-in sound")])),
+          h("td", {}, h("button", { class: "link", title: "Assign samples to this cue", onclick: () => { target = c; targetSel.value = c; keepScroll(renderCues); } }, CUE_LABELS[c]), h("div", { class: "muted small mono" }, c)),
+          h("td", {}, ...(chips.length ? chips : [h("span", { class: "muted small" }, borrowed ? `uses ${CUE_LABELS[borrowed].toLowerCase()}` : "built-in sound")])),
           h("td", {}, gain),
           h("td", {}, h("button", { onclick: () => void audio.previewCue(c) }, "▶")),
         ),
@@ -109,7 +118,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
     for (const b of ["map", "fstyle"] as BankId[]) {
       const bk = audio.banks[b];
       if (!bk) continue;
-      tabs.append(h("button", { class: b === bank ? "on" : "", onclick: () => { bank = b; selected = -1; renderTabs(); renderSamples(); } }, `${audio.bankNames[b] ?? b} (${bk.entries.length})`));
+      tabs.append(h("button", { class: b === bank ? "on" : "", onclick: () => { bank = b; selected = -1; renderTabs(); renderSamples(); samplesScroll.scrollTop = 0; } }, `${audio.bankNames[b] ?? b} (${bk.entries.length})`));
     }
   };
 
@@ -138,7 +147,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
           title: "Switch between 16-bit and 8-bit if it sounds like noise",
           onclick: () => {
             overrides.set(`${bank}:${i}`, f === "s16" ? "u8" : "s16");
-            renderSamples();
+            keepScroll(renderSamples);
             play(i);
           },
         }, f === "s16" ? "16-bit" : "8-bit"), e.loopStart > 0 ? h("span", { class: "muted" }, " loop") : null, e.unknownA ? h("span", { class: "muted mono", title: "Unknown field" }, ` ${e.unknownA}`) : null),
@@ -149,11 +158,25 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
     });
   };
 
+  // Re-rendering empties the tables, which would snap both lists back to the
+  // top; put them back where the player was.
+  const keepScroll = (fn: () => void): void => {
+    const a = cuesScroll.scrollTop;
+    const b = samplesScroll.scrollTop;
+    const c = panel.scrollTop;
+    fn();
+    cuesScroll.scrollTop = a;
+    samplesScroll.scrollTop = b;
+    panel.scrollTop = c;
+  };
+
   const renderAll = (): void => {
     renderStatus();
-    renderCues();
-    renderTabs();
-    renderSamples();
+    keepScroll(() => {
+      renderCues();
+      renderTabs();
+      renderSamples();
+    });
     vol.value = String(audio.volume);
     mute.checked = audio.muted;
   };
@@ -192,7 +215,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
     "div",
     { class: "overlay sound" },
     h("div", { class: "hudtop" }, h("h2", {}, "Sound board"), h("button", { onclick: onClose }, "Close (B)")),
-    h("p", { class: "muted small" }, "Pick a cue, then step through the samples with ↑ ↓ (each one plays) and press Enter or Assign to give it to the cue. A cue with several samples picks one at random. Cues with none use a built-in sound. The engine uses its first sample as a loop. Your mapping stays in this browser; export it to keep it or send it back."),
+    h("p", { class: "muted small" }, "Pick a cue, then step through the samples with ↑ ↓ (each one plays) and press Enter or Assign to give it to the cue. A cue with several samples picks one at random. A cue with none borrows a related cue's samples where it has one (dual pistol uses the pistol's), else plays a built-in sound. Cues under “Not in the game yet” can be mapped now; the game doesn't play them yet. The engine uses its first sample as a loop. Your mapping stays in this browser; export it to keep it or send it back."),
     h("div", { class: "row" }, h("label", {}, "Volume ", vol), h("label", {}, mute, " mute (M)")),
     status,
     h(
@@ -220,6 +243,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
         },
       }, "Copy JSON"),
       h("button", { onclick: () => fileIn.click() }, "Import JSON"),
+      h("button", { onclick: () => { audio.setMapping(defaultMapping()); out.textContent = "Back to the built-in mapping."; } }, "Reset to default"),
       h("button", { onclick: () => { audio.setMapping(emptyMapping()); out.textContent = "Mapping cleared."; } }, "Clear mapping"),
       fileIn,
     ),
@@ -227,18 +251,18 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
     h(
       "div",
       { class: "sound-grid" },
-      h("div", { class: "pane" }, h("h3", {}, "Cues"), h("div", { class: "scroll" }, h("table", { class: "bindings sound-cues" }, cuesBody))),
+      h("div", { class: "pane" }, h("h3", {}, "Cues"), cuesScroll),
       h(
         "div",
         { class: "pane" },
         h("h3", {}, "Samples"),
         h("div", { class: "row" }, h("label", {}, "Assign to ", targetSel)),
         tabs,
-        h("div", { class: "scroll samples" }, h("table", { class: "bindings sound-samples" }, samplesBody)),
+        samplesScroll,
       ),
     ),
   );
-  targetSel.addEventListener("change", renderCues);
+  targetSel.addEventListener("change", () => keepScroll(renderCues));
   renderAll();
   (panel as HTMLElement & { dispose?: () => void }).dispose = () => {
     removeEventListener("keydown", onKey, { capture: true });
