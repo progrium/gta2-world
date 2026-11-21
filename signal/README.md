@@ -68,14 +68,14 @@ credentials are only minted for sockets that are in a live room.
 Always: `stun:stun.cloudflare.com:3478` and `stun:stun.l.google.com:19302`.
 
 With the secrets `TURN_KEY_ID` and `TURN_KEY_API_TOKEN` set, each `welcome`
-also carries TURN credentials valid for 1 hour, minted by
+also carries TURN credentials valid for 24 hours, minted by
 
 ```
 POST https://rtc.live.cloudflare.com/v1/turn/keys/<TURN_KEY_ID>/credentials/generate-ice-servers
 Authorization: Bearer <TURN_KEY_API_TOKEN>
 Content-Type: application/json
 
-{"ttl": 3600}
+{"ttl": 86400}
 ```
 
 The Worker keeps only the entries with a username and credential, and drops
@@ -83,10 +83,9 @@ the port 53 URLs (browsers block that port, so they only delay ICE). The API
 token never reaches a browser. If the secrets are missing or the call fails,
 `welcome` has STUN only.
 
-Cloudflare's docs say the TTL should exceed how long a client uses TURN, so a
-game relayed through TURN for more than an hour may lose that connection.
-If that matters, either raise `TURN_TTL_SECONDS` in `src/index.ts` or have
-the page fetch fresh credentials and call `RTCPeerConnection.setConfiguration()`.
+Cloudflare's docs say the TTL should exceed how long a client uses TURN, so
+`TURN_TTL_SECONDS` is 24 hours: longer than any game. Credentials are minted
+per join, so a new game always gets fresh ones.
 
 ## Develop and test
 

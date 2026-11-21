@@ -247,6 +247,16 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   let lastNow = performance.now();
 
   const loop = new FixedLoop({
+    // Hidden tab (the other tab of a two-tab game is in front): keep sending
+    // input so the host doesn't time this player out after 5 s.
+    background: (now) => {
+      if (crashed || !online || !game || paused) return;
+      try {
+        netFrame(now);
+      } catch (e) {
+        console.warn("[game] background net frame", e);
+      }
+    },
     frame: () => {
       if (!paused) input.poll();
     },

@@ -36,7 +36,8 @@ const RATE_PER_SEC = 20;
 const RESERVE_MS = 2 * 60 * 1000;
 /** A room with no message from anyone (the host pings) for this long is closed. */
 const IDLE_MS = 30 * 60 * 1000;
-const TURN_TTL_SECONDS = 3600;
+/** TURN credentials outlive any game: an allocation refreshed after its credentials expire is dropped by the server. */
+const TURN_TTL_SECONDS = 24 * 3600;
 
 const STUN_SERVERS: RTCIceServerLike = {
   urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"],

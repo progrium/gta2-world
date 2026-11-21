@@ -267,7 +267,7 @@ describe("TURN credentials", () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, "https://rtc.live.cloudflare.com/v1/turn/keys/key123/credentials/generate-ice-servers");
     assert.equal(calls[0].auth, "Bearer secret-token");
-    assert.deepEqual(JSON.parse(calls[0].body), { ttl: 3600 });
+    assert.deepEqual(JSON.parse(calls[0].body), { ttl: 86400 });
     assert.deepEqual(w.ice.iceServers, [
       { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] },
       {

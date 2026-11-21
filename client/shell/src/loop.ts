@@ -15,6 +15,8 @@ export interface LoopHooks {
   tick(tick: number): void;
   /** After ticks; alpha in [0,1) is the fraction toward the next tick. */
   render(alpha: number, now: number): void;
+  /** Instead of render while the tab is hidden: keep work that must not stop (online input), draw nothing. */
+  background?(now: number): void;
 }
 
 export class FixedLoop {
@@ -40,15 +42,40 @@ export class FixedLoop {
       this.raf = requestAnimationFrame(step);
     };
     this.raf = requestAnimationFrame(step);
+    this.startBackground();
   }
 
   stop(): void {
     this.running = false;
     cancelAnimationFrame(this.raf);
+    this.beat?.terminate();
+    this.beat = null;
+  }
+
+  // A hidden tab gets no animation frames, so the sim (and, online, the
+  // input datagrams that keep the connection alive) would stop. While the
+  // page is hidden a tiny Worker's timer, which browsers don't throttle like
+  // page timers, keeps ticking it without rendering. Two tabs of one browser
+  // (host and joiner) are always one hidden and one visible.
+  private beat: Worker | null = null;
+
+  private startBackground(): void {
+    if (typeof Worker === "undefined" || typeof document === "undefined" || typeof Blob === "undefined") return;
+    try {
+      const src = `setInterval(() => postMessage(0), ${Math.floor(TICK_MS)});`;
+      const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+      this.beat = new Worker(url);
+      URL.revokeObjectURL(url);
+      this.beat.onmessage = () => {
+        if (this.running && document.hidden) this.advance(performance.now(), false);
+      };
+    } catch (e) {
+      console.warn("[loop] no background ticking", e);
+    }
   }
 
   /** One animation frame. Public for tests. Returns ticks run. */
-  advance(now: number): number {
+  advance(now: number, render = true): number {
     if (this.last < 0) this.last = now;
     this.acc += Math.max(0, now - this.last);
     this.last = now;
@@ -61,7 +88,8 @@ export class FixedLoop {
       this.acc = Math.max(0, this.acc - TICK_MS);
       n++;
     }
-    this.hooks.render(this.acc / TICK_MS, now);
+    if (render) this.hooks.render(this.acc / TICK_MS, now);
+    else this.hooks.background?.(now);
     return n;
   }
 }
