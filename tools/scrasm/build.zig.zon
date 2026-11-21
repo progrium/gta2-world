@@ -1,0 +1,11 @@
+.{
+    .name = .gta2_scrasm,
+    .version = "0.1.0",
+    .fingerprint = 0x58b1c32e880cc244,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .formats = .{ .path = "../../formats" },
+        .sim = .{ .path = "../../sim" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}
