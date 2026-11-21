@@ -45,6 +45,7 @@ export class BcSignaller implements Signaller {
   onMessage: ((from: SignalPeer, msg: SignalMsg) => void) | null = null;
   onClose: ((reason: string) => void) | null = null;
   readonly ice: IceConfig;
+  readonly local = true;
   readonly id: string;
   private bc: BcLike;
   private isHost: boolean;

@@ -40,7 +40,9 @@ export function joinScreen(root: HTMLElement, o: JoinScreenOpts): () => void {
 
   const run = async (): Promise<void> => {
     const sig = await createSignaller("peer", o.room);
-    rtc = await RtcPeer.connect(sig);
+    // ?pipeAfter=<ms> (tests): how long WebRTC gets before the same-browser pipe.
+    const pipeAfter = Number(new URLSearchParams(location.search).get("pipeAfter") ?? NaN);
+    rtc = await RtcPeer.connect(sig, undefined, Number.isFinite(pipeAfter) ? pipeAfter : undefined);
     if (gone) return rtc.close("cancelled");
     rtc.onClose = (reason) => {
       if (!handedOver) fail(`Lost the connection to the host: ${reason}`);

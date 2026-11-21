@@ -15,6 +15,7 @@
 // The host's own player uses loopback(): an in-page link to the Worker with
 // no network, which Connection drives with transport "loopback".
 
+import { PipeEnd } from "../net/pipe.ts";
 import { type FileInfo, Limiter, MAX_TRANSFERS } from "../lobby/files.ts";
 import { type HostFiles, LobbyHost, wrapDataChannel } from "../lobby/lobby.ts";
 import type { LoopbackEnd } from "../net/connection.ts";
@@ -314,6 +315,15 @@ export class HostPeers {
         const p = this.bySignal.get(from);
         if (p) this.drop(p);
       });
+    } else if (m.kind === "pipe" && this.sig.local) {
+      const old = this.bySignal.get(from);
+      if (old) this.drop(old);
+      this.ice.delete(from);
+      const pipe = new PipeEnd(m.id);
+      const p = this.newPeer("webrtc", from);
+      p.pc = pipe.pc;
+      this.watch(p, pipe.pc);
+      for (const ch of [pipe.s, pipe.d, pipe.f]) this.attach(p, pipe.pc, ch as unknown as RTCDataChannel);
     } else if (m.kind === "ice") {
       let q = this.ice.get(from);
       if (!q) {
@@ -333,30 +343,41 @@ export class HostPeers {
     const q = new IceQueue(pc);
     this.ice.set(from, q);
     pc.onicecandidate = (e) => this.sig.send(from, { kind: "ice", candidate: e.candidate ? e.candidate.toJSON() : null });
-    pc.ondatachannel = (e) => {
-      const ch = e.channel;
-      ch.binaryType = "arraybuffer";
-      if (ch.label === "s") {
-        p.s = ch;
-        ch.onmessage = (ev) => this.streamIn(p, new Uint8Array(ev.data as ArrayBuffer));
-        ch.onclose = () => this.drop(p, "the player left");
-      } else if (ch.label === "d") {
-        p.d = ch;
-        ch.onmessage = (ev) => this.datagramIn(p, new Uint8Array(ev.data as ArrayBuffer));
-      } else if (ch.label === "f") {
-        // Listen at once: the joiner's first lobby message can arrive before our "open" event.
-        const lobby = new LobbyHost(wrapDataChannel(ch), this.files, this.limiter);
-        lobby.onChange = () => this.onChange?.();
-        p.view.lobby = lobby;
-        const opened = (): void => {
-          p.maxDatagram = datagramLimit(pc);
-          if (p.view.state === "connecting") p.view.state = "lobby";
-          this.onChange?.();
-        };
-        if (ch.readyState === "open") opened();
-        else ch.addEventListener("open", opened, { once: true });
-      } else ch.close();
-    };
+    pc.ondatachannel = (e) => this.attach(p, pc, e.channel);
+    this.watch(p, pc);
+    await pc.setRemoteDescription({ type: "offer", sdp });
+    q.flush();
+    await pc.setLocalDescription(await pc.createAnswer());
+    this.sig.send(from, { kind: "answer", sdp: pc.localDescription!.sdp });
+  }
+
+  /** Wires one of a peer's channels (s, d or f) to the Worker and the lobby. */
+  private attach(p: Peer, pc: RTCPeerConnection, ch: RTCDataChannel): void {
+    ch.binaryType = "arraybuffer";
+    if (ch.label === "s") {
+      p.s = ch;
+      ch.onmessage = (ev) => this.streamIn(p, new Uint8Array(ev.data as ArrayBuffer));
+      ch.onclose = () => this.drop(p, "the player left");
+    } else if (ch.label === "d") {
+      p.d = ch;
+      ch.onmessage = (ev) => this.datagramIn(p, new Uint8Array(ev.data as ArrayBuffer));
+    } else if (ch.label === "f") {
+      // Listen at once: the joiner's first lobby message can arrive before our "open" event.
+      const lobby = new LobbyHost(wrapDataChannel(ch), this.files, this.limiter);
+      lobby.onChange = () => this.onChange?.();
+      p.view.lobby = lobby;
+      const opened = (): void => {
+        p.maxDatagram = datagramLimit(pc);
+        if (p.view.state === "connecting") p.view.state = "lobby";
+        this.onChange?.();
+      };
+      if (ch.readyState === "open") opened();
+      else ch.addEventListener("open", opened, { once: true });
+    } else ch.close();
+  }
+
+  /** Drops the peer when its connection fails or stays disconnected. */
+  private watch(p: Peer, pc: RTCPeerConnection): void {
     pc.onconnectionstatechange = () => {
       const st = pc.connectionState;
       if (st === "failed" || st === "closed") this.drop(p, "connection lost");
@@ -369,10 +390,6 @@ export class HostPeers {
         p.disconnectTimer = null;
       }
     };
-    await pc.setRemoteDescription({ type: "offer", sdp });
-    q.flush();
-    await pc.setLocalDescription(await pc.createAnswer());
-    this.sig.send(from, { kind: "answer", sdp: pc.localDescription!.sdp });
   }
 
   /** Ends the session: the Worker says bye to everyone, then all links close. Resolves with the replay, if recorded. */

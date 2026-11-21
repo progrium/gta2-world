@@ -11,6 +11,8 @@ export type SignalMsg =
   | { kind: "offer"; sdp: string }
   | { kind: "answer"; sdp: string }
   | { kind: "ice"; candidate: RTCIceCandidateInit | null }
+  /** Peer -> host: WebRTC didn't connect; carry the channels over BroadcastChannel `gta2-pipe/<id>` instead (same-browser signalling only, net/pipe.ts). */
+  | { kind: "pipe"; id: string }
   /** Host -> peer: the host refused or closed the join (room full, host left). */
   | { kind: "bye"; reason: string };
 
@@ -29,6 +31,8 @@ export interface Signaller {
   onMessage: ((from: SignalPeer, msg: SignalMsg) => void) | null;
   /** The room closed (host gone, or the signalling connection dropped). */
   onClose: ((reason: string) => void) | null;
+  /** True when both ends are tabs of this browser (BroadcastChannel signalling): the pipe fallback is allowed. */
+  readonly local?: boolean;
   /** ICE servers to use, including TURN credentials when the service mints them. */
   readonly ice: IceConfig;
   /** Send to a peer (host side) or to "host" (peer side). */

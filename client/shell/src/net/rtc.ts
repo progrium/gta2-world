@@ -7,7 +7,11 @@
 //   f  ordered, reliable           lobby / file transfer (outside I3)
 // The joiner makes the offer; the host answers (host/hostPeers.ts).
 
+import { PipeEnd } from "./pipe.ts";
 import type { SignalMsg, Signaller } from "./signal.ts";
+
+/** With same-browser signalling, how long WebRTC gets before the joiner switches to the BroadcastChannel pipe. */
+export const PIPE_FALLBACK_MS = 3000;
 
 export const MAX_DATAGRAM = 1100;
 /** Above this many queued bytes on `d`, datagrams are dropped rather than queued. */
@@ -110,7 +114,7 @@ export class RtcPeer {
    * three channels, offers, trickles ICE, and resolves once all are open.
    * Signalling is closed afterwards; it is not needed once the channels run.
    */
-  static connect(sig: Signaller, timeoutMs = 20000): Promise<RtcPeer> {
+  static connect(sig: Signaller, timeoutMs = 20000, pipeAfterMs = PIPE_FALLBACK_MS): Promise<RtcPeer> {
     const pc = new RTCPeerConnection(sig.ice);
     const mk = (label: keyof typeof CHANNELS): RTCDataChannel => {
       const ch = pc.createDataChannel(label, CHANNELS[label]);
@@ -123,15 +127,43 @@ export class RtcPeer {
     const ice = new IceQueue(pc);
     return new Promise<RtcPeer>((resolve, reject) => {
       let settled = false;
+      let piped = false;
       const fail = (why: string): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearTimeout(fallback);
         pc.close();
         sig.close();
         reject(new Error(why));
       };
       const timer = setTimeout(() => fail("could not reach the host (timed out)"), timeoutMs);
+      const finish = (peer: RtcPeer): void => {
+        if (settled) return peer.close("cancelled");
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(fallback);
+        sig.onMessage = null;
+        sig.onClose = null;
+        sig.close();
+        resolve(peer);
+      };
+      // Same-browser tabs: if WebRTC hasn't connected yet, carry the channels over BroadcastChannel.
+      const usePipe = (): void => {
+        if (settled || piped) return;
+        piped = true;
+        console.warn("[rtc] WebRTC did not connect; using the same-browser pipe");
+        pc.close();
+        const id = Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, "0")).join("");
+        const pipe = new PipeEnd(id);
+        sig.send("host", { kind: "pipe", id });
+        const chans = [pipe.s, pipe.d, pipe.f] as unknown as RTCDataChannel[];
+        Promise.all(chans.map(waitOpen)).then(
+          () => finish(new RtcPeer(pipe.pc, chans[0], chans[1], chans[2])),
+          (e) => fail((e as Error).message),
+        );
+      };
+      const fallback = sig.local ? setTimeout(usePipe, pipeAfterMs) : undefined;
       pc.onicecandidate = (e) => sig.send("host", { kind: "ice", candidate: e.candidate ? e.candidate.toJSON() : null });
       sig.onMessage = (_from, m: SignalMsg) => {
         if (m.kind === "answer") {
@@ -148,15 +180,11 @@ export class RtcPeer {
         .catch((e) => fail(`offer failed: ${(e as Error).message}`));
       Promise.all([waitOpen(s), waitOpen(d), waitOpen(f)]).then(
         () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          sig.onMessage = null;
-          sig.onClose = null;
-          sig.close();
-          resolve(new RtcPeer(pc, s, d, f));
+          if (!piped) finish(new RtcPeer(pc, s, d, f));
         },
-        (e) => fail((e as Error).message),
+        (e) => {
+          if (!piped) fail((e as Error).message);
+        },
       );
     });
   }
