@@ -1,0 +1,118 @@
+name: Golden replay
+
+# Determinism rules from the design doc and I1: no floats in sim/, the sim
+# conforms to I1 (checked at compile time), and the recorded golden replay
+# hashes identically every tick on native and on WASM, in every build mode.
+
+on:
+  # Only the shared branches and pull requests. Workstream branches run
+  # tools/merge-check.sh (or their own tests) locally before handing over;
+  # the QA merge train re-runs everything on the integration branch.
+  push:
+    branches: [main, claude/project-thread-6bbchu]
+    paths:
+      - 'sim/**'
+      - 'interfaces/**'
+      - 'tools/replay/**'
+      - 'formats/**'
+      - 'tools/level/src/autopilot.zig'
+      - 'tools/check-no-floats.sh'
+      - '.github/workflows/golden-replay.yml'
+  pull_request:
+    paths:
+      - 'sim/**'
+      - 'interfaces/**'
+      - 'tools/replay/**'
+      - 'formats/**'
+      - 'tools/level/src/autopilot.zig'
+      - 'tools/check-no-floats.sh'
+      - '.github/workflows/golden-replay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: 0.17.0
+  ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+
+jobs:
+  no-floats:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh tools/check-no-floats.sh
+
+  golden-replay:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        optimize: [Debug, ReleaseSafe, ReleaseFast]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig ${{ env.ZIG_VERSION }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
+          tar xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-$ZIG_VERSION" >> "$GITHUB_PATH"
+      - run: zig version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Interface tests
+        working-directory: interfaces/zig
+        run: zig build test -Doptimize=${{ matrix.optimize }}
+
+      - name: Sim unit tests (includes the I1 conformance check)
+        working-directory: sim
+        run: zig build test -Doptimize=${{ matrix.optimize }}
+
+      - name: Build native and WASM replay runners
+        working-directory: tools/replay
+        run: zig build -Doptimize=${{ matrix.optimize }}
+
+      - name: Native replay vs recorded hashes (every tick, with rewinds)
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay verify golden
+
+      - name: Single-player golden (script, hashes, rewinds, play summary)
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay sp-verify golden-sp
+
+      - name: Invariant checker self-test
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay selftest
+
+      - name: Golden play statistics and invariants match golden/stats.txt
+        working-directory: tools/replay
+        run: |
+          ./zig-out/bin/replay stats golden 2>&1 | tee stats.out
+          grep -q '^invariants: .* 0 breaks$' stats.out
+          sed -n '/^ticks /,/^final_peds /p' stats.out > stats.now
+          diff -u golden/stats.txt stats.now
+
+      - name: Soak (16 players, half random input, invariants every tick)
+        working-directory: tools/replay
+        run: ./zig-out/bin/replay soak 100000
+
+      - name: Native 200-player bot run
+        id: native200
+        working-directory: tools/replay
+        run: |
+          out=$(./zig-out/bin/replay hash200 2>&1)
+          echo "$out"
+          h=$(echo "$out" | sed -n 's/.*final hash \([0-9a-f]\{16\}\).*/\1/p')
+          test -n "$h" || { echo "could not parse native hash200 output" >&2; exit 1; }
+          echo "hash=$h" >> "$GITHUB_OUTPUT"
+
+      - name: WASM replay vs recorded hashes, and 200-player hash vs native
+        working-directory: tools/replay
+        run: node verify-wasm.mjs zig-out/bin/replay.wasm golden ${{ steps.native200.outputs.hash }}
+
+      - name: WASM single-player golden vs recorded hashes
+        working-directory: tools/replay
+        run: node verify-wasm.mjs zig-out/bin/replay.wasm golden-sp

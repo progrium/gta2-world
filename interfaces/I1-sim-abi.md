@@ -91,10 +91,11 @@ Component ids are part of the ABI. They are append-only and never reused.
 | 9 | `Weapon` | owned by `sim/` |
 | 10 | `Projectile` | owned by `sim/` |
 | 11 | `Predicted { on: u32 }` | yes |
+| 12 | `Appearance { sprite: u16, remap: u16 }` | yes (accepted 2026-11-20) |
 
-The frozen layouts are the ones other workstreams read: the renderer reads `Transform` and `Riding`, and the netcode reads `Controller` and `Predicted`. Components owned by `sim/` can change without a proposal. Their layout still reaches the other side through `layout_hash`, and their I3 codecs are generated from the type.
+The frozen layouts are the ones other workstreams read: the renderer reads `Transform`, `Riding` and `Appearance`, and the netcode reads `Controller` and `Predicted`. Components owned by `sim/` can change without a proposal. Their layout still reaches the other side through `layout_hash`, and their I3 codecs are generated from the type.
 
-`PlayerRow` (32 bytes) is one per player slot and lives in the state. It has `ped`, `car`, `kills`, `deaths`, `score`, `respawn_timer` and `flags` (`active` = 1, `connected` = 2).
+`PlayerRow` (32 bytes) is one per player slot and lives in the state. It has `ped`, `car`, `kills`, `deaths`, `score`, `respawn_timer` and `flags` (`active` = 1, `connected` = 2). `kills` holds frags (kills less suicides, which decide the round) and `score` holds points from the scoring notes; until M3 both counted frags. Same layout.
 
 ## Views
 
@@ -127,7 +128,7 @@ The server records commands with frames, so a replay reproduces joins. Clients i
 
 | Bits | Field |
 | --- | --- |
-| 0–2 | shape: air 0, solid 1, slope 2, partial 3, water 4 |
+| 0–2 | shape: air 0, solid 1, slope 2, partial 3, water 4, slab 5 (M3: a wall-less floor such as an overpass deck; only a thin top layer is matter, so bodies pass under it) |
 | 3–8 | GTA2 slope code 0–63 (0 = none) |
 | 9–10 | ground: none 0, road 1, pavement 2, field 3 |
 | 11–14 | lid road arrows: +y, −y, +x, −x |
@@ -135,6 +136,37 @@ The server records commands with frames, so a replay reproduces joins. Clients i
 
 S5's lane snapping needs the arrows, and traction needs the ground type. S2's one-byte cell is not enough for the 61 real slope codes.
 
+**Accepted in M3 (Jeff, 2026-11-20):** `Grid` also has `walls[z][y][x]` of `WallBits = u8` (0.5 MiB more), the map's wall faces. shape-and-map-collision.md makes a wall a one-block line segment on a block face, not a solid cube; with only `Cell`, a fence or a single wall face had to become a whole solid block, which players met as invisible walls.
+
+| Bits | Field |
+| --- | --- |
+| 0–3 | wall on the left (x), right (x+1), top (y), bottom (y+1) face: stops cars and peds |
+| 4–7 | bullet wall on the same faces: stops projectiles |
+
+`formats/` leaves out a ramp's own side faces and every face of a partial block (codes 53–61), as the notes do. With walls carried separately, a block with wall faces is no longer `solid`: it becomes `slab` if it has ground or a lid, otherwise `air`.
+
 ## Configurations
 
 `Config { name, max_players, car/ped/projectile/pickup/map_object_capacity, ambient_cars, ambient_peds }`. The named configuration and its capacities go into `layout_hash`, so a client must be built with the server's configuration. `dm16` is the first-release configuration. S2 measured 22.6 KB of state for a similar 16-player mix, so `dm16` stays far under the 256 KB target. Larger configurations, such as S2's `config_200`, are added the same way.
+
+## Accepted proposals
+
+**2026-11-20, approved by Jeff.**
+
+1. **Component 12, `Appearance { sprite: u16, remap: u16 }`**, on cars and peds, asked for by the renderer (workstream B) and added by the sim (workstream A). `sprite` is relative to the kind's sprite group: the car model for cars, the ped type for peds. `remap` is a palette remap of that group, or `Appearance.no_remap` (`0xFFFF`). It is replicated like any other component. It is an addition old readers skip, so `abi_version` stays 1; the column changes `layout_hash`, so old builds are refused anyway.
+2. **Golden replay re-recorded.** Moving to keyed randomness (`abi.rand`, determinism rule 4) changed every state hash, so `tools/replay/golden/` was recorded again from the conforming sim. The new recording is the reference for CI.
+
+**2026-11-20, approved by Jeff (M3).**
+
+1. **`Shape.slab` (5):** a floor with no walls, such as an overpass deck.
+2. **`Grid.walls`:** the wall-face table described above.
+3. **`PlayerRow` meanings:** `kills` holds frags and `score` holds points. Same layout.
+4. **`Shape.water` (4) is deep water,** a surface at the top of its cell that bodies rest on (peds drown, cars sink), where it was "no floor". No map produced it before. Approved within the project under the rule below.
+
+From here on, small additive interface changes are approved within the project and recorded in this section; changes that break compatibility or change the golden replay still go to Jeff.
+
+**2026-11-20, W0 of docs/plan-notes.md (additive, under the rule above).**
+
+1. **`Grid.surface[z][y][x]` of `SurfaceBits = u8`** (0.5 MiB more): bits 0-3 the red road arrows in the green arrows' order (+y, -y, +x, -x), bit 4 an electrified lid, 5-7 reserved. `formats/grid.zig` fills the red arrows from the `.gmp` and electrified lids from a tile set the host passes (`markElectrified`). Hosts that do not fill it must zero it. `sim.map.gridHash` folds the table in only when a bit is set, so recorded replays keep their grid hash.
+2. **Component ids 13-17 reserved** for the sim's single-player components: `object`, `objective`, `car_task`, `group`, `script_tag`. Only `sp` configurations carry them and none is replicated, so `dm16`'s `layout_hash` is unchanged.
+3. **`interfaces/zig/src/level.zig`**: the static `Level` (zones, map objects, lights, script container) handed to the sim with `Sim.attachLevel`. Not part of I1; owned by `sim/`.

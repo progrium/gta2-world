@@ -1,0 +1,12 @@
+.{
+    .name = .gta2_s5_bench,
+    .version = "0.1.0",
+    .fingerprint = 0x8ea907c9e2362d8d,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .interfaces = .{ .path = "../../interfaces/zig" },
+        .formats = .{ .path = "../../formats" },
+        .sim = .{ .path = "../../sim" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "README.md" },
+}

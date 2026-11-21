@@ -1,0 +1,5 @@
+deps/
+certs/
+zig-out/
+.zig-cache/
+*.g2wr

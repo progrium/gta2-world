@@ -93,6 +93,14 @@ pub const ComponentId = enum(u8) {
     weapon = 9,
     projectile = 10,
     predicted = 11,
+    appearance = 12,
+    // 13-17 reserved by the sim for single-player components (2026-11-20,
+    // W0 of docs/plan-notes.md). Owned by `sim/`, not replicated yet.
+    object = 13,
+    objective = 14,
+    car_task = 15,
+    group = 16,
+    script_tag = 17,
     _,
 };
 
@@ -149,6 +157,17 @@ pub const Predicted = extern struct {
     on: u32,
 };
 
+/// What to draw for a car or ped (accepted 2026-11-20, see I1 "Accepted
+/// proposals"). `sprite` is relative to the kind's sprite group: the car
+/// model for cars, the ped type for peds. `remap` is a palette remap of
+/// that group, or `no_remap`.
+pub const Appearance = extern struct {
+    pub const id = ComponentId.appearance;
+    pub const no_remap: u16 = 0xFFFF;
+    sprite: u16,
+    remap: u16,
+};
+
 /// One row per player slot, held in the saved state. I3 replicates it as
 /// handle kind 15, index = slot.
 pub const PlayerRow = extern struct {
@@ -190,13 +209,50 @@ pub const map_z = 8;
 ///   15    reserved, zero
 pub const Cell = u16;
 
-pub const Shape = enum(u3) { air = 0, solid = 1, slope = 2, partial = 3, water = 4, _ };
+/// `slab` (added in M3): a floor with no walls, such as an overpass deck.
+/// Only a thin layer at the top of the cell is matter, so bodies pass under
+/// it; its top is a floor like a solid block's.
+pub const Shape = enum(u3) { air = 0, solid = 1, slope = 2, partial = 3, water = 4, slab = 5, _ };
 pub const Ground = enum(u2) { none = 0, road = 1, pavement = 2, field = 3 };
 
-/// z-major: blocks[z][y][x]. x grows east, y grows south, z up. 1 MiB.
+/// z-major: blocks[z][y][x]. x grows east, y grows south, z up. 1.5 MiB.
+///
+/// `walls` (added in M3, pending sign-off) holds the map's wall faces, laid
+/// out like `blocks`: per shape-and-map-collision.md a wall is a one-block
+/// line segment on a block face, not a solid cube. Bits:
+///   0-3  wall on the block's left (x), right (x+1), top (y), bottom (y+1)
+///        face: stops cars and peds
+///   4-7  bullet wall on the same faces: stops projectiles
+/// A wall bit on either block at a boundary blocks both ways. `formats`
+/// leaves out ramps' own side faces and every face of a partial block.
+///
+/// `surface` (added 2026-11-20, W0 of docs/plan-notes.md) holds per-cell
+/// surface bits that the 16-bit cell has no room for, laid out like
+/// `blocks`. Bits:
+///   0-3  red road arrows on the lid (traffic-and-car-ai.md 2), in the
+///        green arrows' order: bit 0 +y, 1 -y, 2 +x, 3 -x
+///   4    electrified lid (ped-movement.md 3.7)
+///   5-7  reserved, zero
+/// Deep water is `Shape.water`, not a surface bit. A host that does not
+/// fill `surface` must zero it.
 pub const Grid = extern struct {
     blocks: [map_z][map_y][map_x]Cell,
+    walls: [map_z][map_y][map_x]WallBits,
+    surface: [map_z][map_y][map_x]SurfaceBits,
 };
+pub const SurfaceBits = u8;
+pub const surface_red_pos_y: SurfaceBits = 1;
+pub const surface_red_neg_y: SurfaceBits = 2;
+pub const surface_red_pos_x: SurfaceBits = 4;
+pub const surface_red_neg_x: SurfaceBits = 8;
+pub const surface_red_mask: SurfaceBits = 0x0F;
+pub const surface_electrified: SurfaceBits = 0x10;
+pub const WallBits = u8;
+pub const wall_left: WallBits = 1;
+pub const wall_right: WallBits = 2;
+pub const wall_top: WallBits = 4;
+pub const wall_bottom: WallBits = 8;
+pub const bullet_wall_shift = 4;
 
 // ---------------------------------------------------------------------------
 // Configuration

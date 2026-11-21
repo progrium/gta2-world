@@ -3,8 +3,8 @@
 // Snapshot record payloads for sim-owned components are decoded in
 // client/wasm (Zig); this file decodes headers and the frozen components.
 
-import { FieldSchema } from "./abi.js";
-import { Frame, FRAME_SIZE, decodeFrame, encodeFrame, seqOf } from "./input.js";
+import type { FieldSchema } from "./abi.js";
+import { type Frame, FRAME_SIZE, decodeFrame, encodeFrame, seqOf } from "./input.js";
 
 export const PROTOCOL_VERSION = 1;
 export const MAGIC = 0x31573247; // "G2W1" little-endian
@@ -25,13 +25,18 @@ export const Msg = {
 export const isDatagram = (type: number): boolean => type >= 0x10;
 
 export const WsChannel = { datagram: 0, stream: 1 } as const;
-export const Transport = { webtransport: 0, websocket: 1 } as const;
+export const Transport = { webtransport: 0, websocket: 1, webrtc: 2 } as const;
 export const RejectCode = {
   protocolMismatch: 1, layoutMismatch: 2, mapMismatch: 3, sessionFull: 4,
   sessionNotFound: 5, badMessage: 6, shuttingDown: 7, resumeExpired: 8,
 } as const;
 export const ByeReason = { leaving: 0, timeout: 1, kicked: 2, shuttingDown: 3 } as const;
-export const EventKind = { kill: 1, playerJoined: 2, playerLeft: 3, explosion: 4 } as const;
+export const EventKind = {
+  kill: 1, playerJoined: 2, playerLeft: 3, explosion: 4, roundEnd: 5, pickup: 6,
+  // Single player, reserved 2026-11-20 (W0 of docs/plan-notes.md).
+  message: 7, brief: 8, wanted: 9, wasted: 10, busted: 11, missionStart: 12, missionPass: 13,
+  missionFail: 14, phoneRing: 15, siren: 16, gameOver: 17, levelComplete: 18,
+} as const;
 export const RecordOp = { update: 0, create: 1, remove: 2 } as const;
 
 export class WireError extends Error {}
@@ -75,7 +80,9 @@ export class Writer {
 export class Reader {
   private dv: DataView;
   pos = 0;
-  constructor(public readonly buf: Uint8Array) {
+  readonly buf: Uint8Array;
+  constructor(buf: Uint8Array) {
+    this.buf = buf;
     this.dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
   }
   done(): boolean { return this.pos === this.buf.length; }

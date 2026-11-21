@@ -1,0 +1,66 @@
+name: Client
+
+# The browser client: client/wasm (sim + formats + renderer in game.wasm),
+# the renderer's Zig side and the shell (TypeScript). Builds the static
+# playable client the tester site's play/ page is made from.
+
+on:
+  # Only the shared branches and pull requests. Workstream branches run
+  # tools/merge-check.sh (or their own tests) locally before handing over;
+  # the QA merge train re-runs everything on the integration branch.
+  push:
+    branches: [main, claude/project-thread-6bbchu]
+    paths:
+      - 'client/**'
+      - 'sim/**'
+      - 'formats/**'
+      - 'net/**'
+      - 'interfaces/**'
+      - '.github/workflows/client.yml'
+  pull_request:
+    paths:
+      - 'client/**'
+      - 'sim/**'
+      - 'formats/**'
+      - 'net/**'
+      - 'interfaces/**'
+      - '.github/workflows/client.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ZIG_VERSION: 0.17.0
+  ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Zig ${{ env.ZIG_VERSION }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl -sSfL -o zig.tar.xz "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  zig.tar.xz" | sha256sum -c -
+          tar xf zig.tar.xz
+          echo "$PWD/zig-x86_64-linux-$ZIG_VERSION" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Renderer tests
+        working-directory: client/render
+        run: zig build test
+      - name: Game module tests
+        working-directory: client/wasm
+        run: zig build test
+      - name: Shell install, type check and tests
+        working-directory: client/shell
+        run: npm ci && npm run check && npm test
+      - name: Build the playable client
+        run: client/build-web.sh "$RUNNER_TEMP/play"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: play
+          path: ${{ runner.temp }}/play

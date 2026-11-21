@@ -1,0 +1,11 @@
+.{
+    .name = .gta2_replay,
+    .version = "0.1.0",
+    .fingerprint = 0xdc521a5dded634fc,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .sim = .{ .path = "../../sim" },
+        .formats = .{ .path = "../../formats" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "src" },
+}

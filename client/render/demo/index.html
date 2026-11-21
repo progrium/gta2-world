@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Renderer demo</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #111; color: #ddd; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  #panel { position: fixed; top: 8px; left: 8px; background: rgba(0,0,0,.72); padding: 10px 12px; border-radius: 6px; max-width: 420px; }
+  #panel h1 { font-size: 14px; margin: 0 0 6px; }
+  #panel label { display: block; margin: 4px 0; }
+  #panel button { margin: 4px 4px 0 0; }
+  #fps { font: 600 12px ui-monospace, monospace; color: #9f9; }
+  #stats, #help { white-space: pre-wrap; font: 11px ui-monospace, monospace; color: #bbb; margin-top: 6px; }
+  #err { color: #f88; white-space: pre-wrap; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+  <h1>M1 renderer demo</h1>
+  <div id="fps">-- fps</div>
+  <label>Map (.gmp) <input type="file" id="gmp" accept=".gmp"></label>
+  <label>Style (.sty) <input type="file" id="sty" accept=".sty"></label>
+  <label>Recording (.grec, optional) <input type="file" id="rec" accept=".grec"></label>
+  <label><input type="checkbox" id="lights" checked> Bake map lights</label>
+  <button id="load">Load files</button><button id="demo">Synthetic showcase</button><button id="bench">Benchmark 20 s</button><button id="toggle">Hide panel</button>
+  <div id="err"></div>
+  <div id="stats"></div>
+  <div id="help">Files are read in this tab only and never uploaded.
+The camera follows player 0's car (traffic stub or recording)
+and pulls back with speed.
+F free camera (click to capture mouse, WASD, Space/C, Shift)
+N night lighting · P pause
+URL: ?gmp=URL&amp;sty=URL[&amp;rec=URL][&amp;bench=20][&amp;night]</div>
+</div>
+<script type="module" src="js/demo.js"></script>
+</body>
+</html>

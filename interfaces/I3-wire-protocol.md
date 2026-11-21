@@ -8,14 +8,16 @@
 
 Every connection has two channels:
 
-| Channel | Carries | WebTransport | WebSocket fallback |
-| --- | --- | --- | --- |
-| **datagram** (unreliable, unordered) | `input`, `snapshot` | session datagrams | one WS binary message = byte `0x00` + one message |
-| **stream** (reliable, ordered) | everything else | one client-opened bidirectional stream; each message is `uvarint length` + body | one WS binary message = byte `0x01` + one message |
+| Channel | Carries | WebTransport | WebSocket fallback | WebRTC (browser host) |
+| --- | --- | --- | --- | --- |
+| **datagram** (unreliable, unordered) | `input`, `snapshot` | session datagrams | one WS binary message = byte `0x00` + one message | data channel `d`, `ordered: false, maxRetransmits: 0`; one channel message = one I3 message |
+| **stream** (reliable, ordered) | everything else | one client-opened bidirectional stream; each message is `uvarint length` + body | one WS binary message = byte `0x01` + one message | data channel `s`, ordered and reliable; one channel message = one I3 message |
 
 Each message body starts with its type byte. A datagram is at most **1100 bytes** of I3 payload, and less if the transport reports a smaller maximum. A stream message is at most 1 MiB.
 
 URLs: WebTransport `https://<host>:<port>/s/<session>`, WebSocket `wss://<host>/s/<session>/ws`. The link the player opens names the host and session. The client tries WebTransport first and falls back to WebSocket if the session does not open within 3 s or `WebTransport` is undefined.
+
+**WebRTC** is used when a player's browser tab hosts the game. The host's page opens one peer connection per joining player, set up through a signalling service (outside I3), and the joining player opens the stream channel and sends `hello` as on the other transports. A stream message on WebRTC is limited by the connection's negotiated SCTP maximum message size as well as by 1 MiB. Other data channels on the same connection (for example the lobby's file transfer) are outside I3.
 
 S4 found that the server side is ngtcp2, GnuTLS, nghttp3's QPACK decoder and about 300 lines of Zig for HTTP/3 SETTINGS, extended CONNECT and stream routing. HTTP datagram framing (the quarter stream id) belongs to that layer, below I3.
 
@@ -49,7 +51,7 @@ An unknown type on the stream is a protocol error (`reject` `bad_message`). An u
 ## Join
 
 1. The client opens the stream and sends **`hello`**:
-   `u32 magic "G2W1"`, `u16 protocol`, `u16 abi`, `u64 layout_hash`, `[32] map_hash` (SHA-256 of the `.gmp` file), `[16] resume_token` (zero for a new join), `u8 transport`, `u8 n`, then `n` names (1–4 local players).
+   `u32 magic "G2W1"`, `u16 protocol`, `u16 abi`, `u64 layout_hash`, `[32] map_hash` (SHA-256 of the `.gmp` file), `[16] resume_token` (zero for a new join), `u8 transport` (0 WebTransport, 1 WebSocket, 2 WebRTC), `u8 n`, then `n` names (1–4 local players).
 2. The server checks, in order: protocol, then `abi` and `layout_hash`, then map hash, then capacity. Any failure sends **`reject`** (`u8 code`, `str message`) and closes. Codes: 1 protocol, 2 layout, 3 map, 4 full, 5 no such session, 6 bad message, 7 shutting down, 8 resume expired. The shell shows the message as is. For example, code 3 says that the player's map file differs from the server's.
 3. Otherwise the server sends **`welcome`**:
    `u16 protocol`, `u32 client_id`, `[16] resume_token`, `u32 server_tick`, `u8 tick_hz` (30), `u8 snapshot_hz` (20), `u8 input_buffer_ticks` (2), `u8 redundancy` (8), `u16 max_players`, `str config_name`, `u8 n`, `n × u8 slot`.
@@ -113,7 +115,7 @@ payload                one component delta per set bit, in bit order
 - **Component delta:** each integer field of the component, in declaration order with nested structs flattened and `_`-prefixed padding skipped, is sent as `svarint(new −% base)` at the field's own width. For a `create`, the base is all zeros. Values are exact, never quantised, so a client that predicts from replicated state starts from the server's bits. Codecs are generated from the component type (`wire.encodeComponent` / `decodeComponent`). The replicated component set of each kind is declared in `sim/` and covered by `layout_hash`. It must include `Controller` for cars and peds, so that remote players can be dead-reckoned (S3).
 - **Per-entity base:** `base_age` names the snapshot that holds this entity's base value: the snapshot with seq `this.seq − base_age`. The server picks, for each entity, the newest snapshot the client has acked that contained the entity. The client keeps the decoded values of each entity for the last 64 snapshot seqs it received. An entity whose base would be more than 63 seqs old is sent as `create`.
 - **Reliability:** the server keeps sending a `create` until a snapshot containing it is acked, and keeps sending a `remove` until a snapshot containing the remove is acked. `remove` means either despawned or out of interest; the client frees the slot either way. Effects come from `event`s and sim intents.
-- **Budget and priority:** this is server policy, not wire format. Each snapshot is filled in priority order (distance, speed, time since last sent, and creates and removes first) until the per-client byte budget is used up, and is never larger than 1100 bytes. The default budget is `30 kbit/s ÷ 20 Hz ≈ 187 bytes` (see the README's doc changes).
+- **Budget and priority:** this is server policy, not wire format. Each snapshot is filled in priority order (distance, speed, time since last sent, and creates and removes first) until the per-client byte budget is used up, and is never larger than 1100 bytes. The default budget is `64 kbit/s ÷ 20 Hz = 400 bytes`, set at M2 from the bot soak on sim/ (net/soak-results-dm16.md); it was 187 bytes (30 kbit/s) until then.
 
 ### Client application
 
@@ -132,10 +134,14 @@ Entities outside the predict radius are drawn interpolated between the two most 
 | Message | Body |
 | --- | --- |
 | `chat` / `chat_from` | `u8 slot`, `str text` |
-| `event` | `u32 tick`, `u8 kind`, `u8 a, b, c`, `svarint x, y, z`. Kinds: 1 kill (a = killer slot or 0xFF, b = victim, c = weapon), 2 joined (a = slot), 3 left (a = slot), 4 explosion (x, y, z, a = model). |
+| `event` | `u32 tick`, `u8 kind`, `u8 a, b, c`, `svarint x, y, z`. Kinds: 1 kill (a = killer slot or 0xFF, b = victim, c = weapon: the sim's weapon index (0-9 since the M3 weapons batch), 0x80 a car, 0x81 fire or a blast with no shooter), 2 joined (a = slot), 3 left (a = slot), 4 explosion (x, y, z, a = cause: 0 rocket, 1 car), 5 round end (a = winner slot; scores have reset), 6 pickup (x, y, z, a = slot, b = what: weapon index 0-9, 10 health, 11 armour, 12 invulnerability, 13 double damage, 14 fast reload; until the M3 weapons batch 0-3 and 4 health). Kinds 5 and 6 and the meaning of c and of explosion's a were added in M3 (signed off by Jeff, 2026-11-20); receivers ignore kinds they do not know. The wider weapon and pickup numbering (same bytes, more values) was added in M3 (approved by Jeff, 2026-11-20). Kinds 7-18 are reserved for single player (W0 of docs/plan-notes.md, 2026-11-20), with text ids in x: 7 message (a = slot, x = text id), 8 brief (a = slot, x = text id), 9 wanted (a = slot, b = stars now, c = stars before), 10 wasted (a = slot, b = cause), 11 busted (a = slot), 12 mission start, 13 mission pass, 14 mission fail (a = slot, x = mission id), 15 phone ring (x, y, z, a = 1 ringing or 0 stopped), 16 siren (x, y, z, a = on or off), 17 game over (a = slot), 18 level complete (a = slot). |
 | `player_info` | `u8 slot`, `u8 flags` (1 present, 2 bot), `str name`. Sent on join and when a name or presence changes. |
 | `bye` | `u8 reason`: 0 leaving, 1 timeout, 2 kicked, 3 shutting down. |
 
 ## Timeouts
 
 The client sends `input` every tick. With no datagram from the client for 5 s, the server treats the connection as lost: the character stays in the world for 10 s, then the server issues `Command.leave`. With no snapshot for 3 s, the client shows "reconnecting" and opens a new connection with its resume token.
+
+## Accepted changes since the v1 freeze
+
+- 2026-11-20: `transport` value 2, WebRTC, and the WebRTC column of the channel table, for browser-hosted games. Additive; no version bump, because only WebRTC peers send it.

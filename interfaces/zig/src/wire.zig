@@ -63,7 +63,9 @@ pub const Msg = enum(u8) {
 /// followed by exactly one I3 message.
 pub const WsChannel = enum(u8) { datagram = 0, stream = 1, _ };
 
-pub const Transport = enum(u8) { webtransport = 0, websocket = 1, _ };
+/// 2 (webrtc) was added after the v1 freeze: browser-hosted games over
+/// WebRTC data channels. Old servers never see it (they are not WebRTC peers).
+pub const Transport = enum(u8) { webtransport = 0, websocket = 1, webrtc = 2, _ };
 
 pub const RejectCode = enum(u8) {
     protocol_mismatch = 1,
@@ -86,8 +88,38 @@ pub const EventKind = enum(u8) {
     player_joined = 2,
     /// a = slot
     player_left = 3,
-    /// x, y, z of a vehicle explosion; a = vehicle model
+    /// x, y, z of an explosion; a = cause (0 rocket, 1 car)
     explosion = 4,
+    /// a = winner slot; every score has been reset (M3)
+    round_end = 5,
+    /// x, y, z of a pickup taken; a = slot, b = what (weapon index, 4 health) (M3)
+    pickup = 6,
+    // 7-18: single player, reserved 2026-11-20 (W0 of docs/plan-notes.md).
+    // Text ids are indices into the level's string table, carried in x.
+    /// a = slot, x = text id: a one-line banner message
+    message = 7,
+    /// a = slot, x = text id: a mission brief (pager)
+    brief = 8,
+    /// a = slot, b = stars now, c = stars before
+    wanted = 9,
+    /// a = slot, b = cause (the kill event's weapon numbering)
+    wasted = 10,
+    /// a = slot
+    busted = 11,
+    /// a = slot, x = mission id
+    mission_start = 12,
+    /// a = slot, x = mission id
+    mission_pass = 13,
+    /// a = slot, x = mission id
+    mission_fail = 14,
+    /// x, y, z of the phone; a = 1 ringing, 0 stopped
+    phone_ring = 15,
+    /// x, y, z of the vehicle; a = 1 on, 0 off (cosmetic)
+    siren = 16,
+    /// a = slot: no lives left
+    game_over = 17,
+    /// a = slot: the level's target score was reached
+    level_complete = 18,
     _,
 };
 

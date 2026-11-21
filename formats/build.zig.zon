@@ -1,0 +1,10 @@
+.{
+    .name = .formats,
+    .version = "0.0.0",
+    .fingerprint = 0xdbcba3c21d9bc74,
+    .minimum_zig_version = "0.17.0",
+    .dependencies = .{
+        .interfaces = .{ .path = "../interfaces/zig" },
+    },
+    .paths = .{ "build.zig", "build.zig.zon", "formats.zig", "chunk.zig", "gmp.zig", "sty.zig", "synth.zig", "grid.zig", "level.zig", "scr.zig", "README.md" },
+}

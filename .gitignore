@@ -1,0 +1,29 @@
+# Never commit original GTA2 data or anything extracted from it, anywhere
+# in the tree. Keep your copy outside the repo.
+*.gmp
+*.sty
+*.scr
+*.gci
+*.gxt
+*.mmp
+*.seq
+*.sdt
+*.raw
+*.bik
+*.wav
+*.GMP
+*.STY
+*.SCR
+*.GCI
+*.GXT
+*.MMP
+*.SEQ
+*.SDT
+*.RAW
+*.BIK
+*.WAV
+gta2.zip
+gta2/
+# Recorded entity buffers (may be recorded on original maps)
+*.grec
+client/web-out/

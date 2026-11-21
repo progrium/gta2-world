@@ -4,10 +4,12 @@
 // Full parsing is formats/ (Zig, workstream B); this only checks a file is what
 // its name says and records its chunk index so a bad copy is caught on import.
 
-export type AssetKind = "gmp" | "sty" | "scr" | "mmp" | "gxt" | "sdt" | "raw";
+import { checkSdt } from "../audio/sdt.ts";
+
+export type AssetKind = "gmp" | "sty" | "scr" | "mmp" | "gxt" | "sdt" | "raw" | "gci" | "seq";
 
 const EXT: Record<string, AssetKind> = {
-  gmp: "gmp", sty: "sty", scr: "scr", mmp: "mmp", gxt: "gxt", sdt: "sdt", raw: "raw",
+  gmp: "gmp", sty: "sty", scr: "scr", mmp: "mmp", gxt: "gxt", sdt: "sdt", raw: "raw", gci: "gci", seq: "seq",
 };
 
 /** Kind from the file name, or null if the shell doesn't keep this file. */
@@ -29,6 +31,11 @@ export interface ParsedInfo {
   chunks?: Chunk[];
   /** .mmp: the map entry it describes. */
   map?: MapEntry;
+  /** .seq: the levels it lists, in order. */
+  levels?: LevelEntry[];
+  /** .sdt: how many samples it indexes, and the size its .raw must have. */
+  samples?: number;
+  rawSize?: number;
 }
 
 export interface MapEntry {
@@ -36,6 +43,11 @@ export interface MapEntry {
   gmp: string;
   sty: string;
   scr: string | null;
+}
+
+/** A single-player level from a .seq file: a main area or a bonus stage. */
+export interface LevelEntry extends MapEntry {
+  bonus: boolean;
 }
 
 const MAGIC: Partial<Record<AssetKind, string>> = { gmp: "GBMP", sty: "GBST" };
@@ -75,10 +87,43 @@ export function parseMmp(text: string): ParsedInfo {
   return { ok: true, map: { description: kv.get("description") || gmp, gmp, sty, scr: kv.get("scrfile") || null } };
 }
 
+/**
+ * .seq is a list of level blocks in the same key = value form as .mmp:
+ * MainOrBonus (MAIN or BONUS), GMPFile, STYFile, SCRFile, Description.
+ * A new MainOrBonus line starts a block.
+ */
+export function parseSeq(text: string): ParsedInfo {
+  const levels: LevelEntry[] = [];
+  let kv: Map<string, string> | null = null;
+  const flush = (): void => {
+    if (!kv) return;
+    const gmp = kv.get("gmpfile");
+    const sty = kv.get("styfile");
+    if (gmp && sty) levels.push({ description: kv.get("description") || gmp, gmp, sty, scr: kv.get("scrfile") || null, bonus: /^bonus$/i.test(kv.get("mainorbonus") ?? "") });
+    kv = null;
+  };
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*([A-Za-z]+)\s*=\s*(.*?)\s*$/.exec(line);
+    if (!m) continue;
+    const k = m[1]!.toLowerCase();
+    if (k === "mainorbonus") flush();
+    kv ??= new Map();
+    kv.set(k, m[2]!);
+  }
+  flush();
+  if (levels.length === 0) return { ok: false, error: "no levels listed" };
+  return { ok: true, levels };
+}
+
 export function parseAsset(kind: AssetKind, buf: ArrayBuffer): ParsedInfo {
   const magic = MAGIC[kind];
   if (magic) return parseChunks(buf, magic);
   if (kind === "mmp") return parseMmp(new TextDecoder("latin1").decode(buf));
+  if (kind === "seq") return parseSeq(new TextDecoder("latin1").decode(buf));
+  if (kind === "sdt") {
+    const c = checkSdt(buf);
+    return { ok: c.ok, error: c.error, samples: c.count, rawSize: c.rawSize };
+  }
   return { ok: buf.byteLength > 0, error: buf.byteLength > 0 ? undefined : "empty file" };
 }
 

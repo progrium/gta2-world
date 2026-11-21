@@ -1,12 +1,15 @@
 // Screen 1: the player gives us their GTA2 files. They stay in this browser.
 
 import { type PickedFile, fromDrop, fromInput, pickDirectory } from "../assets/pick.ts";
+import type { AssetRecord } from "../assets/protocol.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { clear, fmtBytes, h } from "./dom.ts";
 
 export interface ImportScreenOpts {
   store: AssetStore;
   onStart(map: MapChoice): void;
+  /** Opens the "Host a game" screen. */
+  onHost?(): void;
   lastMap: string | null;
 }
 
@@ -16,11 +19,12 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
   const bar = h("progress", { max: 1, value: 0, hidden: true });
   const mapsBox = h("div", { class: "maps" });
   const filesBox = h("details", { class: "files" });
+  const clearBox = h("div", { class: "row" });
   const errorsBox = h("div", { class: "errors" });
 
   const dirInput = h("input", { type: "file", multiple: true, hidden: true }) as HTMLInputElement;
   dirInput.setAttribute("webkitdirectory", "");
-  const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".gmp,.sty,.scr,.mmp,.gxt,.sdt,.raw" }) as HTMLInputElement;
+  const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".gmp,.sty,.scr,.mmp,.gxt,.sdt,.raw,.gci,.seq" }) as HTMLInputElement;
 
   const run = async (files: PickedFile[] | null): Promise<void> => {
     if (!files) return;
@@ -84,14 +88,37 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
   const render = (): void => {
     clear(mapsBox);
     clear(filesBox);
+    clear(clearBox);
     const maps = o.store.maps();
+    const levels = o.store.levels();
     const files = o.store.manifest.files;
+    if (levels.length > 0) {
+      const list = h("div", { class: "maplist" });
+      for (const m of levels) {
+        const key = levelKey(m);
+        list.append(
+          h(
+            "button",
+            { class: `${key === o.lastMap ? "map current" : "map"}${m.story?.bonus ? " bonus" : ""}`, onclick: () => o.onStart(m) },
+            h("strong", {}, m.description),
+            h("span", { class: "muted" }, ` ${m.story?.bonus ? "bonus stage · " : ""}${m.gmp} · ${m.scr ?? ""}`),
+          ),
+        );
+      }
+      mapsBox.append(h("h2", {}, "Single player"), list);
+      const texts = files.filter((f) => f.kind === "gxt" && f.info.ok);
+      if (texts.length > 1) {
+        const sel = h("select", { onchange: (e: Event) => setTextChoice((e.target as HTMLSelectElement).value) }, ...texts.map((f) => h("option", { value: f.name }, f.name))) as HTMLSelectElement;
+        sel.value = textChoice(files) ?? "";
+        mapsBox.append(h("p", { class: "small" }, "Game text: ", sel));
+      }
+    }
     if (maps.length === 0) {
       mapsBox.append(h("p", { class: "muted" }, files.length ? "No complete map yet: a map needs its .gmp and .sty (and the .mmp that names them)." : "Nothing imported yet."));
     } else {
       const list = h("div", { class: "maplist" });
       for (const m of maps) {
-        const key = m.mmp ?? m.gmp;
+        const key = levelKey(m);
         list.append(
           h(
             "button",
@@ -101,9 +128,31 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
           ),
         );
       }
-      mapsBox.append(h("h2", {}, "Pick a map to drive"), list);
+      mapsBox.append(h("h2", {}, levels.length ? "Deathmatch maps" : "Pick a map to drive"), list);
+      if (o.onHost) {
+        mapsBox.append(
+          h("h2", {}, "Play with others"),
+          h("div", { class: "row" }, h("button", { class: "host-game", onclick: () => o.onHost?.() }, "Host a game…"), h("span", { class: "muted small" }, "Run a game in this tab and invite players with a link.")),
+        );
+      }
     }
     if (files.length) {
+      clearBox.append(
+        h(
+          "button",
+          {
+            class: "danger",
+            onclick: async () => {
+              if (!confirm("Remove every cached GTA2 file from this browser? You can import them again.")) return;
+              await o.store.clear();
+              status.textContent = "Cache cleared. Choose your GTA2 folder again to play.";
+              render();
+            },
+          },
+          "Clear cached files",
+        ),
+        h("span", { class: "muted small" }, " Removes your imported files from this browser, so you can import them again."),
+      );
       const total = files.reduce((n, f) => n + f.size, 0);
       filesBox.append(
         h("summary", {}, `${files.length} cached files, ${fmtBytes(total)}`),
@@ -117,22 +166,10 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
               {},
               h("td", {}, f.path),
               h("td", {}, fmtBytes(f.size)),
-              h("td", { class: f.info.ok ? "ok" : "bad" }, f.info.ok ? (f.info.chunks ? `ok, ${f.info.chunks.length} chunks` : "ok") : f.info.error ?? "bad"),
+              h("td", { class: f.info.ok ? (soundNote(f, files) ? "warn" : "ok") : "bad" }, f.info.ok ? (f.info.chunks ? `ok, ${f.info.chunks.length} chunks` : f.info.samples ? `ok, ${f.info.samples} sounds${soundNote(f, files)}` : "ok") : f.info.error ?? "bad"),
               h("td", { class: "mono", title: f.hash }, f.hash.slice(0, 12)),
             ),
           ),
-        ),
-        h(
-          "button",
-          {
-            class: "danger",
-            onclick: async () => {
-              await o.store.clear();
-              status.textContent = "Cache cleared.";
-              render();
-            },
-          },
-          "Forget cached files",
         ),
       );
     }
@@ -149,10 +186,47 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
       errorsBox,
       mapsBox,
       filesBox,
+      clearBox,
       dirInput,
       fileInput,
     ),
   );
   render();
   return () => clear(root);
+}
+
+/** The key a level or map is remembered by (the last one played). */
+export function levelKey(m: MapChoice): string {
+  return m.story ? `level:${m.gmp.toLowerCase()}` : m.mmp ?? m.gmp;
+}
+
+const TEXT_CHOICE = "gta2.text";
+
+/** The .gxt to use: the player's choice, else e.gxt, else the first one. */
+export function textChoice(files: readonly AssetRecord[]): string | null {
+  const texts = files.filter((f) => f.kind === "gxt" && f.info.ok);
+  let want: string | null = null;
+  try {
+    want = localStorage.getItem(TEXT_CHOICE);
+  } catch {
+    /* ignore */
+  }
+  return (texts.find((f) => f.name === want) ?? texts.find((f) => f.name === "e.gxt") ?? texts[0])?.name ?? null;
+}
+
+function setTextChoice(name: string): void {
+  try {
+    localStorage.setItem(TEXT_CHOICE, name);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** For a sound index, whether its .raw is cached and the right size. */
+function soundNote(f: AssetRecord, files: readonly AssetRecord[]): string {
+  if (f.kind !== "sdt" || !f.info.ok) return "";
+  const raw = files.find((r) => r.name === f.name.replace(/\.sdt$/, ".raw"));
+  if (!raw) return "; its .raw is missing";
+  if (f.info.rawSize !== undefined && raw.size < f.info.rawSize) return "; its .raw is too short";
+  return "";
 }
