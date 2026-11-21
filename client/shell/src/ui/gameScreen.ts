@@ -36,7 +36,7 @@ export interface GameScreenOpts {
   /** Game server base URL (ws:// or http://); offline when absent. */
   server?: string | null;
   /** A browser-hosted game: the link to use, and a label for the HUD. */
-  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string };
+  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string; police?: boolean };
   /** Extra HUD content, e.g. the host's join link and player list. */
   extraHud?: HTMLElement;
   map: MapChoice;
@@ -77,6 +77,14 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const sp = !!o.map.story && !remote;
   const hudDemo = new URLSearchParams(location.search).has("hudtest");
   const spHud = sp ? new SpHudView({ text: (id) => game?.text(id) ?? null, textKey: (k) => game?.textKey(k) ?? null }) : null;
+  // Online with police on: the own wanted level, from wanted events (kind 9).
+  const mpStars = remote && o.net?.police ? h("div", { class: "sp-stars hidden", title: "Wanted level" }) : null;
+  const setMpStars = (n: number): void => {
+    if (!mpStars) return;
+    clear(mpStars);
+    for (let i = 0; i < 6; i++) mpStars.append(h("span", { class: i < n ? "on" : "" }, "★"));
+    mpStars.classList.toggle("hidden", n === 0);
+  };
   /** The camera holds on the body (wasted or busted) until this tick. */
   let holdUntil = 0;
   let holdAt: { x: number; y: number; z: number } | null = null;
@@ -447,6 +455,9 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   function connect(g: GameModule): Promise<void> {
     status.textContent = `Connecting to ${o.net?.label ?? o.server}…`;
     status.classList.remove("hidden");
+    // A room with police on runs the dmp16 sim: hello's layout hash and the
+    // prediction client follow it.
+    g.netPolice(!!o.net?.police);
     return new Promise((resolve) => {
       conn = new Connection(
         { server: o.server ?? undefined, transport: o.net?.transport ?? transportParam(), rtc: o.net?.rtc, loopback: o.net?.loopback, session: o.sessionId, layoutHash: g.layoutHash, mapHash: o.map.gmpRecord.hash, name: playerName() },
@@ -599,6 +610,15 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       case 19:
         // police voice: a = 0 a cop shouts ("Freeze!"), 1 radio chatter
         audio.play(e.a === 0 ? "cop_shout" : "police_radio", e.x, e.y, e.z);
+        break;
+      case 9:
+        // wanted level: a slot, b now, c before
+        if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
+        else if (mpStars && e.a === ownSlot) {
+          setMpStars(e.b);
+          if (e.b > e.c) audio.play("wanted_up");
+          else if (e.b < e.c) audio.play("wanted_down");
+        }
         break;
       default:
         if (spHud && g && e.a === ownSlot) onSpEvent(e, g);
@@ -757,7 +777,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     );
   }
 
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el), hud);
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();

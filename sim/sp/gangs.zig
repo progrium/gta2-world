@@ -101,7 +101,7 @@ pub fn clampAdd(r: i8, delta: i32) i8 {
 
 pub fn Sys(comptime Self: type) type {
     return struct {
-        const sp = Self.single_player;
+        const sp = Self.city;
 
         fn st(self: *Self) *State {
             return &self.state.sp.gangs;

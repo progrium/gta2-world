@@ -53,7 +53,7 @@ pub fn isPickupModel(model: u16) bool {
 
 pub fn Sys(comptime Self: type) type {
     return struct {
-        const sp = Self.single_player;
+        const sp = Self.city;
         const MapObject = Self.MapObject;
         const doors = @import("doors.zig").Sys(Self);
         const gens = @import("generators.zig").Sys(Self);

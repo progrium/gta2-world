@@ -672,7 +672,7 @@ pub fn Sys(comptime Self: type) type {
                         }
                     }
                 }
-                if (comptime Self.single_player) {
+                if (comptime Self.city) {
                     if (Api.markerIn(self, t, fwd_x, fwd_y, cxf, cyf, m, v.ai_mark)) |mk| {
                         if (best == null or mk.dist < best.?.dist) best = mk;
                     }
@@ -707,7 +707,7 @@ pub fn Sys(comptime Self: type) type {
         /// Is a crossing marker within `dist` ahead of the car, near its
         /// line?
         fn markerAhead(self: *Self, t: *const c.Transform, dist: Fx) bool {
-            if (comptime !Self.single_player) return false;
+            if (comptime !Self.city) return false;
             const Ctx = struct { t: *const c.Transform, dist: Fx, found: bool = false };
             var ctx = Ctx{ .t = t, .dist = dist };
             self.state.world.each(.{ c.Object, c.Transform }, &ctx, struct {

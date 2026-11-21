@@ -27,7 +27,7 @@ const salt_gen_delay: u32 = 0x1100;
 
 pub fn Sys(comptime Self: type) type {
     return struct {
-        const sp = Self.single_player;
+        const sp = Self.city;
         const objects = Self.objects;
 
         pub const GeneratorDecl = struct {

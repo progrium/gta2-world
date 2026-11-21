@@ -184,7 +184,7 @@ pub fn Sys(comptime Self: type) type {
                 // stays.
                 pd.car = car;
                 pd.car_phase = @intFromEnum(Phase.thief);
-                if (comptime Self.single_player) Self.car_tasks.setCarTask(self, car, .wander, .none, 0, 0);
+                if (comptime Self.city) Self.car_tasks.setCarTask(self, car, .wander, .none, 0, 0);
             }
             if (comptime Self.single_player) Self.hooks.carEntered(self, car, ped);
             self.scratch.stats.boardings += 1;
@@ -365,7 +365,7 @@ pub fn Sys(comptime Self: type) type {
             }
             Me.cancelEnter(self, id);
             const jacker = if (w.get(jacker_car, c.Vehicle)) |v| v.driver else EntityId.none;
-            if (comptime Self.single_player) {
+            if (comptime Self.city) {
                 if (@hasDecl(Self.objectives, "onCarjacked")) Self.objectives.onCarjacked(self, id, jacker);
             }
         }
@@ -382,7 +382,7 @@ pub fn Sys(comptime Self: type) type {
             if (ctl.player != c.Controller.no_player) {
                 // Scoring's hijack payment when G's scoreHijack is there.
                 if (comptime @hasDecl(Self, "scoreHijack")) self.scoreHijack(@intCast(ctl.player), car) else self.addPoints(@intCast(ctl.player), T.carModel(v.model).value);
-                if (comptime Self.single_player) Self.gangs.onHijack(self, car, ped);
+                if (comptime Self.city) Self.gangs.onHijack(self, car, ped);
             }
             Me.releaseCar(self, car);
             v.flags &= ~c.Vehicle.flag_ai;
@@ -485,7 +485,7 @@ pub fn Sys(comptime Self: type) type {
         /// everyone.
         fn refuses(self: *Self, car: EntityId, ped: EntityId) bool {
             _ = ped;
-            if (comptime !Self.single_player) return false;
+            if (comptime !Self.city) return false;
             const tag = self.state.world.get(car, c.ScriptTag) orelse return false;
             return tag.flags & c.ScriptTag.flag_locked != 0;
         }
@@ -493,14 +493,14 @@ pub fn Sys(comptime Self: type) type {
         /// A car thief, or a ped with no main objective or a steal-car one.
         /// Always in deathmatch (no objectives there).
         fn tookOnOwn(self: *Self, ped: EntityId) bool {
-            if (comptime !Self.single_player) return true;
+            if (comptime !Self.city) return true;
             if (Me.occupation(self, ped) == .car_thief) return true;
             const k = Self.objectives.objectiveOf(self, ped).kind;
             return k == .none or k == .steal_car;
         }
 
         fn occupation(self: *Self, ped: EntityId) ?ids.Occupation {
-            if (comptime !Self.single_player) return null;
+            if (comptime !Self.city) return null;
             const o = self.state.world.get(ped, c.Objective) orelse return null;
             return @enumFromInt(o.occupation);
         }
@@ -517,7 +517,7 @@ pub fn Sys(comptime Self: type) type {
         /// Script-created peds and emergency workers never give up on a
         /// far car (3.2).
         fn ignoresDistance(self: *Self, ped: EntityId) bool {
-            if (comptime !Self.single_player) return false;
+            if (comptime !Self.city) return false;
             if (Me.occupation(self, ped) == .emergency) return true;
             const tag = self.state.world.get(ped, c.ScriptTag) orelse return false;
             return tag.handle != 0;

@@ -26,6 +26,8 @@ pub const ecs = @import("ecs.zig");
 pub const map = @import("map.zig");
 pub const c = @import("components.zig");
 pub const tuning = @import("tuning.zig");
+/// Car model roles and the career numbers (`setStandardRoles` for hosts).
+pub const tuning_career = @import("tuning/career.zig");
 pub const testmap = @import("testmap.zig");
 
 const Fx = fx.Fx;
@@ -54,6 +56,20 @@ pub const config_200: Config = .{
 /// Single player (W0 of docs/plan-notes.md): one player, room for a
 /// scripted city, and the single-player components and state block.
 /// `dm16` keeps its layout.
+/// Deathmatch with police: the first-release room with the living city
+/// (`isCity`), for a host who turns police on. `dm16` stays as it is.
+pub const config_16_police: Config = .{
+    .name = "dmp16",
+    .max_players = config_16.max_players,
+    .car_capacity = config_16.car_capacity,
+    .ped_capacity = config_16.ped_capacity,
+    .projectile_capacity = config_16.projectile_capacity,
+    .pickup_capacity = config_16.pickup_capacity,
+    .map_object_capacity = config_16.map_object_capacity,
+    .ambient_cars = config_16.ambient_cars,
+    .ambient_peds = config_16.ambient_peds,
+};
+
 pub const config_sp: Config = .{
     .name = "sp",
     .max_players = 1,
@@ -71,6 +87,13 @@ pub const config_sp: Config = .{
 /// shared mechanics run in every configuration.
 pub fn isSinglePlayer(comptime cfg: Config) bool {
     return std.mem.startsWith(u8, cfg.name, "sp");
+}
+
+/// Is `cfg` a living-city configuration: single player, or deathmatch with
+/// police (name starting with "dmp")? Those carry the SP components and
+/// state block and run the city systems.
+pub fn isCity(comptime cfg: Config) bool {
+    return isSinglePlayer(cfg) or std.mem.startsWith(u8, cfg.name, "dmp");
 }
 
 pub const ids = @import("ids.zig");
@@ -97,18 +120,24 @@ pub fn Sim(comptime cfg: Config) type {
         /// Single-player configuration: SP components, state block and
         /// systems (`isSinglePlayer`).
         pub const single_player = isSinglePlayer(cfg);
+        /// The living city: the SP components, state block and city systems
+        /// (traffic and ped AI, gangs, wanted level and police, objects).
+        /// True for single player and for deathmatch with police
+        /// (`isCity`); the single-player rules (lives, scripts, career
+        /// scoring) stay behind `single_player`.
+        pub const city = isCity(cfg);
 
         pub const Car = ecs.Kind(.car, cfg.car_capacity, &(.{
             c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Vehicle, c.Predicted, c.Appearance,
-        } ++ if (single_player) .{ c.CarTask, c.ScriptTag } else .{}));
+        } ++ if (city) .{ c.CarTask, c.ScriptTag } else .{}));
         pub const Ped = ecs.Kind(.ped, cfg.ped_capacity, &(.{
             c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Pedestrian, c.Riding, c.Weapon, c.Predicted, c.Appearance,
-        } ++ if (single_player) .{ c.Objective, c.Group, c.ScriptTag } else .{}));
+        } ++ if (city) .{ c.Objective, c.Group, c.ScriptTag } else .{}));
         pub const Shot = ecs.Kind(.projectile, cfg.projectile_capacity, &.{
             c.Transform, c.Velocity, c.Projectile,
         });
         pub const Pickup = ecs.Kind(.pickup, cfg.pickup_capacity, &.{ c.Transform, c.Weapon, c.Appearance });
-        pub const MapObject = ecs.Kind(.map_object, cfg.map_object_capacity, if (single_player) &.{ c.Transform, c.Object, c.ScriptTag } else &.{c.Transform});
+        pub const MapObject = ecs.Kind(.map_object, cfg.map_object_capacity, if (city) &.{ c.Transform, c.Object, c.ScriptTag } else &.{c.Transform});
         pub const World = ecs.World(&.{ Car, Ped, Shot, Pickup, MapObject });
 
         /// Components replicated per kind (for I3 codecs, workstream C), in
@@ -123,7 +152,7 @@ pub fn Sim(comptime cfg: Config) type {
 
         pub const SpState = sp_state.SpState(cfg.max_players);
 
-        pub const State = if (single_player) extern struct {
+        pub const State = if (city) extern struct {
             tick: u32,
             seed_lo: u32,
             seed_hi: u32,
@@ -441,8 +470,8 @@ pub fn Sim(comptime cfg: Config) type {
             // The fixed order (plan-notes.md 3.7). Stubs from W0 are marked
             // with their owner; single-player systems run only in `sp`.
             self.sysInput(frames);
-            if (comptime single_player) {
-                script.sysScript(self); // A1
+            if (comptime single_player) script.sysScript(self); // A1
+            if (comptime city) {
                 gangs.sysGangs(self); // D2
                 wanted.sysWanted(self); // E
                 police.sysPolice(self); // E
@@ -473,7 +502,7 @@ pub fn Sim(comptime cfg: Config) type {
             if (comptime single_player) death.sysDeath(self); // G
             self.sysRespawn();
             self.sysAmbient();
-            if (comptime single_player) lights.sysLights(self); // B
+            if (comptime city) lights.sysLights(self); // B
             self.state.world.applyPending();
             self.state.tick +%= 1;
         }
@@ -735,7 +764,10 @@ pub fn Sim(comptime cfg: Config) type {
 }
 
 pub const Sim16 = Sim(config_16);
+/// Deathmatch with police (`config_16_police`).
+pub const Sim16Police = Sim(config_16_police);
 
 comptime {
     abi.checkSim(Sim16);
+    abi.checkSim(Sim16Police);
 }

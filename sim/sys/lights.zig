@@ -62,7 +62,7 @@ pub fn phaseLight(cycle: u16, ns: bool) Light {
 
 pub fn Sys(comptime Self: type) type {
     return struct {
-        const sp = Self.single_player;
+        const sp = Self.city;
 
         /// What the north-south (`ns`) or east-west lights show at `cycle`
         /// (for the client's lamps).

@@ -176,7 +176,7 @@ pub fn Sys(comptime Self: type) type {
             // Single player: every ambient car drives (parked cars come
             // from the level script). Traffic starts on a lane, never in a
             // junction (ours).
-            const drives = driving or Self.single_player;
+            const drives = driving or Self.city;
             const found = if (near) |o| Api.findSpotNearOpts(self, id, map.Ground.road, r, o.x, o.y, T.ambient_near_radius, T.ambient_near_min, drives) else Api.findSpotOpts(self, id, map.Ground.road, r, drives);
             const spot = found orelse {
                 w.despawn(id);
@@ -185,7 +185,7 @@ pub fn Sys(comptime Self: type) type {
             const dir: u2 = @truncate(spot.heading >> 14);
             // Off-screen traffic near a player at three stars or more may
             // become a roadblock instead (E's hook; police-ai.md 3.4).
-            if (comptime Self.single_player and @hasDecl(Self.police, "tryRoadblock")) {
+            if (comptime Self.city and @hasDecl(Self.police, "tryRoadblock")) {
                 if (drives and near != null) {
                     const l = route_mod.levelUnder(self.grid, spot.x, spot.y, spot.z, T.car_step);
                     if (Self.police.tryRoadblock(self, fx.toInt(spot.x), fx.toInt(spot.y), l, dir)) {
@@ -196,7 +196,7 @@ pub fn Sys(comptime Self: type) type {
             }
             var model = self.pickAmbientModel(id);
             var reskin = false;
-            if (comptime Self.single_player) {
+            if (comptime Self.city) {
                 if (drives and near != null) if (Api.reskinModel(self, id)) |m| {
                     model = m;
                     reskin = true;
@@ -211,7 +211,7 @@ pub fn Sys(comptime Self: type) type {
             }
             // The zone's car mix, for every car brought near a player
             // (spawned or recycled).
-            if (comptime Self.single_player) if (near) |o| if (Api.zoneDensityAt(self, o.x, o.y)) |d| {
+            if (comptime Self.city) if (near) |o| if (Api.zoneDensityAt(self, o.x, o.y)) |d| {
                 const kind: CarKind = @enumFromInt(Api.pickWeighted(self, id, salt_zone_car_kind, d.car_ratio));
                 Api.dressCar(self, id, kind);
             };
@@ -222,7 +222,7 @@ pub fn Sys(comptime Self: type) type {
         /// cars near the player is one of their units (police-ai.md 3.6;
         /// the rate is ours): its model, or null.
         fn reskinModel(self: *Self, id: EntityId) ?u8 {
-            if (comptime !(Self.single_player and @hasDecl(Self.police, "crew"))) return null;
+            if (comptime !(Self.city and @hasDecl(Self.police, "crew"))) return null;
             const kind = Api.reskinKind(self) orelse return null;
             if (self.randBelow(id, salt_zone_reskin, TF.reskin_odds) != 0) return null;
             return Self.police.crew.modelFor(kind);
@@ -231,7 +231,7 @@ pub fn Sys(comptime Self: type) type {
         /// The highest crew kind (FBI or army) of any player's pursuit, if
         /// E's wanted state records one.
         fn reskinKind(self: *Self) ?u8 {
-            if (comptime !(Self.single_player and @hasField(@TypeOf(self.state.sp.wanted[0]), "top_kind"))) return null;
+            if (comptime !(Self.city and @hasField(@TypeOf(self.state.sp.wanted[0]), "top_kind"))) return null;
             var best: ?u8 = null;
             for (self.state.sp.wanted) |wst| {
                 const k = wst.top_kind;
@@ -340,7 +340,7 @@ pub fn Sys(comptime Self: type) type {
         /// zone of that name in the level). False if there is no level, no
         /// such zone, or no room. A zone set twice keeps the last settings.
         pub fn setZoneDensity(self: *Self, name: []const u8, d: ZoneDensity) bool {
-            if (comptime !Self.single_player) return false;
+            if (comptime !Self.city) return false;
             const l = self.level orelse return false;
             for (l.zones, 0..) |z, i| {
                 if (std.mem.eql(u8, z.name, name)) return Api.setZoneDensityIndex(self, @intCast(i), d);
@@ -350,7 +350,7 @@ pub fn Sys(comptime Self: type) type {
 
         /// As `setZoneDensity`, by index into `Level.zones`.
         pub fn setZoneDensityIndex(self: *Self, zone: u16, d: ZoneDensity) bool {
-            if (comptime !Self.single_player) return false;
+            if (comptime !Self.city) return false;
             const st = &self.state.sp.traffic;
             for (st.zones[0..st.count]) |*e| {
                 if (e.zone == zone + 1) {
@@ -367,7 +367,7 @@ pub fn Sys(comptime Self: type) type {
         /// The settings of the first configured zone (in declaration order)
         /// containing block (bx, by), if any.
         pub fn zoneDensityAt(self: *const Self, bx: i32, by: i32) ?ZoneDensity {
-            if (comptime !Self.single_player) return null;
+            if (comptime !Self.city) return null;
             const l = self.level orelse return null;
             const st = &self.state.sp.traffic;
             for (st.zones[0..st.count]) |e| {
@@ -397,7 +397,7 @@ pub fn Sys(comptime Self: type) type {
         /// no settings, and levels with none, leave the population to the
         /// ambient system as before. Single player only.
         pub fn sysZoneSpawn(self: *Self) void {
-            if (comptime !Self.single_player) return;
+            if (comptime !Self.city) return;
             if (self.predicting()) return;
             if (self.state.sp.traffic.count == 0) return;
             if (self.state.tick % TF.zone_spawn_period != 0) return;
