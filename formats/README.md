@@ -6,6 +6,7 @@ Zig parsers for GTA2 data files. Carried forward from spike S1.
 - `gmp.zig` - map files (`GBMP`): UMAP, CMAP and DMAP block grids, ZONE, MOBJ, LGHT, ANIM. Decodes face bits and the 64 slope codes into a `Shape`.
 - `sty.zig` - style files (`GBST`): PALX, PPAL, PALB, TILE, SPRG, SPRX, SPRB. Tile pixel and palette colour lookup.
 - `synth.zig` - writers for synthetic files, used for tests and demo content.
+- `scr.zig` - compiled mission scripts (workstream A1): the main `.scr`, mission sub-scripts, the string table, the command type table, and scrasm, an assembler from text so tests never need game data (`tools/scrasm` is its command line).
 
 All parsers are pure functions over a byte slice: no I/O, no globals, usable from the sim, WASM and native tools. Each parse result owns an arena; call `deinit`.
 
@@ -21,7 +22,7 @@ cd formats && zig build test   # Zig 0.17.0
 
 `gxt.zig` reads the `.gxt` text tables (public format: `GBL` and a language letter, a `TKEY` index of 8-byte keys and offsets, `TDAT` 16-bit strings). `Table.getId(500)` looks up the key "500", as scripts name their messages (script-messages.md 2.1). Client only; checked against the player's `e.gxt`.
 
-`level.zig` builds the sim's static `Level` (zones, map objects with positions in sim fixed point, lights) from a parsed map: `var d = try formats.level.build(gpa, &map); sim.attachLevel(&d.level);`. The script is added by `scr.zig` when workstream A1 lands it. `formats` depends on `interfaces/zig` by path for the `abi` types.
+`level.zig` builds the sim's static `Level` (zones, map objects with positions in sim fixed point, lights) from a parsed map: `var d = try formats.level.build(gpa, &map); sim.attachLevel(&d.level);`. The script comes from `scr.parseMain` and `scr.parseMission` (one per sub-script, named by its lower-case stem) into `Level.script` and `Level.missions`. `formats` depends on `interfaces/zig` by path for the `abi` types.
 
 `synth.zig` can also write sprites (SPRG, SPRX, SPRB), car remap palettes and map lights (LGHT), for the renderer's synthetic demo.
 
