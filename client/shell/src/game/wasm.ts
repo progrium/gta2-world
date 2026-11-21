@@ -433,6 +433,12 @@ export class GameModule {
 
   // -------------------------------------------------------------- online
 
+  /** Before `layoutHash` and `netStart`: the room has police on (dmp16). */
+  netPolice(on: boolean): void {
+    if (this.w.netPolice) this.w.netPolice(on ? 1 : 0);
+    else if (on) throw new Error("this game.wasm has no police rooms; reload the page");
+  }
+
   get layoutHash(): bigint {
     const h = new Uint32Array(this.buf, this.w.layoutHashPtr!(), 2);
     return (BigInt(h[1]!) << 32n) | BigInt(h[0]!);

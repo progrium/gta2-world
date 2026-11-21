@@ -44,7 +44,7 @@ const salt_fight_pick: u32 = ids.salts.gangs[0] + 0x10;
 pub fn Sys(comptime Self: type) type {
     return struct {
         const Me = @This();
-        const sp = Self.single_player;
+        const sp = Self.city;
         const World = Self.World;
         const Obj = Self.objectives;
 

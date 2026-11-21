@@ -16,7 +16,7 @@ export type TransportKind = 0 | 1 | 2;
 /** Page -> Worker. */
 export type ToHost =
   /** Load the sim on this map and start the 30 Hz tick. Sent once. */
-  | { t: "start"; session: string; map: ArrayBuffer; maxPlayers: number; seed: number; record: boolean }
+  | { t: "start"; session: string; map: ArrayBuffer; maxPlayers: number; seed: number; record: boolean; police?: boolean }
   /** A transport connected. Mirrors Hub.opened. `peer` is chosen by the page, unique per host. */
   | { t: "opened"; peer: PeerId; transport: TransportKind }
   /** Mirrors Hub.stream: one reliable I3 message from the peer. */
