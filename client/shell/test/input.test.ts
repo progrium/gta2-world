@@ -248,3 +248,34 @@ test("input system: auto scheme is direct after pad input, tank after keys", () 
   assert.equal(f.buttons & Button.direct, 0);
   assert.equal(f.throttle, 127);
 });
+
+test("input system: controllers can be switched off for this tab, and pause while unfocused", () => {
+  const b = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+  b[Std.RT] = { pressed: true, value: 1 };
+  const list: (MinimalGamepad | null)[] = [pad({ buttons: b })];
+  const store = new RemapStore(new MemKV());
+  const sys = new InputSystem(store, new GamepadManager(store, () => list));
+  sys.padsInjected = true;
+  sys.inVehicle = () => true;
+  sys.poll();
+  assert.equal(sys.latch(0)[0]!.throttle, 127);
+  const seen: string[] = [];
+  sys.on((e) => seen.push(e.type));
+  sys.padsEnabled = false;
+  sys.poll();
+  assert.equal(sys.latch(1)[0]!.throttle, 0, "pad ignored while off");
+  assert.equal(sys.players[0]!.pad, 0, "the slot keeps its pad for when it's switched back on");
+  sys.keyboard.keyDown("ArrowUp");
+  sys.poll();
+  assert.equal(sys.latch(2)[0]!.throttle, 127, "keyboard still works");
+  sys.keyboard.keyUp("ArrowUp");
+  sys.padsEnabled = true;
+  let focused = false;
+  sys.hasFocus = () => focused;
+  sys.poll();
+  assert.equal(sys.latch(3)[0]!.throttle, 0, "pad ignored while the window isn't focused");
+  focused = true;
+  sys.poll();
+  assert.equal(sys.latch(4)[0]!.throttle, 127);
+  assert.deepEqual(seen, ["pads-toggled", "pads-toggled"]);
+});

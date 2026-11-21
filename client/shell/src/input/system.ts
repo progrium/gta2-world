@@ -17,6 +17,16 @@ import { type Sample, mergeSamples } from "./sample.ts";
 
 export const MAX_LOCAL_PLAYERS = 4;
 
+const PADS_KEY = "gta2.padsEnabled";
+
+function loadPadsEnabled(): boolean {
+  try {
+    return globalThis.sessionStorage?.getItem(PADS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 export type SchemeSetting = "auto" | FootScheme;
 
 export interface LocalPlayer {
@@ -36,7 +46,8 @@ export interface LocalPlayer {
 
 export type InputEvent =
   | PadEvent
-  | { type: "player-joined" | "player-left"; player: LocalPlayer };
+  | { type: "player-joined" | "player-left"; player: LocalPlayer }
+  | { type: "pads-toggled"; enabled: boolean };
 
 const active = (s: Sample): boolean => s.buttons !== 0 || s.accelerate > 0 || s.brake > 0 || s.moveX !== 0 || s.moveY !== 0;
 
@@ -79,7 +90,14 @@ export class InputSystem {
   /** Call once per animation frame. */
   poll(): void {
     const kb = this.keyboard.poll();
-    const padSamples = GamepadManager.supported() || this.padsInjected ? this.pads.poll() : new Map<number, Sample>();
+    const havePads = GamepadManager.supported() || this.padsInjected;
+    let padSamples = new Map<number, Sample>();
+    if (havePads) {
+      // Hot-plug bookkeeping always runs so slots keep their pads; readings
+      // are dropped while this tab has pads switched off or isn't focused.
+      if (this.padsLive()) padSamples = this.pads.poll();
+      else this.pads.sync();
+    }
     this.handleJoins(padSamples);
     for (const p of this.players) {
       const parts: Sample[] = [];
@@ -119,8 +137,38 @@ export class InputSystem {
   /** Rumble whatever pad drives a slot. Silently does nothing without one. */
   rumble(slot: number, e: RumbleEffect): void {
     const p = this.players[slot];
-    if (p?.pad == null) return;
+    if (p?.pad == null || !this.padsLive()) return;
     rumble(this.pads.gamepad(p.pad), e);
+  }
+
+  /**
+   * Controllers on or off for this tab. A pad is shared by every tab that
+   * polls it, so two windows testing multiplayer would both drive from it.
+   * Stored in sessionStorage: per tab, kept across reloads of that tab.
+   */
+  get padsEnabled(): boolean {
+    return this._padsEnabled;
+  }
+  set padsEnabled(on: boolean) {
+    if (on === this._padsEnabled) return;
+    this._padsEnabled = on;
+    try {
+      sessionStorage.setItem(PADS_KEY, on ? "1" : "0");
+    } catch {
+      /* no storage: lasts for this page */
+    }
+    this.emit({ type: "pads-toggled", enabled: on });
+  }
+  private _padsEnabled = loadPadsEnabled();
+
+  /** Ignore pads while the window isn't focused (another window has the player's attention). */
+  padsNeedFocus = true;
+  /** For tests: stands in for document.hasFocus(). */
+  hasFocus: () => boolean = () => (typeof document === "undefined" ? true : document.hasFocus());
+
+  /** Whether pad input reaches the game right now. */
+  padsLive(): boolean {
+    return this._padsEnabled && (!this.padsNeedFocus || this.hasFocus());
   }
 
   /** For tests: allow poll() to read pads without navigator.getGamepads. */

@@ -97,7 +97,10 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   let netLine = "";
   const names = new Map<number, string>();
 
-  input.inVehicle = (slot) => (game ? game.player(slot).inCar : false);
+  // Local slot 0 is the sim's ownSlot when online; reading slot 0 there gave the
+  // host's player, so the other player getting out of a car switched this
+  // player's controls to on-foot (tank/direct) while still driving.
+  input.inVehicle = (slot) => (game ? game.player(slot === 0 ? ownSlot : slot).inCar : false);
 
   const schemeSel = h(
     "select",
@@ -112,6 +115,12 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   ) as HTMLSelectElement;
   schemeSel.value = input.players[0]!.scheme;
 
+  const padBox = h("input", {
+    type: "checkbox",
+    checked: input.padsEnabled,
+    title: "Turn off to stop this tab reading controllers, e.g. when two windows on one computer play each other.",
+    onchange: (e: Event) => (input.padsEnabled = (e.target as HTMLInputElement).checked),
+  });
   const rumbleBox = h("input", { type: "checkbox", checked: rumbleSettings.enabled, onchange: (e: Event) => (rumbleSettings.enabled = (e.target as HTMLInputElement).checked) });
 
   const closeOverlay = (): void => {
@@ -157,6 +166,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         "span",
         { class: "row" },
         schemeSel,
+        h("label", { title: "Turn off to stop this tab reading controllers, e.g. when two windows on one computer play each other." }, padBox, " controller"),
         h("label", {}, rumbleBox, " rumble"),
         remote ? null : h("button", { onclick: toggleTuning }, "Tuning (T)"),
         h("button", { onclick: toggleNight }, "Night (N)"),
@@ -184,7 +194,9 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     const pads = [...input.pads.pads.values()];
     if (!("getGamepads" in navigator)) padsLine.append(h("span", { class: "muted" }, "This browser has no Gamepad API; keyboard only."));
     else if (!isSecureContext) padsLine.append(h("span", { class: "warn" }, "Controllers need https or localhost."));
+    else if (!input.padsEnabled) padsLine.append(h("span", { class: "chip" }, "Controller off in this tab · keyboard only"));
     else if (pads.length === 0) padsLine.append(h("span", { class: "prompt" }, "Keyboard: arrows/WASD, Enter/F get in or out, Ctrl/J fire, Z/X weapons, Space handbrake or jump, Shift run, Tab scores. Press a button on a controller to use it."));
+    if (!input.padsEnabled) return;
     for (const p of pads) {
       const owner = input.players.find((pl) => pl.pad === p.index);
       padsLine.append(
@@ -194,11 +206,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
           `${owner ? `P${owner.slot + 1}` : "—"} ${p.key.name}`,
           p.mapping !== "standard" && p.bindingSource !== "saved" ? h("span", { class: "warn" }, " · needs remap") : null,
           rumbleSupport(input.pads.gamepad(p.index)) === "none" ? h("span", { class: "muted" }, " · no rumble") : null,
+          !input.padsLive() ? h("span", { class: "muted" }, " · paused while this window isn't focused") : null,
         ),
       );
     }
   };
-  const offInput = input.on(renderPads);
+  const offInput = input.on(() => {
+    padBox.checked = input.padsEnabled;
+    renderPads();
+  });
+  addEventListener("focus", renderPads);
+  addEventListener("blur", renderPads);
   renderPads();
 
   const onKeyUp = (e: KeyboardEvent): void => {
@@ -646,6 +664,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     closeOverlay();
     audio.stopAll();
     offInput();
+    removeEventListener("focus", renderPads);
+    removeEventListener("blur", renderPads);
     removeEventListener("keydown", onKey);
     removeEventListener("keyup", onKeyUp);
     input.inVehicle = () => false;
