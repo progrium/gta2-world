@@ -24,6 +24,9 @@ pub const sink_px_per_tick: i32 = 2;
 /// A ped who drowns is credited to whoever hurt him within this many ticks
 /// (ped-movement.md 3.7).
 pub const drown_credit_ticks: u8 = 50;
+/// Shock added each tick to a ped standing on an electrified floor
+/// (ped-movement.md 3.7).
+pub const electric_floor_shock: u8 = 3;
 pub const car_ceiling: Fx = fx.fromInt(8) - fx.one / 64;
 /// A grounded body follows the floor down by up to this much per tick
 /// (driving down a ramp); further than that it falls.
@@ -34,3 +37,21 @@ pub const ped_step = fx.ratio(5, 16);
 pub const car_step = fx.ratio(7, 10);
 /// Largest move per physics sub-step, so nothing tunnels through a block.
 pub const max_substep = fx.ratio(1, 4);
+
+/// Oil slick (car-handling.md): a 30-tick spin, 30 damage (through the
+/// model's anti-strength, ours), each driven axle turned 30 degrees.
+pub const oil_ticks: u8 = 30;
+pub const oil_damage: i64 = fx.fromInt(30);
+pub const oil_axle_angle: u16 = 5461; // 30 degrees in 1/65536 turns
+/// Steep-slope roll-back (car-handling.md step 9): 0.04 x mass downhill on
+/// a 45 degree ramp with no brake on.
+pub const slope_rollback: Fx = fx.ratio(4, 100);
+/// Heavy crush (car-collision.md 3.6, car-height.md 3.6): impulse over 0.2,
+/// crusher faster than 0.01, rides up to the crushed car's height + 0.2.
+pub const crush_impulse: Fx = fx.ratio(2, 10);
+pub const crush_min_speed: Fx = fx.ratio(1, 100);
+pub const crush_ride_up: Fx = fx.ratio(2, 10);
+/// Landing on another car (car-collision.md 3.6): push-apart impulse 0.1,
+/// extra damage mass x |vertical speed| x 50.
+pub const landing_push: Fx = fx.ratio(1, 10);
+pub const landing_damage: i32 = 50;

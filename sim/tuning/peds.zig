@@ -27,6 +27,9 @@ pub const ped_slide_shift: u5 = 1;
 /// Falling: 0.01 a tick more, to at most 0.1 a tick.
 pub const ped_gravity = fx.ratio(1, 100);
 pub const ped_max_fall = fx.ratio(1, 10);
+/// Fall damage on each of the fall animation's frames 12 and 13
+/// (ped-movement.md 3.5).
+pub const fall_damage: i32 = 4;
 /// Knocked over (gets straight up) and knocked down (lies a while): ticks on
 /// the ground. The notes leave the timing to animations; ours.
 pub const knock_over_ticks: u16 = 20;

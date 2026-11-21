@@ -34,6 +34,7 @@ const Ctx = struct {
     notify: bool = false,
     mission_flags: [4]u16 = @splat(0),
     fail_base: [3]u16 = @splat(0),
+    gangs: [8]u16 = @splat(0),
     triggers: usize = 0,
     last_trigger: W.decl.Trigger = undefined,
 
@@ -71,6 +72,9 @@ const Ctx = struct {
     }
     pub fn setFailBase(x: *Ctx, gang: u2, base: u16) void {
         x.fail_base[gang] = base;
+    }
+    pub fn registerGang(x: *Ctx, index: u8, key: u16) void {
+        x.gangs[index] = key;
     }
     pub fn player(x: *Ctx, slot: u8) EntityId {
         return x.sim.pedOf(slot) orelse .none;
@@ -381,6 +385,10 @@ test "script world: player locks, wanted level, the fail flag and mission bookke
     var fb: B = .{};
     _ = e.run(436, 1, fb.i32_(4, 4200).s());
     try std.testing.expectEqual(@as(u16, 4200), e.ctx.fail_base[1]);
+    var gi: B = .{};
+    _ = e.run(223, 45, gi.u16_(0, 238).s());
+    _ = e.run(223, 46, gi.u16_(0, 239).s());
+    try std.testing.expectEqual(@as(u16, 239), e.ctx.gangs[1]);
     var f: B = .{};
     _ = e.run(343, 1, f.i32_(0, 5_000_000).s());
     try std.testing.expectEqual(@as(i32, 5_000_000), e.sim.state.sp.world.finish_score);

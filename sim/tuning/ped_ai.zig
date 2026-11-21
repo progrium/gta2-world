@@ -11,6 +11,11 @@ const Fx = fx.Fx;
 
 /// A chaser stops within 1/8 block of its target (3.7).
 pub const chase_stop = fx.ratio(1, 8);
+/// Ours: our ped bodies (0.2 across) touch before their centres are 1/8
+/// apart, and a chaser walking on into its target shoves it (off a roof
+/// edge, for one). So a chaser stops just short of touching: 0.2 + 1/32.
+/// A punch (0.25) still reaches from there.
+pub const chase_stop_at = fx.ratio(1, 5) + fx.ratio(1, 32);
 /// Below these gaps the chaser drops to three slower fixed speeds (3.7).
 pub const chase_tier1 = fx.ratio(1, 2);
 pub const chase_tier2 = fx.ratio(3, 8);
