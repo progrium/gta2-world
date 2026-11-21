@@ -39,12 +39,12 @@ const Cmd = W.Cmd;
 const Outcome = W.Outcome;
 const Obj = @import("../ai/objectives.zig");
 
-pub const done = [_]u16{ 41, 42, 131, 132, 133, 315, 360, 357, 138, 266, 256, 420, 126, 127, 125, 202, 203, 324, 363, 371, 355, 432, 153, 235, 236, 259, 234, 419, 409, 151, 152, 121, 122, 123, 243, 124, 242, 145, 146, 147, 148, 149, 150, 367, 381, 382, 156, 364, 410, 237 };
+pub const done = [_]u16{ 41, 42, 131, 132, 133, 315, 360, 357, 138, 266, 256, 420, 126, 127, 125, 202, 203, 324, 363, 371, 355, 432, 153, 235, 236, 259, 234, 419, 409, 151, 152, 121, 122, 123, 243, 124, 242, 145, 146, 147, 148, 149, 150, 367, 381, 382, 156, 364, 410, 237, 320, 252, 255, 264, 165, 176, 251, 411, 412 };
 /// Waiting on: gang names (D2's gang info), respect by gang (D2), group
 /// formation (D1), favourite car (D1/F), threat settings and speeds (D1),
 /// drive style (F), kill-frenzy weapon (G), combat memory and hit records
 /// (D1, A1), bus state (F), spotting the player (D1), attack state (D1).
-pub const stubbed = [_]u16{ 258, 232, 225, 262, 393, 198, 199, 231, 359, 408, 383, 307, 306, 411, 412, 252, 255, 264, 320, 244, 384, 385, 369, 370, 176, 165, 251 };
+pub const stubbed = [_]u16{ 258, 232, 225, 262, 393, 198, 199, 231, 359, 408, 383, 307, 306, 244, 384, 385, 369, 370, 176, 165, 251 };
 
 /// Script objective numbers as D1's kinds. Read from how the levels use
 /// them (which command form and which target each number comes with);
@@ -187,7 +187,7 @@ pub fn Sys(comptime Self: type) type {
                     Self.objectives.setObjective(self, ped, o);
                     if (kind == .none and p.u16_(2) != 0) return .stubbed;
                 },
-                360 => Self.objectives.setObjective(self, ped, .{ .kind = .wait }),
+                360 => Self.objectives.forceIdle(self, ped),
                 357 => {
                     const t = w.get(ped, c.Transform) orelse return .done;
                     const car = H.carOf(self, ped);
@@ -211,8 +211,7 @@ pub fn Sys(comptime Self: type) type {
                         if (r.* != T.infinite_ammo) r.* = @min(T.max_ammo_tenths, r.* +| rounds *| 10);
                     } else {
                         // AI peds keep no ammo: the weapon is forced.
-                        for (wpn.rounds()) |*r| r.* = 0;
-                        wpn.rounds()[k] = T.infinite_ammo;
+                        Self.objectives.armPed(self, ped, k);
                     }
                     wpn.kind = k;
                 },
@@ -344,8 +343,27 @@ pub fn Sys(comptime Self: type) type {
                     ctx.setCond(H.hitOnce(self, ped, @truncate(p.u16_(4))));
                     return if (@hasDecl(Self.script, "hitBy")) .done else .stubbed;
                 },
-                232, 198, 199, 231, 255, 264, 244, 369, 176, 165, 251 => return condStub(ctx, false),
-                258, 225, 262, 393, 359, 408, 383, 307, 306, 411, 412, 252, 384, 385, 370 => return .stubbed,
+                // 2.7 Combat memory (D1).
+                252 => ctx.setHandle(p.u16_(2), Self.objectives.takePunched(self, ped)),
+                255 => ctx.setCond(!Self.objectives.lastPunched(self, ped).isNone()),
+                264 => {
+                    const who = Self.objectives.lastPunched(self, ped);
+                    ctx.setCond(!who.isNone() and eql(who, ctx.handle(p.u16_(2))));
+                },
+                165 => ctx.setCond(Self.objectives.isAttacking(self, ped) and w.get(ped, c.Weapon) != null),
+                176 => {
+                    const t = w.get(ped, c.Transform) orelse return cond(ctx, false);
+                    ctx.setCond(Self.objectives.isAttacking(self, ped) and H.inRect(t, p.fx_(4), p.fx_(8), p.fx_(16), p.fx_(20)));
+                },
+                251 => ctx.setCond(Self.objectives.hasSpottedPlayer(self, ped)),
+                // 411/412: the kill-frenzy weapon (assumes the player).
+                411 => {
+                    const k = weapon(p.u16_(2)) orelse return .stubbed; // a vehicle weapon: G
+                    Self.career.setFrenzyWeapon(self, H.playerSlot(self, ped) orelse 0, k);
+                },
+                412 => Self.career.setFrenzyWeapon(self, H.playerSlot(self, ped) orelse 0, 0xFF),
+                232, 198, 199, 231, 244, 369 => return condStub(ctx, false),
+                258, 225, 262, 393, 359, 408, 383, 307, 306, 384, 385, 370 => return .stubbed,
                 else => return .unhandled,
             }
             return .done;

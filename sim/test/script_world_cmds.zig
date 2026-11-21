@@ -422,3 +422,73 @@ test "script world: every listed command runs on empty parameters and none is un
     // dm16 has no script world at all.
     try std.testing.expectEqual(W.Outcome.unhandled, W.exec(simmod.Sim16, undefined, e.ctx, .{ .num = 1, .kind = 141 }));
 }
+
+test "script world: doors, generators, areas and phones reach B's objects" {
+    var e = try Env.init();
+    defer e.deinit();
+    e.ctx.decl = true;
+    // 378: a double door on block (40, 44, 2), face byte 1, animation 0,
+    // open rule 0 (any player), close rule 2, check area 1x1 at the block.
+    var d: B = .{};
+    d.b[4] = 40;
+    d.b[5] = 44;
+    d.b[6] = 2;
+    d.b[7] = 1;
+    d.b[10] = 2;
+    _ = d.i32_(12, 40 * W.script_one + W.script_one / 2).i32_(16, 44 * W.script_one + W.script_one / 2).i32_(20, 2 * W.script_one);
+    _ = d.i32_(24, W.script_one).i32_(28, W.script_one).i32_(32, 0);
+    try std.testing.expectEqual(W.Outcome.done, e.run(378, 417, d.s()));
+    const door = e.ctx.handles[417];
+    try std.testing.expect(S.objects.doorState(e.sim, door) != null);
+    var o: B = .{};
+    _ = e.run(177, 1, o.u16_(0, 417).s());
+    try std.testing.expectEqual(@as(@TypeOf(S.objects.doorState(e.sim, door).?), .open), S.objects.doorState(e.sim, door).?);
+    // 30: a generator of model 210 every 1800 ticks.
+    var g: B = .{};
+    _ = g.pos2d(4, 42, 42).u16_(16, 0).u16_(18, 210).u16_(20, 1800).u16_(22, 1800).u16_(24, 15);
+    try std.testing.expectEqual(W.Outcome.done, e.run(30, 226, g.s()));
+    try std.testing.expectEqual(@as(u32, 210), @as(u32, S.objects.objectModel(e.sim, e.ctx.handles[226]).?));
+    // 27: a conveyor pushing +x.
+    var a: B = .{};
+    _ = a.pos2d(4, 41, 41).i32_(16, 2 * W.script_one).i32_(20, 2 * W.script_one);
+    a.b[24] = 1;
+    a.n = 28;
+    try std.testing.expectEqual(W.Outcome.done, e.run(27, 211, a.s()));
+    const t = e.get(e.ctx.handles[211], c.Transform);
+    const push = S.objects.conveyorPush(e.sim, blk(41), blk(41), t.z).?;
+    try std.testing.expectEqual(W.decl.conveyor_unit, push.vx);
+    // A phone rung by 168 is neither answered nor timed out yet.
+    var ph: B = .{};
+    _ = ph.pos2d(4, 43, 43).u16_(16, 1);
+    _ = e.run(16, 300, ph.s());
+    const phone = e.ctx.handles[300];
+    try std.testing.expect(!phone.isNone());
+    var r: B = .{};
+    _ = e.run(168, 1, r.u16_(0, 300).u16_(4, 50).s());
+    _ = e.run(227, 1, r.s());
+    try std.testing.expect(!e.ctx.cond);
+    _ = e.run(228, 1, r.s());
+    try std.testing.expect(!e.ctx.cond);
+}
+
+test "script world: wanted stars, score and multiplier go through the career and wanted APIs" {
+    var e = try Env.init();
+    defer e.deinit();
+    e.join();
+    e.ctx.handles[1] = e.sim.pedOf(0).?;
+    var b: B = .{};
+    _ = e.run(164, 1, b.u16_(0, 1).u16_(2, 3).s());
+    try std.testing.expectEqual(@as(u8, 3), S.wanted.stars(e.sim, 0));
+    _ = e.run(421, 1, b.u16_(2, 2).s());
+    try std.testing.expectEqual(@as(u8, 3), S.wanted.stars(e.sim, 0)); // 421 never lowers
+    _ = e.run(164, 1, b.u16_(2, 9).s());
+    try std.testing.expectEqual(@as(u8, 3), S.wanted.stars(e.sim, 0)); // out of range: ignored
+    _ = e.run(163, 1, b.s());
+    try std.testing.expectEqual(@as(u8, 0), S.wanted.stars(e.sim, 0));
+    const before = S.career.score(e.sim, 0);
+    var m: B = .{};
+    _ = e.run(392, 1, m.u16_(0, 1).i32_(4, 500).s());
+    try std.testing.expectEqual(before + 500, S.career.score(e.sim, 0));
+    _ = e.run(194, 1, m.i32_(4, before + 499).s());
+    try std.testing.expect(e.ctx.cond);
+}

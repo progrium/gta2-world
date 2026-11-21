@@ -8,10 +8,15 @@
 //!   10-13, 425-428  u32 unused (or a name), position @4, heading @16,
 //!            remap @18, model @20, trailer model @22 (0xFFFF none)
 //!   15-20    u32 unused, position @4, model @16, rotation @18, value i32 @20
-//!   26, 27   u32, position @4, then the area and speed (not decoded)
+//!   26, 27   u32, position (the area's centre) @4, width @16, height
+//!            @20, push: one signed byte each for x and y @24 @25
 //!   29-32    u32, position @4, rotation @16, model @18, min and max
 //!            delay @20 @22, ammo @24
-//!   34, 35   u32, position @4, then the area (not decoded)
+//!   34, 35   u32, position (the area's centre) @4, width @16, height @20
+//!   375-379  block x y z bytes @4-@6, face byte @7 (1-4), animation @8,
+//!            open rule @9, close rule @10, delay @11, check area centre
+//!            @12 @16 (height @20), size @24 @28, flip byte @32,
+//!            reversed byte @33; 376/379 add the target @36 (guessed)
 //!   40       u32, x @4, y @8 (no height)
 //!   211, 213 u16 thread start @6, character @8, car or phone @10
 //!   212, 214, 434  thread start @6, x y z @8, width @20, height @24,
@@ -39,12 +44,15 @@ const W = @import("world.zig");
 const Cmd = W.Cmd;
 const Outcome = W.Outcome;
 
-pub const done = [_]u16{ 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 23, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437 };
+/// One unit of a conveyor's push, blocks per tick (ours).
+pub const conveyor_unit: Fx = fx.one >> 6;
+
+pub const done = [_]u16{ 102, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 23, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437 };
 /// Decoded, waiting on another workstream's API: zone densities (F),
 /// cranes (cranes note), conveyors, generators, destructors and doors
 /// (B), triggers (A1), gang info (D2), lights (B), trains and radio,
 /// sound points (audio), the crane power-up link.
-pub const stubbed = [_]u16{ 102, 37, 38, 39, 26, 27, 29, 30, 31, 32, 34, 35, 375, 376, 378, 379, 211, 212, 213, 214, 434, 223, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 };
+pub const stubbed = [_]u16{ 37, 38, 39, 223, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 };
 
 /// A trigger declaration (2.10), handed to the VM when it can take it
 /// (`ctx.addTrigger`, A1).
@@ -92,7 +100,7 @@ pub fn Sys(comptime Self: type) type {
                 23 => ctx.setHandle(cmd.num, .none),
                 40 => {
                     const pos = H.place(self, .{ .x = p.fx_(4), .y = p.fx_(8), .z = 0, .ground = true }, prelude.T.car_step);
-                    if (Self.objects.spawnObject(self, .crusher, 0, pos.x, pos.y, pos.z, 0)) |id| {
+                    if (Self.objects.addCrusher(self, pos.x, pos.y, pos.z)) |id| {
                         H.tag(self, id, cmd.num, c.ScriptTag.flag_keep);
                         ctx.setHandle(cmd.num, id);
                     }
@@ -100,6 +108,9 @@ pub fn Sys(comptime Self: type) type {
                 230 => if (s.door_anim_count < W.State.max_door_anims) {
                     s.door_anims[s.door_anim_count] = .{ .start = p.u16_(0), .end = p.u16_(2), .speed = p.u16_(4) };
                     s.door_anim_count += 1;
+                    // B's list keeps frames as bytes; the levels use frame
+                    // numbers up to 976 (asked B to widen).
+                    _ = Self.objects.addDoorAnim(self, @truncate(p.u16_(0)), @truncate(p.u16_(2)), @truncate(p.u16_(4)));
                 },
                 240, 429, 430, 431 => {
                     const which: u2 = if (cmd.kind == 240) 0 else @intCast(cmd.kind - 428);
@@ -121,23 +132,20 @@ pub fn Sys(comptime Self: type) type {
                     var n: u8 = 0;
                     while (n < W.State.max_car_list) : (n += 1) s.car_list[n] = p.u8_(n);
                     s.car_list_len = n;
+                    Self.objects.setCarList(self, s.car_list[0..n]);
                 },
                 422 => if (s.keyframe_count < W.State.max_keyframes) {
                     s.keyframes[s.keyframe_count] = p.u16_(0);
                     s.keyframe_count += 1;
                 },
-                29, 30, 31, 32 => {
-                    generator(self, ctx, cmd);
-                    return .stubbed;
-                },
-                26, 27, 34, 35 => {
-                    area(self, ctx, cmd, if (cmd.kind < 30) .conveyor else .destructor);
-                    return .stubbed;
-                },
+                29, 30, 31, 32 => generator(self, ctx, cmd),
+                26, 27, 34, 35 => area(self, ctx, cmd),
+                375, 376, 378, 379 => door(self, ctx, cmd),
                 211, 213 => {
                     const t: Trigger = .{ .kind = if (cmd.kind == 211) .car else .phone, .thread = p.u16_(6), .character = ctx.handle(p.u16_(8)), .target = ctx.handle(p.u16_(10)) };
                     // Both must exist (2.10).
                     if (!H.alive(self, t.character) or !H.alive(self, t.target)) return .done;
+                    if (cmd.kind == 213) Self.objects.markPhoneSpokenFor(self, t.target);
                     return addTrigger(ctx, t);
                 },
                 212, 214, 434 => {
@@ -182,7 +190,7 @@ pub fn Sys(comptime Self: type) type {
                         .ped_ratio = .{ p.u16_(10), p.u16_(12), p.u16_(14), p.u16_(16) },
                     });
                 },
-                37, 38, 39, 375, 376, 378, 379, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 => return .stubbed,
+                37, 38, 39, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 => return .stubbed,
                 else => return .unhandled,
             }
             return .done;
@@ -217,24 +225,69 @@ pub fn Sys(comptime Self: type) type {
             ctx.setHandle(cmd.num, id);
         }
 
-        /// 29-32: a generator object (B runs it). Its delays and ammo wait
-        /// on B's generator API.
+        /// 29-32: a generator (B runs it).
         fn generator(self: *Self, ctx: anytype, cmd: Cmd) void {
             const p = W.params(cmd);
-            const pos = H.place(self, p.pos(4), prelude.T.ped_step);
-            if (Self.objects.spawnObject(self, .generator, @truncate(p.u16_(18)), pos.x, pos.y, pos.z, W.heading(p.u16_(16)))) |id| {
-                H.tag(self, id, cmd.num, c.ScriptTag.flag_keep);
-                ctx.setHandle(cmd.num, id);
-            }
+            const q = p.pos(4);
+            const id = Self.objects.addGenerator(self, .{
+                .x = q.x,
+                .y = q.y,
+                .z = if (q.ground) Self.objects.ground_z else q.z,
+                .heading = W.heading(p.u16_(16)),
+                .model = @truncate(p.u16_(18)),
+                .min_delay = p.u16_(20),
+                .max_delay = p.u16_(22),
+                .ammo = p.u16_(24),
+            }) orelse return;
+            H.tag(self, id, cmd.num, c.ScriptTag.flag_keep);
+            ctx.setHandle(cmd.num, id);
         }
 
-        fn area(self: *Self, ctx: anytype, cmd: Cmd, kind: ids.ObjectKind) void {
+        /// 26/27 conveyors and 34/35 destructors: the script gives the
+        /// area's centre and size; conveyors add a push of one signed byte
+        /// per axis (ours: 1/64 block a tick per unit).
+        fn area(self: *Self, ctx: anytype, cmd: Cmd) void {
             const p = W.params(cmd);
-            const pos = H.place(self, p.pos(4), prelude.T.ped_step);
-            if (Self.objects.spawnObject(self, kind, 0, pos.x, pos.y, pos.z, 0)) |id| {
-                H.tag(self, id, cmd.num, c.ScriptTag.flag_keep);
-                ctx.setHandle(cmd.num, id);
-            }
+            const q = p.pos(4);
+            const w = p.fx_(16);
+            const h = p.fx_(20);
+            const conveyor = cmd.kind < 30;
+            const vx: Fx = if (conveyor) @as(Fx, @as(i8, @bitCast(p.u8_(24)))) * conveyor_unit else 0;
+            const vy: Fx = if (conveyor) @as(Fx, @as(i8, @bitCast(p.u8_(25)))) * conveyor_unit else 0;
+            const id = Self.objects.addArea(self, if (conveyor) .conveyor else .destructor, q.x - (w >> 1), q.y - (h >> 1), if (q.ground) Self.objects.ground_z else q.z, w, h, vx, vy) orelse return;
+            H.tag(self, id, cmd.num, c.ScriptTag.flag_keep);
+            ctx.setHandle(cmd.num, id);
+        }
+
+        /// 375/376 single and 378/379 double doors. Only 376/379 resolve
+        /// the car or character their open rule names (5).
+        fn door(self: *Self, ctx: anytype, cmd: Cmd) void {
+            const p = W.params(cmd);
+            const raw_face = p.u8_(7);
+            const w = p.fx_(24);
+            const h = p.fx_(28);
+            const resolves = cmd.kind == 376 or cmd.kind == 379;
+            const flags = p.u32_(32);
+            const id = Self.objects.addDoor(self, .{
+                .bx = p.u8_(4),
+                .by = p.u8_(5),
+                .bz = p.u8_(6),
+                .face = @fromBackingInt(@intCast(if (raw_face > 0) raw_face - 1 else 0)),
+                .anim = p.u8_(8),
+                .open_rule = @fromBackingInt(@intCast(p.u8_(9))),
+                .close_rule = @fromBackingInt(@intCast(p.u8_(10))),
+                .delay = p.u8_(11),
+                .area_x = p.fx_(12) - (w >> 1),
+                .area_y = p.fx_(16) - (h >> 1),
+                .area_w = w,
+                .area_h = h,
+                .flip = flags & 0xFF != 0,
+                .reversed = flags & 0xFF00 != 0,
+                .double = cmd.kind >= 378,
+                .target = if (resolves) ctx.handle(p.u16_(36)) else .none,
+            }) orelse return;
+            H.tag(self, id, cmd.num, c.ScriptTag.flag_keep);
+            ctx.setHandle(cmd.num, id);
         }
     };
 }
