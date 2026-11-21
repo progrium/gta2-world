@@ -222,6 +222,11 @@ export class GameModule {
     return n;
   }
 
+  /** Hash of the installed car models (hex); a client and its host must agree. */
+  carModelsHash(): string {
+    return this.w.carModelsHash ? this.w.carModelsHash().toString(16).padStart(16, "0") : "";
+  }
+
   /** One default car model for every car (online, to match the server). */
   useDefaultCars(): void {
     this.w.useDefaultCars!();

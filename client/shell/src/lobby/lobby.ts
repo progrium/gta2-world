@@ -43,7 +43,7 @@ export interface HostFiles {
   /** SHA-256 hex of the .gmp being played. */
   mapHash: string;
   description: string;
-  /** The files a joiner needs for this match (the .gmp and its .sty). */
+  /** The files a joiner needs for this match (the .gmp, its .sty, and the host's .gci if any). */
   files: FileInfo[];
   /** Read live, so the host can switch sharing on and off while hosting. */
   share(): boolean;

@@ -21,6 +21,7 @@ interface Exports {
   outClear(): void;
   start(mapPtr: number, mapLen: number, namePtr: number, nameLen: number, maxPlayers: number, seedLo: number, seedHi: number, record: boolean, now: number, wallSeconds: number, entropy: number): number;
   synthMap(): number;
+  loadCars(styPtr: number, styLen: number, gciPtr: number, gciLen: number): number;
   opened(peer: number, transport: number, now: number): number;
   stream(peer: number, p: number, n: number, now: number): void;
   datagram(peer: number, p: number, n: number, now: number): void;
@@ -119,6 +120,23 @@ export class HostModule {
     const out = this.u8(this.w.outPtr(), this.w.outLen()).slice();
     this.w.outClear();
     return out;
+  }
+
+  /** Car models from a .sty and an optional .gci (client/wasm loadCarInfo's recipe). Before start. Returns the count and carModelsHash. */
+  loadCars(sty: Uint8Array, gci: Uint8Array | null): { cars: number; hash: string } {
+    const g = gci ?? new Uint8Array(0);
+    const total = sty.length + g.length;
+    const p = this.w.alloc(Math.max(total, 1));
+    if (!p) throw new Error("host.wasm: out of memory for the style");
+    try {
+      const mem = this.u8(p, total);
+      mem.set(sty, 0);
+      mem.set(g, sty.length);
+      if (this.w.loadCars(p, sty.length, p + sty.length, g.length) !== 0) throw new Error(`host.wasm loadCars: ${this.text()}`);
+      return JSON.parse(this.text()) as { cars: number; hash: string };
+    } finally {
+      this.w.free(p, Math.max(total, 1));
+    }
   }
 
   start(o: { session: string; map: Uint8Array; maxPlayers: number; seed: number; record: boolean; now: number; entropy: Uint8Array }): StartInfo {

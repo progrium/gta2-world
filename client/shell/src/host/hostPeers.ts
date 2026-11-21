@@ -151,7 +151,9 @@ export class HostPeers {
   start(o: StartOpts): Promise<Ready> {
     return new Promise<Ready>((resolve, reject) => {
       this.readyWait = { resolve, reject };
-      this.worker.postMessage({ t: "start", ...o }, [o.map]);
+      const transfer = [o.map];
+      if (o.cars) transfer.push(o.cars.style, ...(o.cars.gci ? [o.cars.gci] : []));
+      this.worker.postMessage({ t: "start", ...o }, transfer);
     });
   }
 

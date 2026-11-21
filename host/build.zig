@@ -64,6 +64,9 @@ fn hostModule(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.bui
             .{ .name = "interfaces", .module = interfaces },
             .{ .name = "server", .module = serverModule(b, target, optimize) },
             .{ .name = "sim_impl", .module = sim_impl },
+            // Car models: the same loader the offline game uses (client/wasm loadCarInfo).
+            .{ .name = "formats", .module = b.dependency("formats", args).module("formats") },
+            .{ .name = "sim", .module = b.dependency("sim", args).module("sim") },
         },
     });
 }

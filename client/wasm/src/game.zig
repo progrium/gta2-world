@@ -132,6 +132,12 @@ export fn loadCarInfo(p: [*]const u8, n: usize) i32 {
 
 /// Back to the one default model (online: the server does not load car
 /// info yet, and both sides must agree).
+/// Hash of the installed car models (sim.tuning.carModelsHash): a client and
+/// the host it joins must agree, or prediction drifts.
+export fn carModelsHash() u64 {
+    return sim.tuning.carModelsHash();
+}
+
 export fn useDefaultCars() void {
     sim.tuning.setCarModels(&.{});
     loaded_count = 0;

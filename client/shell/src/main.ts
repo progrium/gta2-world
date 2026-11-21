@@ -70,7 +70,7 @@ function playHosted(s: HostSession): void {
     input,
     store,
     sessionId: s.room,
-    net: { transport: "loopback", loopback: s.loopback(), label: `hosting ${s.room}` },
+    net: { transport: "loopback", loopback: s.loopback(), label: `hosting ${s.room}`, gciHash: s.gciHash },
     extraHud: panel.el,
     map: s.map,
     onBack: showHost,
@@ -93,9 +93,9 @@ function showJoin(room: string, mapHash12: string): void {
     room,
     mapHash12,
     onCancel: leaveJoin,
-    onPlay: (map: MapChoice, rtc: RtcPeer) => {
+    onPlay: (map: MapChoice, rtc: RtcPeer, gciHash: string | null) => {
       teardown?.();
-      teardown = gameScreen(root, { input, store, sessionId: room, net: { transport: "webrtc", rtc, label: `room ${room}` }, map, onBack: leaveJoin });
+      teardown = gameScreen(root, { input, store, sessionId: room, net: { transport: "webrtc", rtc, label: `room ${room}`, gciHash }, map, onBack: leaveJoin });
     },
   });
 }

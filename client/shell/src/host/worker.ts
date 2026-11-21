@@ -120,11 +120,12 @@ async function start(m: Extract<ToHost, { t: "start" }>): Promise<void> {
     const h = await loading;
     const entropy = crypto.getRandomValues(new Uint8Array(32));
     const now = clock();
+    const cars = m.cars ? h.loadCars(new Uint8Array(m.cars.style), m.cars.gci ? new Uint8Array(m.cars.gci) : null) : { cars: 0, hash: "" };
     const info = h.start({ session: m.session, map: new Uint8Array(m.map), maxPlayers: m.maxPlayers, seed: m.seed, record: m.record, now, entropy });
     host = h;
     running = true;
     lastStats = now;
-    post({ t: "ready", mapHash: info.mapHash, layoutHash: info.layoutHash, maxPlayers: info.maxPlayers });
+    post({ t: "ready", mapHash: info.mapHash, layoutHash: info.layoutHash, maxPlayers: info.maxPlayers, cars: cars.cars, carsHash: cars.hash });
     for (const q of queued.splice(0)) handle(q);
     loop();
   } catch (e) {

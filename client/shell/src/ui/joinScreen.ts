@@ -2,7 +2,7 @@
 // get any files the match needs that this browser lacks, then play.
 
 import type { AssetStore, MapChoice } from "../assets/store.ts";
-import { joinStore, mapFromMatch } from "../lobby/assets.ts";
+import { gciFromMatch, joinStore, mapFromMatch } from "../lobby/assets.ts";
 import type { FileInfo } from "../lobby/files.ts";
 import { LobbyJoin, wrapDataChannel } from "../lobby/lobby.ts";
 import { RtcPeer } from "../net/rtc.ts";
@@ -13,7 +13,8 @@ export interface JoinScreenOpts {
   store: AssetStore;
   room: string;
   mapHash12: string;
-  onPlay(map: MapChoice, rtc: RtcPeer): void;
+  /** `gciHash`: the host's .gci (car handling), or null; the client builds the same car models. */
+  onPlay(map: MapChoice, rtc: RtcPeer, gciHash: string | null): void;
   onCancel(): void;
 }
 
@@ -75,7 +76,7 @@ export function joinScreen(root: HTMLElement, o: JoinScreenOpts): () => void {
     const map = mapFromMatch(o.store, m);
     status.textContent = `Starting ${map.description}…`;
     handedOver = true;
-    o.onPlay(map, rtc);
+    o.onPlay(map, rtc, gciFromMatch(m));
   };
   run().catch((e) => fail((e as Error).message ?? String(e)));
 

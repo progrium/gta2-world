@@ -13,6 +13,7 @@ import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
 import { type Cue, type GameEvent, GameModule, type SoundSource, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
+import { carInfoRecord } from "../lobby/assets.ts";
 import { type ConnectOptions, Connection } from "../net/connection.ts";
 import { Button, type Frame, encodeFrame } from "../input/i2.ts";
 import { Effects, rumbleSettings, rumbleSupport } from "../input/rumble.ts";
@@ -36,7 +37,11 @@ export interface GameScreenOpts {
   /** Game server base URL (ws:// or http://); offline when absent. */
   server?: string | null;
   /** A browser-hosted game: the link to use, and a label for the HUD. */
-  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string };
+  /**
+   * A browser-hosted game. `gciHash` is the .gci the host built its car
+   * models from (null: style only); this client builds the same ones.
+   */
+  net?: Pick<ConnectOptions, "transport" | "rtc" | "loopback"> & { label: string; gciHash: string | null };
   /** Extra HUD content, e.g. the host's join link and player list. */
   extraHud?: HTMLElement;
   map: MapChoice;
@@ -395,14 +400,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       if (disposed) return;
       renderer = new Renderer(canvas);
       renderer.setStyle(g.loadStyle(new Uint8Array(sty)));
-      // Car handling from the player's .gci (nyc.gci), if imported. Online
-      // games use the one default model until the server loads car info.
-      if (remote) g.useDefaultCars();
+      // Car handling from the style and a .gci (nyc.gci). Offline: the
+      // player's own, if imported. A browser-hosted game: the host's (it
+      // came with the match files), so prediction matches the host. The
+      // native server doesn't load car info yet, so its games keep the one
+      // default model.
+      if (o.server && !o.net) g.useDefaultCars();
       else {
-        const gciRec = o.store.manifest.files.find((f) => f.kind === "gci");
-        const gci = gciRec ? new Uint8Array(await o.store.read(gciRec.hash)) : null;
+        const gciHash = o.net ? o.net.gciHash : (carInfoRecord(o.store)?.hash ?? null);
+        const gci = gciHash ? new Uint8Array(await o.store.read(gciHash)) : null;
         const cars = g.loadCarInfo(gci);
-        if (!gci) console.info(`[cars] ${cars} models from the style; no .gci imported, default handling`);
+        console.info(`[cars] ${cars} models (hash ${g.carModelsHash()}) from the style${gci ? " and .gci" : "; no .gci, default handling"}`);
       }
       renderer.setMap(g.loadMap(new Uint8Array(gmp)));
       if (sp) await loadLevelFiles(g);

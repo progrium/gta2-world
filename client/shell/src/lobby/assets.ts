@@ -11,16 +11,22 @@ export const SHARED_DIR = "shared";
 
 const info = (r: AssetRecord): FileInfo => ({ name: r.name, kind: r.kind, size: r.size, sha256: r.hash });
 
+/** The .gci (car handling) a game uses: the player's imported one, if any. Offline and hosted games pick it the same way. */
+export function carInfoRecord(store: AssetStore): AssetRecord | null {
+  return store.manifest.files.find((f) => f.kind === "gci") ?? null;
+}
+
 /**
  * The files a joiner needs for a match on `map`: the .gmp (its SHA-256 is the
- * map hash in hello) and the .sty. Online games use the default car model
- * (gameScreen), so no .gci; sound banks are optional (procedural fallback).
+ * map hash in hello), the .sty, and the host's .gci when it has one. The car
+ * models come from the .sty and .gci, and every player must build the same
+ * ones as the host (gameScreen). Sound banks are optional (procedural fallback).
  */
-export function hostFiles(store: AssetStore, map: MapChoice, share: () => boolean): HostFiles {
+export function hostFiles(store: AssetStore, map: MapChoice, share: () => boolean, gci: AssetRecord | null = null): HostFiles {
   return {
     mapHash: map.gmpRecord.hash,
     description: map.description,
-    files: [info(map.gmpRecord), info(map.styRecord)],
+    files: [info(map.gmpRecord), info(map.styRecord), ...(gci ? [info(gci)] : [])],
     share,
     read: async (sha) => new Uint8Array(await store.read(sha)),
   };
@@ -43,6 +49,11 @@ export function joinStore(store: AssetStore): JoinStore {
       return p;
     },
   };
+}
+
+/** The SHA-256 of the match's .gci, or null when the host plays with style-only car models. */
+export function gciFromMatch(m: MatchFiles): string | null {
+  return m.files.find((f) => f.kind === "gci")?.sha256 ?? null;
 }
 
 /** The MapChoice for a match whose files are all in the store now. */

@@ -15,7 +15,7 @@ self.onmessage = async (ev: MessageEvent<ToHost>) => {
   switch (m.t) {
     case "start": {
       const h = new Uint8Array(await crypto.subtle.digest("SHA-256", m.map));
-      post({ t: "ready", mapHash: hex(h), layoutHash: "0", maxPlayers: m.maxPlayers });
+      post({ t: "ready", mapHash: hex(h), layoutHash: "0", maxPlayers: m.maxPlayers, cars: 0, carsHash: "" });
       return;
     }
     case "stream": {
