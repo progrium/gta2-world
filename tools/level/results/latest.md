@@ -7,7 +7,7 @@ Written by `tools/level` (workstream Q). 20000 ticks per map, autopilot in slot 
 - road cells: 15538
 - autopilot trips: 13 (2 reached on foot, 3 by car, 8 teleported after 1800 ticks); mean 1404 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0264 ms, p99 0.0435 ms, max 0.0868 ms
+- step: mean 0.0270 ms, p99 0.0457 ms, max 0.4997 ms
 - invariant breaks: 0
 
 ```
@@ -45,7 +45,7 @@ final_peds 108
 - road cells: 15554
 - autopilot trips: 17 (0 reached on foot, 8 by car, 9 teleported after 1800 ticks); mean 1106 ticks a trip
 - autopilot deaths: 3; ticks with no ped: 210
-- step: mean 0.0281 ms, p99 0.0463 ms, max 0.2262 ms
+- step: mean 0.0283 ms, p99 0.0469 ms, max 1.4827 ms
 - invariant breaks: 0
 
 ```
@@ -83,7 +83,7 @@ final_peds 108
 - road cells: 1082
 - autopilot trips: 17 (0 reached on foot, 12 by car, 5 teleported after 1800 ticks); mean 1075 ticks a trip
 - autopilot deaths: 5; ticks with no ped: 350
-- step: mean 0.0235 ms, p99 0.0404 ms, max 0.1565 ms
+- step: mean 0.0240 ms, p99 0.0413 ms, max 0.3442 ms
 - invariant breaks: 0
 
 ```
@@ -121,7 +121,7 @@ final_peds 108
 - road cells: 940
 - autopilot trips: 13 (1 reached on foot, 2 by car, 10 teleported after 1800 ticks); mean 1455 ticks a trip
 - autopilot deaths: 9; ticks with no ped: 630
-- step: mean 0.0220 ms, p99 0.0378 ms, max 0.0716 ms
+- step: mean 0.0222 ms, p99 0.0380 ms, max 0.6616 ms
 - invariant breaks: 0
 
 ```
@@ -159,7 +159,7 @@ final_peds 108
 - road cells: 848
 - autopilot trips: 23 (0 reached on foot, 13 by car, 10 teleported after 1800 ticks); mean 859 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0220 ms, p99 0.0375 ms, max 0.8341 ms
+- step: mean 0.0224 ms, p99 0.0418 ms, max 0.4229 ms
 - invariant breaks: 0
 
 ```
@@ -197,7 +197,7 @@ final_peds 108
 - road cells: 303
 - autopilot trips: 19 (0 reached on foot, 9 by car, 10 teleported after 1800 ticks); mean 1037 ticks a trip
 - autopilot deaths: 0; ticks with no ped: 0
-- step: mean 0.0168 ms, p99 0.0323 ms, max 1.7026 ms
+- step: mean 0.0172 ms, p99 0.0332 ms, max 0.3178 ms
 - invariant breaks: 0
 
 ```
@@ -235,7 +235,7 @@ final_peds 54
 - road cells: 333
 - autopilot trips: 13 (0 reached on foot, 3 by car, 10 teleported after 1800 ticks); mean 1496 ticks a trip
 - autopilot deaths: 0; ticks with no ped: 0
-- step: mean 0.0170 ms, p99 0.0346 ms, max 0.0934 ms
+- step: mean 0.0163 ms, p99 0.0326 ms, max 0.3167 ms
 - invariant breaks: 0
 
 ```
@@ -273,7 +273,7 @@ final_peds 45
 - road cells: 673
 - autopilot trips: 15 (2 reached on foot, 5 by car, 8 teleported after 1800 ticks); mean 1252 ticks a trip
 - autopilot deaths: 5; ticks with no ped: 351
-- step: mean 0.0200 ms, p99 0.0367 ms, max 0.0912 ms
+- step: mean 0.0213 ms, p99 0.0397 ms, max 0.9934 ms
 - invariant breaks: 0
 
 ```
@@ -311,7 +311,7 @@ final_peds 75
 - road cells: 58999
 - autopilot trips: 17 (11 reached on foot, 0 by car, 6 teleported after 1800 ticks); mean 1171 ticks a trip
 - autopilot deaths: 0; ticks with no ped: 0
-- step: mean 0.0188 ms, p99 0.0335 ms, max 0.1200 ms
+- step: mean 0.0198 ms, p99 0.0360 ms, max 0.1208 ms
 - invariant breaks: 0
 
 ```
@@ -349,7 +349,7 @@ final_peds 108
 - road cells: 61271
 - autopilot trips: 25 (24 reached on foot, 0 by car, 1 teleported after 1800 ticks); mean 781 ticks a trip
 - autopilot deaths: 5; ticks with no ped: 350
-- step: mean 0.0190 ms, p99 0.0338 ms, max 0.0841 ms
+- step: mean 0.0200 ms, p99 0.0358 ms, max 0.3317 ms
 - invariant breaks: 0
 
 ```
@@ -387,7 +387,7 @@ final_peds 108
 - road cells: 65536
 - autopilot trips: 24 (23 reached on foot, 0 by car, 1 teleported after 1800 ticks); mean 825 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0190 ms, p99 0.0336 ms, max 0.0582 ms
+- step: mean 0.0199 ms, p99 0.0353 ms, max 1.6610 ms
 - invariant breaks: 0
 
 ```
@@ -425,7 +425,7 @@ final_peds 108
 - road cells: 833
 - autopilot trips: 13 (1 reached on foot, 4 by car, 8 teleported after 1800 ticks); mean 1417 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0159 ms, p99 0.0310 ms, max 0.2255 ms
+- step: mean 0.0162 ms, p99 0.0322 ms, max 0.0483 ms
 - invariant breaks: 0
 
 ```
@@ -463,7 +463,7 @@ final_peds 48
 - road cells: 890
 - autopilot trips: 16 (0 reached on foot, 8 by car, 8 teleported after 1800 ticks); mean 1153 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0230 ms, p99 0.0399 ms, max 0.1117 ms
+- step: mean 0.0233 ms, p99 0.0403 ms, max 0.0803 ms
 - invariant breaks: 0
 
 ```
@@ -501,7 +501,7 @@ final_peds 93
 - road cells: 1610
 - autopilot trips: 12 (0 reached on foot, 4 by car, 8 teleported after 1800 ticks); mean 1542 ticks a trip
 - autopilot deaths: 6; ticks with no ped: 420
-- step: mean 0.0261 ms, p99 0.0432 ms, max 0.5093 ms
+- step: mean 0.0264 ms, p99 0.0436 ms, max 0.1362 ms
 - invariant breaks: 0
 
 ```
@@ -539,7 +539,7 @@ final_peds 100
 - road cells: 17122
 - autopilot trips: 14 (1 reached on foot, 3 by car, 10 teleported after 1800 ticks); mean 1395 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0237 ms, p99 0.0405 ms, max 0.1045 ms
+- step: mean 0.0248 ms, p99 0.0428 ms, max 0.1443 ms
 - invariant breaks: 0
 
 ```
@@ -577,7 +577,7 @@ final_peds 108
 - road cells: 16285
 - autopilot trips: 12 (0 reached on foot, 3 by car, 9 teleported after 1800 ticks); mean 1573 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0254 ms, p99 0.0436 ms, max 0.1216 ms
+- step: mean 0.0257 ms, p99 0.0434 ms, max 0.1339 ms
 - invariant breaks: 0
 
 ```
@@ -615,7 +615,7 @@ final_peds 108
 - road cells: 16285
 - autopilot trips: 12 (0 reached on foot, 3 by car, 9 teleported after 1800 ticks); mean 1573 ticks a trip
 - autopilot deaths: 1; ticks with no ped: 70
-- step: mean 0.0246 ms, p99 0.0417 ms, max 0.2984 ms
+- step: mean 0.0261 ms, p99 0.0443 ms, max 0.1187 ms
 - invariant breaks: 0
 
 ```
