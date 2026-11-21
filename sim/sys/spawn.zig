@@ -98,7 +98,8 @@ pub fn Sys(comptime Self: type) type {
         }
 
         /// `findSpot`; with `lane`, only a road cell with exactly one arrow
-        /// (a lane, not a junction): where traffic starts.
+        /// (a lane, not a junction) and no car close by: where traffic
+        /// starts.
         pub fn findSpotOpts(self: *Self, key: EntityId, ground: u2, clearance: Fx, lane: bool) ?Spot {
             var attempt: u32 = 0;
             while (attempt < 96) : (attempt += 1) {
@@ -111,6 +112,7 @@ pub fn Sys(comptime Self: type) type {
                 const y = fx.fromInt(cy) + fx.half;
                 const z = fx.fromInt(f.z);
                 if (self.circleBlocked(x, y, z, clearance, T.ped_step)) continue;
+                if (lane and Api.carNear(self, x, y, z)) continue;
                 return .{ .x = x, .y = y, .z = z, .heading = headingFromArrows(map.arrowsOf(f.cell), attempt) };
             }
             return null;
@@ -120,6 +122,21 @@ pub fn Sys(comptime Self: type) type {
         /// (`ox`, `oy`), and at least `min_dist` away from it.
         pub fn findSpotNear(self: *Self, key: EntityId, ground: u2, clearance: Fx, ox: i32, oy: i32, radius: i32, min_dist: i32) ?Spot {
             return Api.findSpotNearOpts(self, key, ground, clearance, ox, oy, radius, min_dist, false);
+        }
+
+        /// Is a car within `spawn_car_gap` of (x, y) at about height z? New
+        /// traffic never starts on top of (or nose to tail with) another
+        /// car: `circleBlocked` sees only the map.
+        pub fn carNear(self: *Self, x: Fx, y: Fx, z: Fx) bool {
+            const Ctx = struct { x: Fx, y: Fx, z: Fx, found: bool = false };
+            var ctx = Ctx{ .x = x, .y = y, .z = z };
+            self.state.world.each(.{ c.Vehicle, c.Transform }, &ctx, struct {
+                fn f(cx: *Ctx, _: EntityId, _: *c.Vehicle, t: *c.Transform) void {
+                    if (fx.abs(t.z - cx.z) > fx.one) return;
+                    if (@max(fx.abs(t.x - cx.x), fx.abs(t.y - cx.y)) < TF.spawn_car_gap) cx.found = true;
+                }
+            }.f);
+            return ctx.found;
         }
 
         /// `findSpotNear`, with `findSpotOpts`'s `lane`.
@@ -140,6 +157,7 @@ pub fn Sys(comptime Self: type) type {
                 const y = fx.fromInt(cy) + fx.half;
                 const z = fx.fromInt(f.z);
                 if (self.circleBlocked(x, y, z, clearance, T.ped_step)) continue;
+                if (lane and Api.carNear(self, x, y, z)) continue;
                 return .{ .x = x, .y = y, .z = z, .heading = headingFromArrows(map.arrowsOf(f.cell), attempt) };
             }
             return null;
