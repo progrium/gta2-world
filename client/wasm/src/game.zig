@@ -632,7 +632,7 @@ fn spawnPickupFor(comptime S: type, g: *S, slot: u32, kind: u32) bool {
     const car = g.playerRow(slot).car;
     const t = (if (car.isNone()) null else g.transformOf(car)) orelse g.transformOf(ped) orelse return false;
     const a = @as(f32, @floatFromInt(t.heading)) * (std.math.tau / 65536.0);
-    const d: f32 = (if (car.isNone()) 1.0 else 1.5) * @as(f32, abi.fx_one);
+    const d: f32 = @as(f32, if (car.isNone()) 1.0 else 1.5) * @as(f32, abi.fx_one);
     const x = t.x + @as(i32, @intFromFloat(@cos(a) * d));
     const y = t.y + @as(i32, @intFromFloat(@sin(a) * d));
     _ = g.spawnPickupAt(x, y, @intCast(kind)) orelse return false;
