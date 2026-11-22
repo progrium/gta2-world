@@ -48,6 +48,10 @@ pub const Options = struct {
     sp: bool = false,
     traffic: bool = false,
     dump: ?[2]i32 = null,
+    /// `--cars <file.sty>`: car models from that style and the data's
+    /// `nyc.gci` (if there), with the standard model roles, instead of
+    /// the one default model.
+    cars: ?[]const u8 = null,
 };
 
 var sp: traffic.S = undefined;
@@ -67,6 +71,9 @@ pub fn main(init: std.process.Init) !void {
             i += 1;
         } else if (std.mem.eql(u8, a, "--map")) {
             try o.maps.append(arena, val);
+            i += 1;
+        } else if (std.mem.eql(u8, a, "--cars")) {
+            o.cars = val;
             i += 1;
         } else if (std.mem.eql(u8, a, "--sp")) {
             o.sp = true;
@@ -103,6 +110,7 @@ pub fn main(init: std.process.Init) !void {
     }
     if (o.data.len == 0) return usage();
     const cwd = std.Io.Dir.cwd();
+    if (o.cars) |sty_name| try loadCars(io, init.gpa, o.data, sty_name);
     if (all) {
         var dir = try cwd.openDir(io, o.data, .{ .iterate = true });
         defer dir.close(io);
@@ -181,8 +189,36 @@ fn runTraffic(gpa: std.mem.Allocator, arena: std.mem.Allocator, report: *std.Arr
     return true;
 }
 
+fn copyFields(comptime To: type, from: anytype) To {
+    var out: To = undefined;
+    inline for (@typeInfo(To).@"struct".field_names) |n| @field(out, n) = @field(from, n);
+    return out;
+}
+
+/// `--cars`: the models a host builds from the player's style and .gci.
+fn loadCars(io: std.Io, gpa: std.mem.Allocator, data: []const u8, sty_name: []const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    var pb: [1024]u8 = undefined;
+    const sty_bytes = try cwd.readFileAlloc(io, try std.fmt.bufPrint(&pb, "{s}/{s}", .{ data, sty_name }), gpa, .unlimited);
+    defer gpa.free(sty_bytes);
+    var style = try formats.sty.parse(gpa, sty_bytes);
+    defer style.deinit();
+    const gci_bytes = cwd.readFileAlloc(io, try std.fmt.bufPrint(&pb, "{s}/nyc.gci", .{data}), gpa, .unlimited) catch null;
+    defer if (gci_bytes) |b| gpa.free(b);
+    const recs = if (gci_bytes) |b| try formats.gci.parse(gpa, b) else &[_]formats.gci.Record{};
+    defer if (gci_bytes != null) gpa.free(recs);
+    const specs = try formats.cars.build(gpa, &style, recs, copyFields(formats.cars.Spec, sim.tuning.default_spec));
+    defer gpa.free(specs);
+    var models: [sim.tuning.max_car_models]sim.tuning.CarModel = undefined;
+    const count = @min(specs.len, models.len);
+    for (specs[0..count], models[0..count]) |sp_, *m| m.* = sim.tuning.deriveModel(copyFields(sim.tuning.CarSpec, sp_));
+    sim.tuning.setCarModels(models[0..count]);
+    sim.tuning_career.setStandardRoles(count);
+    print("car models: {d}\n", .{count});
+}
+
 fn usage() void {
-    print("usage: level --data <dir> (--map <name.gmp> ... | --all) [--traffic [--trace N] [--dump X,Y]] [--sp] [--ticks N] [--bots N] [--seed S] [--limit N] [--out file.md]\n", .{});
+    print("usage: level --data <dir> (--map <name.gmp> ... | --all) [--traffic [--trace N] [--dump X,Y]] [--sp] [--cars file.sty] [--ticks N] [--bots N] [--seed S] [--limit N] [--out file.md]\n", .{});
 }
 
 pub fn appendf(l: *std.ArrayList(u8), gpa: std.mem.Allocator, comptime f: []const u8, a: anytype) !void {

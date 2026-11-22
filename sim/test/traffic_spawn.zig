@@ -89,7 +89,7 @@ test "zone settings: set by name, looked up by block, kept in the saved state" {
 test "zone spawning: a busy zone fills up near the player, an empty one drains" {
     var f = try Fixture.init(69, 69);
     defer f.deinit();
-    try std.testing.expect(S.spawn.setZoneDensity(f.sim, "downtown", .{ .car_density = 2000, .car_ratio = .{ 1, 0, 1, 0 }, .ped_density = 0 }));
+    try std.testing.expect(S.spawn.setZoneDensity(f.sim, "downtown", .{ .car_density = 2000, .car_ratio = .{ 0, 0, 500, 0 }, .ped_density = 0 }));
     f.run(2400);
     const n = f.near();
     // Target 48 cars (twice the ambient count, capped at three quarters
@@ -140,4 +140,55 @@ test "recycling: a car with a passenger aboard and no driver is never despawned"
         try std.testing.expect(w.isAlive(ped));
         try std.testing.expectEqual(car.raw, w.get(ped, c.Riding).?.vehicle.raw);
     }
+}
+
+test "zone spawning: gang turf gets the gang's car in its colours, the police share police cars" {
+    // 87 models in the standard numbering, so model 12 is the police car.
+    var models: [87]T.CarModel = @splat(T.default_car_models[0]);
+    T.setCarModels(&models);
+    simmod.tuning_career.setStandardRoles(models.len);
+    defer {
+        T.setCarModels(&T.default_car_models);
+        simmod.tuning_career.setStandardRoles(0);
+    }
+    const gz = [_]simmod.level.Zone{
+        .{ .kind = .navigation, .x = 32, .y = 32, .w = 96, .h = 96, .name = "downtown" },
+        .{ .kind = .gang, .x = 32, .y = 32, .w = 96, .h = 96, .name = "redgang" },
+    };
+    const glvl: simmod.Level = .{ .zones = &gz };
+    const g = try std.testing.allocator.create(map.Grid);
+    defer std.testing.allocator.destroy(g);
+    testmap.build(g);
+    const s = try std.testing.allocator.create(S);
+    defer std.testing.allocator.destroy(s);
+    s.init(g, .{ .seed = 3, .mode = .authoritative });
+    s.attachLevel(&glvl);
+    S.gangs.defineGang(s, 0, .{ .name = "redgang", .kill_change = 1, .basic = 0, .angry = 0, .hate = 0, .car_model = 40, .car_remap = 7, .ped_remap = 9 });
+    // Per mille: 300 police, 300 gang, the rest ordinary.
+    try std.testing.expect(S.spawn.setZoneDensity(s, "downtown", .{ .car_density = 2000, .car_ratio = .{ 0, 0, 300, 300 }, .ped_density = 0 }));
+    var frames: [1]Frame = @splat(Frame.neutral(0));
+    s.step(&frames, &.{.{ .op = .join, .slot = 0, .arg = simmod.spawnHint(69, 69) }});
+    for (0..2400) |_| s.step(&frames, &.{});
+    const Mix = struct { gang: u32 = 0, gang_remap: u32 = 0, police: u32 = 0, police_flag: u32 = 0, other: u32 = 0 };
+    var mix: Mix = .{};
+    s.state.world.each(.{ c.Vehicle, c.Appearance }, &mix, struct {
+        fn f(m: *Mix, _: EntityId, v: *c.Vehicle, a: *c.Appearance) void {
+            if (v.model == 40) {
+                m.gang += 1;
+                if (a.remap == 7) m.gang_remap += 1;
+            } else if (v.model == 12) {
+                m.police += 1;
+                if (v.ai_flags & c.Vehicle.ai_emergency != 0) m.police_flag += 1;
+            } else m.other += 1;
+        }
+    }.f);
+    try std.testing.expect(mix.gang > 0 and mix.gang == mix.gang_remap);
+    try std.testing.expect(mix.police > 0 and mix.police == mix.police_flag);
+    try std.testing.expect(mix.other > mix.gang);
+    // The gang's driver pulled out of its car is one of theirs.
+    const ped = S.spawn.spawnPed(s, c.Controller.no_player, 0).?;
+    S.spawn.dressDriver(s, ped, 40);
+    try std.testing.expectEqual(simmod.ids.Occupation.gang_member, S.objectives.occupationOf(s, ped));
+    try std.testing.expectEqual(@as(u8, 0), s.state.world.get(ped, c.Group).?.gang);
+    try std.testing.expectEqual(@as(u16, 9), s.state.world.get(ped, c.Appearance).?.remap);
 }

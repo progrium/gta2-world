@@ -112,6 +112,7 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
     // Phones stood at, by entity id.
     var visited: std.ArrayList(u32) = .empty;
     var phone_visit: ?abi.EntityId = null;
+    var mix: [3]u64 = @splat(0);
 
     for (0..o.ticks) |ti| {
         // Target: the arrow, else the last phone that rang, else waypoints.
@@ -225,6 +226,20 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
             }
         }
 
+        // The traffic mix, every 100 ticks: AI cars, and of them the
+        // ones in a declared gang's car model and in the police role.
+        if (ti % 100 == 0) {
+            const Mix = struct { n: *[3]u64 };
+            s.state.world.each(.{c.Vehicle}, Mix{ .n = &mix }, struct {
+                fn f(cx: Mix, _: abi.EntityId, v: *c.Vehicle) void {
+                    if (v.flags & c.Vehicle.flag_ai == 0) return;
+                    cx.n[0] += 1;
+                    if (S.gangs.gangOfCarModel(&s, v.model) != sim.ids.gang_none) cx.n[1] += 1;
+                    if (sim.tuning_career.roleOf(v.model) == .police) cx.n[2] += 1;
+                }
+            }.f);
+        }
+
         // Threads on one command too long.
         const st = &s.state.sp.script;
         max_threads = @max(max_threads, st.threads);
@@ -247,6 +262,7 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
     try main.appendf(report, arena, "- ran {d} ticks{s}{s}\n", .{ ps.ticks, if (game_over) ", ended in game over" else "", if (level_complete) ", level complete" else "" });
     try main.appendf(report, arena, "- missions: {d} started, {d} passed, {d} failed; phones rang {d} times\n", .{ started, passed, failed, rings });
     try main.appendf(report, arena, "- player: wasted {d}, busted {d}; arrow shown {d} ticks; teleports {d}; phones stood at {d}\n", .{ wasted, busted, arrow_ticks, teleports, phones_visited });
+    try main.appendf(report, arena, "- traffic sampled every 100 ticks: {d} AI cars, {d} in a gang's car, {d} police cars; gangs declared {d}\n", .{ mix[0], mix[1], mix[2], s.state.sp.gangs.count });
     try main.appendf(report, arena, "- unhandled commands met: {d}\n", .{s.state.sp.script.unhandled});
     try main.appendf(report, arena, "- threads on one command for {d}+ ticks: {d}\n", .{ stuck_ticks, stuck.items.len });
     for (stuck.items[0..@min(stuck.items.len, 20)]) |x|

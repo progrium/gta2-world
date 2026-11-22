@@ -382,7 +382,10 @@ pub fn Sys(comptime Self: type) type {
             const w = &self.state.world;
             const v = w.get(car, c.Vehicle).?;
             var victim = v.driver;
-            if (victim.isNone() and !self.predicting()) victim = self.spawnPed(c.Controller.no_player, 0) orelse .none;
+            if (victim.isNone() and !self.predicting()) {
+                victim = self.spawnPed(c.Controller.no_player, 0) orelse .none;
+                if (!victim.isNone()) Self.spawn.dressDriver(self, victim, v.model);
+            }
             const ctl = w.get(ped, c.Controller).?;
             if (ctl.player != c.Controller.no_player) {
                 // Scoring's hijack payment when G's scoreHijack is there.

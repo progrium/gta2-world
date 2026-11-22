@@ -25,6 +25,7 @@ const salt_spawn_y = prelude.salt_spawn_y;
 
 const ids = @import("../ids.zig");
 const TF = @import("../tuning/traffic.zig");
+const TC = @import("../tuning/career.zig");
 
 // Salts from workstream F's range (ids.salts.traffic).
 const salt_zone_car_kind: u32 = 0x1600;
@@ -212,27 +213,51 @@ pub fn Sys(comptime Self: type) type {
                     }
                 }
             }
-            var model = self.pickAmbientModel(id);
+            // Single player: the zone's car mix picks what this car is,
+            // for every car brought near a player (spawned or recycled).
+            var kind: CarKind = .ordinary;
+            if (comptime Self.city) if (near) |o| if (Api.zoneDensityAt(self, o.x, o.y)) |d| {
+                // Per mille of the zone's cars, the rest ordinary (ours,
+                // as the ped mix: the levels' gang turf gives gang cars
+                // 200 and nothing else, which as weights would make
+                // every car there a gang car).
+                var k = self.randBelow(id, salt_zone_car_kind, @max(1000, sum4(d.car_ratio)));
+                for (d.car_ratio, 0..) |x, i| {
+                    if (k < x) {
+                        kind = @enumFromInt(i);
+                        break;
+                    }
+                    k -= x;
+                }
+            };
+            var remap: u16 = c.Appearance.no_remap;
+            var model = if (comptime Self.city) Api.pickTrafficModel(self, id) else self.pickAmbientModel(id);
             var reskin = false;
             if (comptime Self.city) {
+                switch (kind) {
+                    .police => if (Api.policeModel()) |m| {
+                        model = m;
+                    },
+                    .gang => if (Api.gangCar(self, spot, near)) |g| {
+                        model = g.model;
+                        remap = g.remap;
+                    },
+                    .ordinary, .bad => {},
+                }
                 if (drives and near != null) if (Api.reskinModel(self, id)) |m| {
                     model = m;
                     reskin = true;
+                    remap = c.Appearance.no_remap;
                 };
             }
             self.initCar(id, spot, model);
+            w.get(id, c.Appearance).?.remap = remap;
             if (drives) {
                 const v = w.get(id, c.Vehicle).?;
                 v.flags = c.Vehicle.flag_ai;
                 v.ai_dir = dir;
-                if (reskin) v.ai_flags |= c.Vehicle.ai_emergency;
+                if (reskin or kind == .police) v.ai_flags |= c.Vehicle.ai_emergency;
             }
-            // The zone's car mix, for every car brought near a player
-            // (spawned or recycled).
-            if (comptime Self.city) if (near) |o| if (Api.zoneDensityAt(self, o.x, o.y)) |d| {
-                const kind: CarKind = @enumFromInt(Api.pickWeighted(self, id, salt_zone_car_kind, d.car_ratio));
-                Api.dressCar(self, id, kind);
-            };
             return id;
         }
 
@@ -395,19 +420,6 @@ pub fn Sys(comptime Self: type) type {
             return null;
         }
 
-        /// Weighted pick among four weights (0 when they are all zero).
-        pub fn pickWeighted(self: *Self, key: EntityId, salt: u32, w: [4]u16) u8 {
-            var total: u32 = 0;
-            for (w) |x| total += x;
-            if (total == 0) return 0;
-            var k = self.randBelow(key, salt, total);
-            for (w, 0..) |x, i| {
-                if (k < x) return @intCast(i);
-                k -= x;
-            }
-            return 0;
-        }
-
         /// Keep the population near the player at the density of the zone
         /// the player is in: every `zone_spawn_period` ticks, spawn one car
         /// and one ped off screen near the player if below the zone's
@@ -491,9 +503,7 @@ pub fn Sys(comptime Self: type) type {
                 for (d.ped_ratio, 0..) |x, i| {
                     if (k < x) {
                         Self.objectives.setOccupation(self, id, occs[i]);
-                        if (occs[i] == .gang_member) {
-                            if (w.get(id, c.Group)) |g| g.gang = Self.gangs.gangOfArea(self, bx, by);
-                        }
+                        if (occs[i] == .gang_member) Api.joinGang(self, id, Self.gangs.gangOfArea(self, bx, by));
                         break;
                     }
                     k -= x;
@@ -526,9 +536,77 @@ pub fn Sys(comptime Self: type) type {
         /// The zone's car kinds (ours until E and D2 give police and gang
         /// models): every kind spawns an ordinary model; police cars are
         /// marked emergency (they always honk).
-        fn dressCar(self: *Self, id: EntityId, kind: CarKind) void {
-            const v = self.state.world.get(id, c.Vehicle) orelse return;
-            if (kind == .police) v.ai_flags |= c.Vehicle.ai_emergency;
+        /// The police car model (`model_roles`), if the host set the
+        /// roles from the player's data.
+        fn policeModel() ?u8 {
+            var m: u8 = 0;
+            while (m < T.car_model_count and m < TC.model_roles.len) : (m += 1) {
+                if (TC.model_roles[m] == .police) return m;
+            }
+            return null;
+        }
+
+        /// The car of the gang whose turf holds the spawn spot (else the
+        /// player's block), as the level's gang declaration gives it
+        /// (script-declarations.md 2.11).
+        fn gangCar(self: *Self, spot: Spot, near: ?Block) ?struct { model: u8, remap: u16 } {
+            if (comptime !@hasDecl(Self, "gangs")) return null;
+            var g = Self.gangs.gangOfArea(self, fx.toInt(spot.x), fx.toInt(spot.y));
+            if (g == ids.gang_none) if (near) |o| {
+                g = Self.gangs.gangOfArea(self, o.x, o.y);
+            };
+            const info = Self.gangs.gangInfo(self, g) orelse return null;
+            if (info.car_model >= T.car_model_count) return null;
+            return .{ .model = info.car_model, .remap = if (info.car_remap == 0xFF) c.Appearance.no_remap else info.car_remap };
+        }
+
+        /// Make `ped` a member of `gang` in the gang's colours (its ped
+        /// remap from the level's gang declaration).
+        pub fn joinGang(self: *Self, ped: EntityId, gang: u8) void {
+            const w = &self.state.world;
+            if (w.get(ped, c.Group)) |g| g.gang = gang;
+            if (comptime !@hasDecl(Self, "gangs")) return;
+            const info = Self.gangs.gangInfo(self, gang) orelse return;
+            if (w.get(ped, c.Appearance)) |a| a.remap = info.ped_remap;
+        }
+
+        /// The driver a hijack pulls out of a traffic car nobody was
+        /// modelled in: a member of the gang whose car it is, or a cop
+        /// from a police car (ours: the car says who drives it).
+        pub fn dressDriver(self: *Self, ped: EntityId, model: u8) void {
+            if (comptime !Self.city) return;
+            const g = Self.gangs.gangOfCarModel(self, model);
+            if (g != ids.gang_none) {
+                Self.objectives.setOccupation(self, ped, .gang_member);
+                Api.joinGang(self, ped, g);
+            } else if (TC.roleOf(model) == .police) {
+                Self.objectives.setOccupation(self, ped, .police);
+            }
+        }
+
+        /// Single-player traffic of the "ordinary" and "bad" kinds: an
+        /// ambient model that is not a police, SWAT, FBI or army vehicle
+        /// (those come from the police share of the zone's mix and the
+        /// pursuit reskin). Ours: falls back to any ambient model.
+        fn pickTrafficModel(self: *Self, id: EntityId) u8 {
+            var n: u32 = 0;
+            for (T.car_models[0..T.car_model_count], 0..) |m, i| n += @intFromBool(m.ambient != 0 and !lawModel(i));
+            if (n == 0) return self.pickAmbientModel(id);
+            var k = self.randBelow(id, salt_car_model, n);
+            for (T.car_models[0..T.car_model_count], 0..) |m, i| {
+                if (m.ambient == 0 or lawModel(i)) continue;
+                if (k == 0) return @intCast(i);
+                k -= 1;
+            }
+            return 0;
+        }
+
+        fn lawModel(i: usize) bool {
+            if (i >= TC.model_roles.len) return false;
+            return switch (TC.model_roles[i]) {
+                .police, .swat, .fbi, .tank, .army_jeep => true,
+                else => false,
+            };
         }
 
         /// An ambient ped on the pavement near block (bx, by), off screen.

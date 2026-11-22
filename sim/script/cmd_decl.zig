@@ -30,7 +30,11 @@
 //!            bad, police car ratios @2-@6, ped density @8, mugger, thief,
 //!            Elvis, gang ratios @10-@16, police peds @18, gang cars @20
 //!            (the order is ours: the levels' values fit it)
-//!   223      gang name key @0 (the rest waits on D2)
+//!   223      gang name key @0, ped remap @2, basic, angry and hate
+//!            weapons @3-@5 (script weapon numbers), arrow colour @6,
+//!            kill-respect change i8 @7, position @8-@19 (unused), car
+//!            model u16 @20, car remap u16 @22 (255 none). The offsets
+//!            are ours, fitted to the levels' values in the note's order.
 //!   6, 9, 14 empty car, character and object variables (no parameters
 //!            used; the data shows them all zero)
 //!   435-437  u16 unused, u32 message base @4;  422  id @0
@@ -49,12 +53,12 @@ const Outcome = W.Outcome;
 /// One unit of a conveyor's push, blocks per tick (ours).
 pub const conveyor_unit: Fx = fx.one >> 6;
 
-pub const done = [_]u16{ 102, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 6, 9, 14, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437, 37, 38, 39, 439 };
+pub const done = [_]u16{ 102, 223, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 6, 9, 14, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437, 37, 38, 39, 439 };
 /// Decoded, waiting on another workstream's API: zone densities (F),
 /// cranes (cranes note), conveyors, generators, destructors and doors
 /// (B), triggers (A1), gang info (D2), lights (B), trains and radio,
 /// sound points (audio).
-pub const stubbed = [_]u16{ 223, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327 };
+pub const stubbed = [_]u16{ 217, 302, 285, 286, 295, 296, 297, 298, 287, 327 };
 
 /// A trigger declaration (2.10), handed to the VM when it can take it
 /// (`ctx.addTrigger`, A1).
@@ -80,6 +84,23 @@ fn ctxHas(comptime Ctx: type, comptime name: []const u8) bool {
         else => Ctx,
     };
     return @hasDecl(T, name);
+}
+
+/// The gang record 223 declares (offsets in the header comment).
+fn gangDef(name: []const u8, p: W.P) @import("../sp/gangs.zig").Def {
+    const Chars = @import("cmd_chars.zig");
+    const remap = p.u16_(22);
+    return .{
+        .name = name,
+        .kill_change = @bitCast(p.u8_(7)),
+        .basic = Chars.weapon(p.u8_(3)) orelse prelude.T.weapon_pistol,
+        .angry = Chars.weapon(p.u8_(4)) orelse prelude.T.weapon_pistol,
+        .hate = Chars.weapon(p.u8_(5)) orelse prelude.T.weapon_pistol,
+        .car_model = if (p.u16_(20) < 0xFF) @intCast(p.u16_(20)) else 0xFF,
+        .car_remap = if (remap < 0xFF) @intCast(remap) else 0xFF,
+        .ped_remap = p.u8_(2),
+        .arrow = p.u8_(6),
+    };
 }
 
 pub fn Sys(comptime Self: type) type {
@@ -172,15 +193,14 @@ pub fn Sys(comptime Self: type) type {
                     };
                     return addTrigger(ctx, t);
                 },
-                // Decoded elsewhere or waiting on an owner's API.
-                // 223: gangs are numbered in declaration order; the rest of
-                // the gang info (remap, weapons, car) waits on D2.
+                // 223 (2.11): gangs are numbered in declaration order.
                 223 => {
                     if (s.gang_count < ids.max_gangs) {
                         ctx.registerGang(s.gang_count, p.u16_(0));
+                        if (comptime @hasDecl(Self, "gangs") and ctxHas(@TypeOf(ctx), "string"))
+                            Self.gangs.defineGang(self, s.gang_count, gangDef(ctx.string(p.u16_(0)), p));
                         s.gang_count += 1;
                     }
-                    return .stubbed;
                 },
                 102 => {
                     if (comptime !@hasDecl(Self.spawn, "setZoneDensity")) return .stubbed;

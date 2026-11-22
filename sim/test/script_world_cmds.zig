@@ -389,6 +389,22 @@ test "script world: player locks, wanted level, the fail flag and mission bookke
     _ = e.run(223, 45, gi.u16_(0, 238).s());
     _ = e.run(223, 46, gi.u16_(0, 239).s());
     try std.testing.expectEqual(@as(u16, 239), e.ctx.gangs[1]);
+    // The gang record (2.11): remap 9, weapons 0/1/4 (pistol, machine
+    // gun, molotov by the script numbers), arrow 3, kill change 1, car
+    // model 40 in remap 7.
+    var gr: B = .{};
+    _ = e.run(223, 47, gr.u16_(0, 10).u16_(2, 9).u16_(4, 0x0401).u16_(6, 0x0103).u16_(20, 40).u16_(22, 7).s());
+    const g = S.gangs.gangInfo(e.sim, 2).?;
+    try std.testing.expectEqual(@import("../sp/gangs.zig").nameHash("downtown"), g.name_hash);
+    try std.testing.expectEqual(@as(u8, 9), g.ped_remap);
+    try std.testing.expectEqual(T.weapon_pistol, g.basic);
+    try std.testing.expectEqual(T.weapon_smg, g.angry);
+    try std.testing.expectEqual(T.weapon_molotov, g.hate);
+    try std.testing.expectEqual(@as(u8, 3), g.arrow);
+    try std.testing.expectEqual(@as(i8, 1), g.kill_change);
+    try std.testing.expectEqual(@as(u8, 40), g.car_model);
+    try std.testing.expectEqual(@as(u8, 7), g.car_remap);
+    try std.testing.expectEqual(@as(u8, 2), S.gangs.gangOfCarModel(e.sim, 40));
     var f: B = .{};
     _ = e.run(343, 1, f.i32_(0, 5_000_000).s());
     try std.testing.expectEqual(@as(i32, 5_000_000), e.sim.state.sp.world.finish_score);
