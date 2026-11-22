@@ -49,12 +49,12 @@ const Outcome = W.Outcome;
 /// One unit of a conveyor's push, blocks per tick (ours).
 pub const conveyor_unit: Fx = fx.one >> 6;
 
-pub const done = [_]u16{ 102, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 6, 9, 14, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437, 37, 38, 39, 439 };
+pub const done = [_]u16{ 102, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 6, 9, 14, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437, 37, 38, 39, 439, 285, 286 };
 /// Decoded, waiting on another workstream's API: zone densities (F),
 /// cranes (cranes note), conveyors, generators, destructors and doors
 /// (B), triggers (A1), gang info (D2), lights (B), trains and radio,
 /// sound points (audio).
-pub const stubbed = [_]u16{ 223, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327 };
+pub const stubbed = [_]u16{ 223, 217, 302, 295, 296, 297, 298, 287, 327 };
 
 /// A trigger declaration (2.10), handed to the VM when it can take it
 /// (`ctx.addTrigger`, A1).
@@ -219,7 +219,15 @@ pub fn Sys(comptime Self: type) type {
                 // is not used: the reward comes when the crane drops a
                 // crushed car).
                 439 => Self.cranes.setPowerUp(self, ctx.handle(p.u16_(0)), ctx.handle(p.u16_(2))),
-                217, 302, 285, 286, 295, 296, 297, 298, 287, 327 => return .stubbed,
+                // 2.13 Trains (sys/trains.zig): the station's platform zone
+                // is named by the command's own string key; then coaches
+                // @0, freight wagons @2, boxcars @4 (the low byte: one
+                // level gives 257 for one coach). 286, an empty station,
+                // declares no train.
+                285, 286 => {
+                    if (cmd.kind == 285) _ = Self.trains.declare(self, ctx.string(cmd.num), p.u16_(0), p.u16_(2), p.u16_(4));
+                },
+                217, 302, 295, 296, 297, 298, 287, 327 => return .stubbed,
                 else => return .unhandled,
             }
             return .done;

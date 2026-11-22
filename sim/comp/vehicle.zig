@@ -71,7 +71,9 @@ pub const Vehicle = extern struct {
     /// Who armed the bomb: player slot + 1 (0 = nobody), credited with
     /// the blast.
     bomb_by: u8 = 0,
-    _arm_pad: u8 = 0,
+    /// A train's carriage (`sys/trains.zig`): the train's index + 1, else
+    /// 0. Trains move on their rails, not by physics, and take no damage.
+    train: u8 = 0,
     _pad: [2]u8 = .{ 0, 0 },
     /// Towing (`sys/trailers.zig`): on a cab, the trailer it pulls, as the
     /// entity id + 1 (0 none, so a zeroed car tows nothing); use

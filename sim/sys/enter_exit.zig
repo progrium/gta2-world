@@ -127,6 +127,8 @@ pub fn Sys(comptime Self: type) type {
             if (speedOf(w.get(car, c.Velocity).?) >= T.exit_max_speed) return;
             // Not while a crane holds the car (3.5: "zoomed").
             if (w.get(car, c.Vehicle).?.xflags & c.Vehicle.xf_lifted != 0) return;
+            // Off a train only at a stop.
+            if (w.get(car, c.Vehicle).?.train != 0 and w.get(car, c.Vehicle).?.drive != c.Vehicle.drive_none) return;
             const m = T.carModel(w.get(car, c.Vehicle).?.model);
             const door = Me.firstUsableDoor(self, car, &ct, m) orelse return;
             const pos = doorPos(&ct, m, door);
@@ -492,6 +494,8 @@ pub fn Sys(comptime Self: type) type {
         pub fn enterable(v: *const c.Vehicle) bool {
             if (T.carModel(v.model).doors == 0) return false;
             if (!v.towId().isNone()) return false;
+            // A train's carriage only while the train is stopped (3.1).
+            if (v.train != 0 and v.drive != c.Vehicle.drive_none) return false;
             return v.xflags & c.Vehicle.xf_lifted == 0;
         }
 

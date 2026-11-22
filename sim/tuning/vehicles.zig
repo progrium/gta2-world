@@ -76,3 +76,32 @@ pub const grip_ticks: u16 = 25;
 pub const hold_wreck: u16 = 100;
 /// Ticks a crane rests at home before looking again.
 pub const rest_ticks: u16 = 50;
+
+// --- Trains (sys/trains.zig). The notes have no train note yet; all ours.
+
+/// Trains at once, and carriages per train including the engine.
+pub const max_trains = 4;
+pub const max_carriages = 6;
+/// Top speed and the speed change a tick, in blocks per tick.
+pub const train_speed = fx.ratio(12, 100);
+pub const train_accel = fx.ratio(2, 1000);
+/// Braking for a stop: the speed allowed at distance d is d x this, but
+/// never below `train_creep` until the stop is reached.
+pub const train_brake_per_block = fx.ratio(4, 100);
+pub const train_creep = fx.ratio(1, 100);
+/// How far ahead (blocks, straight on) a train looks for its next stop.
+pub const train_look = 10;
+/// Ticks a train waits at a station (about 6 s).
+pub const train_wait: u16 = 180;
+/// Gap between carriages.
+pub const train_gap = fx.ratio(1, 16);
+/// The trail carriages follow: a point every `train_crumb` blocks, kept
+/// for `train_crumbs` points (enough for six 2-block carriages).
+pub const train_crumb = fx.ratio(1, 4);
+pub const train_crumbs = 64;
+/// Models (docs/research/public-sources.md 1): engine, passenger coach,
+/// flatbed freight wagon, boxcar.
+pub const train_engine: u8 = 60;
+pub const train_coach: u8 = 59;
+pub const train_freight: u8 = 61;
+pub const train_boxcar: u8 = 6;

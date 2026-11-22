@@ -30,7 +30,8 @@ pub fn Sys(comptime Self: type) type {
                     const m = T.carModel(v.model);
                     // Towed trailers and cars on a crane are placed by
                     // their own systems.
-                    if (!v.towId().isNone() or v.xflags & c.Vehicle.xf_lifted != 0) return;
+                    // Trains run on their rails (`sys/trains.zig`).
+                    if (!v.towId().isNone() or v.xflags & c.Vehicle.xf_lifted != 0 or v.train != 0) return;
                     // Rotate first; a turn that would put a corner in a wall
                     // does not happen.
                     if (vel.spin != 0) {

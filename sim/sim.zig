@@ -465,6 +465,7 @@ pub fn Sim(comptime cfg: Config) type {
         pub const CarHitCause = @import("sys/car_flags.zig").Cause;
         pub const trailers = @import("sys/trailers.zig").Sys(Self); // vehicles
         pub const cranes = @import("sys/cranes.zig").Sys(Self); // vehicles
+        pub const trains = @import("sys/trains.zig").Sys(Self); // vehicles
         pub const spawn = sys_spawn; // F
         pub const surfaces = sys_surfaces; // C
 
@@ -519,6 +520,7 @@ pub fn Sim(comptime cfg: Config) type {
             self.sysExplosions();
             self.sysMoveCars();
             trailers.sysTrailers(self); // vehicles: pairs follow their cabs
+            if (comptime city) trains.sysTrains(self); // vehicles: trains run on their rails
             self.sysMovePeds();
             self.sysMoveProjectiles();
             self.buildBroadphase();
