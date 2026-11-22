@@ -517,6 +517,41 @@ test "car weapons: the tank gun needs a fresh press each shot; disarm removes a 
     h.frames[0].buttons = 0;
 }
 
+test "car weapons: the instant car bomb goes off on the press; a flamethrower or the tank gun can go on any car" {
+    var h = try H.init();
+    defer h.deinit();
+    const w = &h.sim.state.world;
+    const car = h.sim.spawnCarAt(blk(44), blk(34), 0, 0).?;
+    h.run(1);
+    h.sim.board(h.me(), car);
+    // A flamethrower on an ordinary car: flames every tick while held.
+    try std.testing.expect(Sp.car_weapons.arm(h.sim, car, .flamethrower, 10));
+    h.frames[0].buttons = Button.fire;
+    h.run(4);
+    try std.testing.expect(w.count(Sp.Shot) >= 3);
+    h.frames[0].buttons = 0;
+    h.run(20);
+    // Rockets (the tank gun) on the same car replace it.
+    try std.testing.expect(Sp.car_weapons.arm(h.sim, car, .tank_gun, 5));
+    try std.testing.expectEqual(TC.CarWeapon.tank_gun, Sp.car_weapons.weaponOf(h.sim, car));
+    try std.testing.expect(Sp.car_weapons.arm(h.sim, car, .instant_bomb, 1));
+    try std.testing.expect(w.get(car, c.Vehicle).?.flags & c.Vehicle.flag_wrecked == 0);
+    h.frames[0].buttons = Button.fire;
+    h.run(1);
+    h.frames[0].buttons = 0;
+    h.run(3);
+    const v = w.get(car, c.Vehicle);
+    try std.testing.expect(v == null or v.?.flags & c.Vehicle.flag_wrecked != 0);
+}
+
+test "car weapons: script weapon numbers 11-19 are the vehicle weapons in the game text's order" {
+    try std.testing.expectEqual(TC.CarWeapon.car_bomb, TC.carWeaponOfScript(11).?);
+    try std.testing.expectEqual(TC.CarWeapon.car_guns, TC.carWeaponOfScript(14).?);
+    try std.testing.expectEqual(TC.CarWeapon.flamethrower, TC.carWeaponOfScript(17).?);
+    try std.testing.expectEqual(TC.CarWeapon.instant_bomb, TC.carWeaponOfScript(19).?);
+    try std.testing.expect(TC.carWeaponOfScript(10) == null);
+}
+
 test "career: deterministic across save and load mid-countdown" {
     var a = try H.init();
     defer a.deinit();

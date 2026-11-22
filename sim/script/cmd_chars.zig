@@ -81,6 +81,8 @@ pub fn occupation(raw: u16) ids.Occupation {
 /// Script weapon numbers as `tuning.weapons` indices; vehicle weapons
 /// (15 and up) return null. Ours: the order the level scripts hand them
 /// out in is not in the notes.
+const TCareer = @import("../tuning/career.zig");
+
 pub fn weapon(raw: u16) ?u8 {
     return switch (raw) {
         0 => T.weapon_pistol,
@@ -202,8 +204,15 @@ pub fn Sys(comptime Self: type) type {
                 },
                 // 2.3 Weapons.
                 138, 266 => {
+                    // On a car, a vehicle weapon with a flat 50 rounds
+                    // whichever form (script-characters.md 2.3).
+                    if (w.get(ped, c.Vehicle) != null) {
+                        const cw = TCareer.carWeaponOfScript(p.u16_(2)) orelse return .done;
+                        _ = Self.car_weapons.arm(self, ped, cw, TCareer.script_car_rounds);
+                        return .done;
+                    }
                     const k = weapon(p.u16_(2)) orelse return .stubbed;
-                    const wpn = w.get(ped, c.Weapon) orelse return .stubbed; // a car: G's vehicle weapons
+                    const wpn = w.get(ped, c.Weapon) orelse return .stubbed;
                     const amount = if (cmd.kind == 266) p.u16_(4) else ammo_default;
                     if (H.playerSlot(self, ped) != null) {
                         const rounds: u16 = if (amount == ammo_default) T.weapons[k].pickup_rounds else amount;
@@ -358,10 +367,22 @@ pub fn Sys(comptime Self: type) type {
                 251 => ctx.setCond(Self.objectives.hasSpottedPlayer(self, ped)),
                 // 411/412: the kill-frenzy weapon (assumes the player).
                 411 => {
-                    const k = weapon(p.u16_(2)) orelse return .stubbed; // a vehicle weapon: G
+                    // A vehicle weapon goes on the player's car, full
+                    // (script-missions.md 422); 412 takes it off again.
+                    if (TCareer.carWeaponOfScript(p.u16_(2))) |cw| {
+                        const slot = H.playerSlot(self, ped) orelse return .done;
+                        const car = self.state.players[slot].car;
+                        if (!car.isNone()) _ = Self.car_weapons.arm(self, car, cw, TCareer.car_weapons[@intFromEnum(cw)].max_tenths / 10);
+                        return .done;
+                    }
+                    const k = weapon(p.u16_(2)) orelse return .stubbed;
                     Self.career.setFrenzyWeapon(self, H.playerSlot(self, ped) orelse 0, k);
                 },
-                412 => Self.career.setFrenzyWeapon(self, H.playerSlot(self, ped) orelse 0, 0xFF),
+                412 => {
+                    const slot = H.playerSlot(self, ped) orelse 0;
+                    Self.career.setFrenzyWeapon(self, slot, 0xFF);
+                    if (slot < self.state.players.len and !self.state.players[slot].car.isNone()) Self.car_weapons.disarm(self, self.state.players[slot].car);
+                },
                 232, 198, 199, 231, 244, 369 => return condStub(ctx, false),
                 258, 225, 262, 393, 359, 408, 383, 307, 306, 384, 385, 370 => return .stubbed,
                 else => return .unhandled,

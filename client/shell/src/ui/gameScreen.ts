@@ -11,7 +11,7 @@
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
-import { type Cue, type GameEvent, GameModule, type SoundSource, CAR_WEAPON_ICONS, CAR_WEAPON_NAMES, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_ICONS, WEAPON_NAMES } from "../game/wasm.ts";
+import { type Cue, type GameEvent, GameModule, type SoundSource, CAR_FIT_NAMES, CAR_WEAPON_ICONS, CAR_WEAPON_NAMES, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_ICONS, WEAPON_NAMES } from "../game/wasm.ts";
 import type { StyleData } from "../../../render/ts/src/index.ts";
 import { drawSprite } from "./spriteIcon.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
@@ -579,7 +579,10 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   function dropPickup(): void {
     if (!game || online || remote) return;
     game.spawnPickup(nextPickup);
-    nextPickup = nextPickup + 1 >= WEAPON_NAMES.length + PICKUP_NAMES.length ? 1 : nextPickup + 1;
+    // While driving the cycle runs on through the vehicle weapons that
+    // have no pickup (fitted straight to the car).
+    const last = WEAPON_NAMES.length + PICKUP_NAMES.length + (game.player(0).inCar ? CAR_FIT_NAMES.length : 0);
+    nextPickup = nextPickup + 1 >= last ? 1 : nextPickup + 1;
   }
   /** The weapon line and its icon: the car's weapon while driving one that has it, else the hand weapon. */
   function setWeaponHud(p: PlayerInfo): void {

@@ -82,14 +82,16 @@ export const WEAPON_NAMES = [
 /** Pickup kinds after the weapons (`tuning.pickup_health` on), then the vehicle weapon pickups. */
 export const PICKUP_NAMES = ["Health", "Armour", "Invulnerability", "Double damage", "Fast reload", "Car bomb", "Oil slick", "Car mines", "Car machine guns"] as const;
 /** Vehicle weapons by `CarWeapon` (sim/tuning/career.zig); 0 is none. */
-export const CAR_WEAPON_NAMES = ["", "Car machine guns", "Jeep gun", "Tank gun", "Water cannon", "Flamethrower", "Oil slick", "Car mines", "Car bomb"] as const;
+export const CAR_WEAPON_NAMES = ["", "Car machine guns", "Jeep gun", "Tank gun", "Water cannon", "Vehicle flamethrower", "Oil slick", "Car mines", "Car bomb", "Instant car bomb"] as const;
+/** Debug fits (`gameSpawnPickup` kinds after the pickups, while driving): vehicle weapons with no pickup of their own. */
+export const CAR_FIT_NAMES = ["Vehicle flamethrower", "Car rockets (tank gun)", "Instant car bomb"] as const;
 /**
  * The spinning pickup sprite (code-object group) that stands for each hand
  * weapon (`WEAPON_NAMES`) and vehicle weapon (`CAR_WEAPON_NAMES`), for HUD
  * icons; game.zig's `pickup_first` and `collect` picked them by eye.
  */
 export const WEAPON_ICONS = [18, 26, 66, 34, 98, 90, 82, 42, 58, 50] as const;
-export const CAR_WEAPON_ICONS = [0, 134, 134, 34, 82, 82, 118, 126, 110] as const;
+export const CAR_WEAPON_ICONS = [0, 134, 134, 34, 82, 82, 118, 126, 110, 110] as const;
 
 /** The single-player state the HUD draws (`spInfo` in game.zig). */
 export interface SpHud {

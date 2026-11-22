@@ -636,9 +636,19 @@ export fn gameSpawnPickup(slot: u32, kind: u32) bool {
     return if (offline == .sp) spawnPickupFor(SimSp, &game_sp, slot, kind) else spawnPickupFor(Sim, &game, slot, kind);
 }
 fn spawnPickupFor(comptime S: type, g: *S, slot: u32, kind: u32) bool {
-    if (slot >= S.config.max_players or kind >= sim.tuning.pickup_kinds) return false;
+    if (slot >= S.config.max_players) return false;
     const ped = g.pedOf(slot) orelse return false;
     const car = g.playerRow(slot).car;
+    // Past the pickups, while driving: vehicle weapons that have no pickup,
+    // fitted straight to the car (flamethrower, rockets, instant bomb).
+    if (kind >= sim.tuning.pickup_kinds) {
+        const fits = [_]sim.tuning_career.CarWeapon{ .flamethrower, .tank_gun, .instant_bomb };
+        const i = kind - sim.tuning.pickup_kinds;
+        if (car.isNone() or i >= fits.len) return false;
+        const ok = S.car_weapons.arm(g, car, fits[i], sim.tuning_career.script_car_rounds);
+        savePrev();
+        return ok;
+    }
     const t = (if (car.isNone()) null else g.transformOf(car)) orelse g.transformOf(ped) orelse return false;
     const a = @as(f32, @floatFromInt(t.heading)) * (std.math.tau / 65536.0);
     const d: f32 = @as(f32, if (car.isNone()) 1.0 else 1.5) * @as(f32, abi.fx_one);

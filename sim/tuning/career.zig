@@ -129,9 +129,11 @@ pub const CarWeapon = enum(u8) {
     mines = 7,
     /// Arms the car's bomb (one use).
     car_bomb = 8,
+    /// The instant car bomb: the press sets it off at once (one use).
+    instant_bomb = 9,
     _,
 };
-pub const car_weapon_kinds = 9;
+pub const car_weapon_kinds = 10;
 
 pub const CarWeaponDef = struct {
     /// Ticks between shots while held (weapons.md 3.7); 1 = every tick.
@@ -161,7 +163,31 @@ pub const car_weapons = [car_weapon_kinds]CarWeaponDef{
     .{ .wait = 2, .fresh_press = true, .shoots = false, .armed_attack = false, .max_tenths = 990, .tenths_per_use = 1 },
     .{ .wait = 1, .fresh_press = true, .shoots = false, .armed_attack = false, .max_tenths = 990, .tenths_per_use = 10 },
     .{ .wait = 1, .fresh_press = true, .shoots = false, .armed_attack = false, .max_tenths = 10, .tenths_per_use = 10 },
+    .{ .wait = 1, .fresh_press = true, .shoots = false, .armed_attack = false, .max_tenths = 10, .tenths_per_use = 10 },
 };
+
+/// The script weapon numbers of the vehicle weapons (give-weapon 138/266
+/// on a car, 241, the kill frenzy's 411): they follow the hand weapons
+/// 0-10 in the game text's weapon list, which names them in this order
+/// (ours: read from the player's own text file; no level uses them).
+pub fn carWeaponOfScript(raw: u16) ?CarWeapon {
+    return switch (raw) {
+        11 => .car_bomb,
+        12 => .oil,
+        13 => .mines,
+        14 => .car_guns,
+        15 => .tank_gun,
+        16 => .water_cannon,
+        17 => .flamethrower,
+        18 => .jeep_gun,
+        19 => .instant_bomb,
+        else => null,
+    };
+}
+
+/// A script fitting a vehicle weapon gives a flat 50 rounds
+/// (script-characters.md 2.3).
+pub const script_car_rounds: u16 = 50;
 
 /// Built-in weapons by model role; they never run out.
 pub fn builtinCarWeapon(model: u8) CarWeapon {
