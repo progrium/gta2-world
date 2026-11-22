@@ -1,5 +1,5 @@
-//! The `Object` component on the `map_object` kind (single player only,
-//! W0). Owned by workstream B (objects and city furniture): phones, doors,
+//! The `Object` component on the `map_object` kind (every configuration;
+//! replicated). Owned by workstream B (objects and city furniture): phones, doors,
 //! generators, crossing markers, lamps, oil patches, mines, crushers.
 
 const abi = @import("interfaces").abi;

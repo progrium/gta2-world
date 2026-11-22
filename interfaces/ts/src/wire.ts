@@ -36,6 +36,7 @@ export const EventKind = {
   // Single player, reserved 2026-11-20 (W0 of docs/plan-notes.md).
   message: 7, brief: 8, wanted: 9, wasted: 10, busted: 11, missionStart: 12, missionPass: 13,
   missionFail: 14, phoneRing: 15, siren: 16, gameOver: 17, levelComplete: 18, policeVoice: 19, respray: 20,
+  carWeapon: 22,
 } as const;
 export const RecordOp = { update: 0, create: 1, remove: 2 } as const;
 

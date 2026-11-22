@@ -38,6 +38,12 @@ export interface PlayerInfo {
   /** Throw charge while a grenade or molotov is wound up (ticks). */
   charge: number;
   burning: boolean;
+  /** The car's weapon, an index into `CAR_WEAPON_NAMES` (0 none). */
+  carWeapon: number;
+  /** Its rounds; -1 for a built-in one that never runs out. */
+  carRounds: number;
+  /** Ticks until an armed car bomb goes off (0 none). */
+  bombFuse: number;
 }
 
 /** A game event: offline from the sim, online from the server (I3 `event`). */
@@ -73,8 +79,17 @@ export const WEAPON_NAMES = [
   "Grenades",
   "Molotovs",
 ] as const;
-/** Pickup kinds after the weapons (`tuning.pickup_health` on). */
-export const PICKUP_NAMES = ["Health", "Armour", "Invulnerability", "Double damage", "Fast reload"] as const;
+/** Pickup kinds after the weapons (`tuning.pickup_health` on), then the vehicle weapon pickups. */
+export const PICKUP_NAMES = ["Health", "Armour", "Invulnerability", "Double damage", "Fast reload", "Car bomb", "Oil slick", "Car mines", "Car machine guns"] as const;
+/** Vehicle weapons by `CarWeapon` (sim/tuning/career.zig); 0 is none. */
+export const CAR_WEAPON_NAMES = ["", "Car machine guns", "Jeep gun", "Tank gun", "Water cannon", "Flamethrower", "Oil slick", "Car mines", "Car bomb"] as const;
+/**
+ * The spinning pickup sprite (code-object group) that stands for each hand
+ * weapon (`WEAPON_NAMES`) and vehicle weapon (`CAR_WEAPON_NAMES`), for HUD
+ * icons; game.zig's `pickup_first` and `collect` picked them by eye.
+ */
+export const WEAPON_ICONS = [18, 26, 66, 34, 98, 90, 82, 42, 58, 50] as const;
+export const CAR_WEAPON_ICONS = [0, 134, 134, 34, 82, 82, 118, 126, 110] as const;
 
 /** The single-player state the HUD draws (`spInfo` in game.zig). */
 export interface SpHud {
@@ -189,7 +204,7 @@ export class GameModule {
   }
 
   /** Parses a .sty and returns the buffers the renderer uploads (copies). */
-  loadStyle(bytes: Uint8Array): StyleData {
+  loadStyle(bytes: Uint8Array): StyleData & { codeObjBase: number } {
     this.withBytes(bytes, (p, n) => this.w.loadStyle!(p, n));
     const w = this.w;
     const si = new Uint32Array(this.buf, w.styleInfo!(), 18).slice();
@@ -201,6 +216,7 @@ export class GameModule {
       spriteTable: new Uint16Array(this.buf, w.spriteTablePtr!(), w.spriteTableRows!() * 64 * 4).slice(),
       tilePaletteBase: si[4]!,
       spritePaletteBase: si[5]!,
+      codeObjBase: si[14]!,
     };
   }
 
@@ -397,7 +413,7 @@ export class GameModule {
   }
 
   player(slot: number): PlayerInfo {
-    const a = new Int32Array(this.buf, this.w.playerInfo!(slot), 17);
+    const a = new Int32Array(this.buf, this.w.playerInfo!(slot), 20);
     return {
       active: a[0] !== 0,
       inCar: a[1] !== 0,
@@ -416,6 +432,9 @@ export class GameModule {
       fastReload: a[14]!,
       charge: a[15]!,
       burning: a[16]! > 0,
+      carWeapon: a[17]!,
+      carRounds: a[18]!,
+      bombFuse: a[19]!,
     };
   }
 

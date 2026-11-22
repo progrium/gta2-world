@@ -10,7 +10,6 @@ pub const gangs = @import("gangs.zig");
 pub const hud = @import("hud.zig");
 pub const script = @import("../script/vm.zig");
 pub const lights = @import("../sys/lights.zig");
-pub const arms = @import("../sys/car_weapons.zig");
 pub const world = @import("../script/world.zig");
 pub const objects = @import("../sys/objects_state.zig");
 pub const traffic = @import("../sys/spawn.zig");
@@ -24,7 +23,6 @@ pub fn SpState(comptime max_players: u16) type {
         gangs: gangs.State, // D2
         script: script.State, // A1
         lights: lights.State, // B
-        arms: arms.State, // G (vehicle weapons)
         world: world.State, // A2
         objects: objects.State, // B
         traffic: traffic.State, // F (zone spawn settings)

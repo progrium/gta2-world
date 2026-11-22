@@ -620,7 +620,8 @@ fn spawnCarFor(comptime S: type, g: *S, slot: u32) bool {
 }
 
 /// Debug aid, like `gameSpawnCar`: drops pickup `kind` (a `Weapon.kind`
-/// or power-up) a block in front of the slot's ped. Offline play only.
+/// or power-up, or a vehicle weapon) a block in front of the slot's ped, or
+/// a block and a half in front of its car, to drive over. Offline play only.
 export fn gameSpawnPickup(slot: u32, kind: u32) bool {
     if (!running) return false;
     return if (offline == .sp) spawnPickupFor(SimSp, &game_sp, slot, kind) else spawnPickupFor(Sim, &game, slot, kind);
@@ -628,9 +629,10 @@ export fn gameSpawnPickup(slot: u32, kind: u32) bool {
 fn spawnPickupFor(comptime S: type, g: *S, slot: u32, kind: u32) bool {
     if (slot >= S.config.max_players or kind >= sim.tuning.pickup_kinds) return false;
     const ped = g.pedOf(slot) orelse return false;
-    const t = g.transformOf(ped) orelse return false;
+    const car = g.playerRow(slot).car;
+    const t = (if (car.isNone()) null else g.transformOf(car)) orelse g.transformOf(ped) orelse return false;
     const a = @as(f32, @floatFromInt(t.heading)) * (std.math.tau / 65536.0);
-    const d: f32 = 1.0 * @as(f32, abi.fx_one);
+    const d: f32 = (if (car.isNone()) 1.0 else 1.5) * @as(f32, abi.fx_one);
     const x = t.x + @as(i32, @intFromFloat(@cos(a) * d));
     const y = t.y + @as(i32, @intFromFloat(@sin(a) * d));
     _ = g.spawnPickupAt(x, y, @intCast(kind)) orelse return false;
@@ -701,8 +703,10 @@ export fn gameHash() [*]const u32 {
 }
 
 /// [active, in_car, hp, kills, deaths, respawn_timer, speed (fx), z (fx),
-///  weapon, rounds (-1 unlimited), score]
-var player_buf: [17]i32 = undefined;
+///  weapon, rounds (-1 unlimited), score, armour, invulnerable,
+///  double_damage, fast_reload, charge, burn, car weapon (`CarWeapon`, 0
+///  none), its rounds (-1 built in, never runs out), car bomb fuse ticks]
+var player_buf: [20]i32 = undefined;
 export fn playerInfo(slot: u32) [*]const i32 {
     player_buf = @splat(0);
     if (slot >= max_players) return &player_buf;
@@ -720,6 +724,21 @@ fn playerInfoFor(comptime S: type, g: *S, slot: u32) [*]const i32 {
     player_buf[10] = row.score;
     player_buf[4] = row.deaths;
     player_buf[5] = @bitCast(row.respawn_timer);
+    if (readComp(sim.c.Vehicle, g.stateBytes(), row.car)) |v| {
+        const TC = sim.tuning_career;
+        const fitted = v.arm != 0 and v.arm < TC.car_weapon_kinds and (v.arm_ammo > 0 or v.bomb_fuse > 0);
+        if (fitted) {
+            player_buf[17] = v.arm;
+            player_buf[18] = @divTrunc(@as(i32, v.arm_ammo) + 9, 10);
+        } else {
+            const b = TC.builtinCarWeapon(v.model);
+            if (b != .none) {
+                player_buf[17] = @intFromEnum(b);
+                player_buf[18] = -1;
+            }
+        }
+        player_buf[19] = v.bomb_fuse;
+    }
     const t = list.target(curLayout(), g.stateBytes(), slot);
     if (t.found != 0) {
         player_buf[6] = @intFromFloat(@sqrt(t.vx * t.vx + t.vy * t.vy) * @as(f32, abi.fx_one));
@@ -815,8 +834,18 @@ const spr = struct {
     /// Spinning pickups, in `Weapon.kind` order: pistol (unused), machine
     /// gun, shotgun, rockets, dual pistols, silenced machine gun,
     /// flamethrower, electro gun, grenades, molotovs; then health, armour,
-    /// invulnerability, double damage, fast reload.
-    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 98, 90, 82, 42, 58, 50, 167, 175, 199, 207, 215 };
+    /// invulnerability, double damage, fast reload; then the vehicle
+    /// weapons (collectables 15-18): car bomb, oil, mines, machine guns.
+    const pickup_first = [sim.tuning.pickup_kinds]u16{ 18, 26, 66, 34, 98, 90, 82, 42, 58, 50, 167, 175, 199, 207, 215, 110, 118, 126, 134 };
+    /// Vehicle weapon shots (`Projectile.weapon`, tuning `car_shot_base` +
+    /// kind - 1): the tank's rocket, the fire truck's water, the
+    /// flamethrower's flame. The guns' bullets are plain bullets.
+    const car_shot_tank: u8 = T.car_shot_base + 2;
+    const car_shot_water: u8 = T.car_shot_base + 3;
+    const car_shot_flame: u8 = T.car_shot_base + 4;
+    /// A water cannon's spray, picked by eye: a pale cyan streak.
+    const water_first: u16 = 418;
+    const water_frames: u16 = 8;
     const pickup_frames: u16 = 8;
 
     /// The code-object sprite of collectable n (0-44), the order the public
@@ -1120,8 +1149,9 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                     in.kind = hidden_kind;
                     continue;
                 } else in.sprite = @intCast(code + switch (p.weapon) {
-                    T.weapon_rocket => spr.rocket,
-                    T.weapon_flamethrower => spr.fire_first + (frame16 +% in.index) % spr.fire_frames,
+                    T.weapon_rocket, spr.car_shot_tank => spr.rocket,
+                    T.weapon_flamethrower, spr.car_shot_flame => spr.fire_first + (frame16 +% in.index) % spr.fire_frames,
+                    spr.car_shot_water => spr.water_first + (frame16 +% in.index) % spr.water_frames,
                     T.weapon_electro => spr.arc_first + (frame16 +% in.index) % spr.arc_frames,
                     T.weapon_grenade => spr.grenade,
                     T.weapon_molotov => spr.molotov,
@@ -1152,7 +1182,8 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 }
             },
             @intFromEnum(abi.Kind.map_object) => {
-                // Single player only (dm16's map objects have no Object).
+                // Oil and mines everywhere; the city's own objects in single
+                // player and police rooms.
                 const o = readAt(sim.c.Object, state, obj_col orelse continue, in.index) orelse continue;
                 switch (@as(sim.ids.ObjectKind, @enumFromInt(o.kind))) {
                     // Traffic AI markers are not drawn. Doors are drawn as

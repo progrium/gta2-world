@@ -26,6 +26,32 @@ pub const shop_reach_z = fx.one;
 pub const shop_price_sp: i32 = 5000;
 pub const shop_price_mp: i32 = 2000;
 
+/// A weapon shop: the `CarWeapon` it fits (tuning/career.zig), the rounds
+/// one visit gives, and its price in career cash (single player) and in
+/// points (rooms).
+pub const WeaponShop = struct { code: u8, weapon: u8, rounds: u16, price_sp: i32, price_mp: i32 };
+/// The weapon shop codes. The public scripting docs name four shop types
+/// (MACHINEGUN_SHOP, MINES_SHOP, OILSLICK_SHOP, BOMB_SHOP) and give no
+/// numbers; the player's main scripts place codes 250, 251, 252 and 254 in
+/// a row of garages beside a spray shop in every district, with 252 missing
+/// only in Downtown, which the public guides say has no mines shop. The
+/// other three follow the order the scripts and the public tutorial
+/// declare them in (machine guns, mines, spray, oil, bomb). Prices are
+/// the public guides' (Smith & Heston's $25,000, Gold Mines $50,000, Hell
+/// Oil $10,000, Red Army Surplus $5,000), 10 mines and 10 oil slicks a
+/// visit; the 50 machine gun rounds (the least a script can give a car)
+/// and the room prices (two fifths, as for the spray shop) are ours.
+pub const weapon_shops = [_]WeaponShop{
+    .{ .code = 250, .weapon = 1, .rounds = 50, .price_sp = 25000, .price_mp = 10000 }, // machine guns
+    .{ .code = 251, .weapon = 6, .rounds = 10, .price_sp = 10000, .price_mp = 4000 }, // oil
+    .{ .code = 252, .weapon = 7, .rounds = 10, .price_sp = 50000, .price_mp = 20000 }, // mines
+    .{ .code = 254, .weapon = 8, .rounds = 1, .price_sp = 5000, .price_mp = 2000 }, // car bomb
+};
+pub fn weaponShop(code: u8) ?WeaponShop {
+    for (weapon_shops) |ws| if (ws.code == code) return ws;
+    return null;
+}
+
 // --- Crushers (notes: crushers-and-garages.md 3.1-3.2, 4)
 
 /// Piston distance from the centre when open and when closed.
@@ -114,6 +140,13 @@ pub const max_areas = 16;
 pub const oil_life: u16 = 900;
 /// Ours: an oil patch's radius.
 pub const oil_radius = fx.ratio(3, 8);
+/// The object models drawn for a dropped oil patch and mine (the styles'
+/// OIL and MINE objects; the sim only reads `Object.kind`).
+pub const oil_model: u16 = 9;
+pub const mine_model: u16 = 10;
+/// Ours: the car that dropped an oil patch does not spin on it for this
+/// many ticks after the drop.
+pub const oil_own_grace: u16 = 45;
 /// Ours: a mine cannot go off for this many ticks after it is dropped, so
 /// the car dropping it gets clear.
 pub const mine_arm_ticks: u16 = 30;

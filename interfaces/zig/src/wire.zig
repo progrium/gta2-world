@@ -126,6 +126,10 @@ pub const EventKind = enum(u8) {
     /// x, y, z of a spray shop; a = slot, b = the car's new remap, c = 0 no
     /// wanted level, 1 wanted level cleared (paid), 2 could not pay
     respray = 20,
+    /// x, y, z of the car or shop; a = slot, b = the vehicle weapon kind
+    /// (1 car guns .. 8 car bomb), c = 0 fitted, 1 could not pay, 2 already
+    /// full, 3 car bomb armed, 4 a mine or oil dropped
+    car_weapon = 22,
     _,
 };
 
