@@ -238,6 +238,10 @@ pub fn Sys(comptime Self: type) type {
                 self.scratch.stats.impacts += 1;
                 self.damageCar(a.id, @as(i64, j) * T.impact_damage, b.id);
                 self.damageCar(b.id, @as(i64, j) * T.impact_damage, a.id);
+                if (j > T.dent_min_impact) {
+                    self.dentAt(a.id, @as(i64, j) * T.impact_damage, px, py);
+                    self.dentAt(b.id, @as(i64, j) * T.impact_damage, px, py);
+                }
                 // E: driving into a police car (car-collision.md 3.7).
                 Self.wanted.onCarImpact(self, a.id, b.id, j, false);
                 Self.wanted.onCarImpact(self, b.id, a.id, j, false);
@@ -414,6 +418,13 @@ pub fn Sys(comptime Self: type) type {
                     const j: i64 = @divTrunc(-@as(i64, rel) * m_eff * e8, 8 << fx.frac_bits);
                     self.damageCar(a.id, j * T.impact_damage, b.id);
                     self.damageCar(b.id, j * T.impact_damage, a.id);
+                    // The contact is between the two centres.
+                    if (j > T.dent_min_impact) {
+                        const mx = ta.x + @divTrunc(tb.x - ta.x, 2);
+                        const my = ta.y + @divTrunc(tb.y - ta.y, 2);
+                        self.dentAt(a.id, j * T.impact_damage, mx, my);
+                        self.dentAt(b.id, j * T.impact_damage, mx, my);
+                    }
                 }
             }
             a.x = ta.x;

@@ -502,6 +502,11 @@ export class GameModule {
   }
 
   /** Tyre marks still showing at `nowMs`: x, y, z, opacity per vertex. */
+  /** Night lighting on or off: cars show headlights and roof lights. */
+  setNight(on: boolean): void {
+    if (typeof this.w.setNight === "function") this.w.setNight(on ? 1 : 0);
+  }
+
   skidMarks(nowMs = performance.now()): Float32Array {
     if (typeof this.w.skidMarks !== "function") return new Float32Array(0);
     const n = this.w.skidMarks(nowMs);

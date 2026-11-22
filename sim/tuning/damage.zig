@@ -28,6 +28,9 @@ pub const unstick_push: Fx = fx.one / 64;
 /// Closing speeds below this do no damage (ours: so a car pushing on a wall
 /// or another car is not ground down; the notes' dent threshold for walls).
 pub const impact_min_speed = fx.ratio(3, 100);
+/// Car and object hits dent a car only above this impact
+/// (car-collision.md 3.5); walls use `impact_min_speed`.
+pub const dent_min_impact = fx.ratio(3, 10);
 /// A car closing on a ped faster than this hits him (ours); slower, he is
 /// just pushed aside.
 pub const car_hit_min = fx.ratio(2, 100);

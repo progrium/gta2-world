@@ -49,6 +49,10 @@ pub fn Sys(comptime Self: type) type {
             const dmg: i64 = @max(1, (raw * anti) >> (2 * fx.frac_bits));
             const h = w.get(id, c.Health).?;
             h.hp = @intCast(@max(0, h.hp - @min(dmg, T.car_damage_max)));
+            // Ours: the windscreen cracks at the first damage stage, when
+            // the car starts to smoke (the notes do not say when delta 4
+            // shows).
+            if (T.car_damage_max - h.hp >= T.car_fire_damage) v.dents |= c.Vehicle.dent_windscreen;
             if (!by.isNone()) h.last_hit_by = by;
             Self.wanted.onCarDamaged(self, id, by); // E: crime report
             // Each credited hit scores by how hard it was (scoring.md 3.3);
@@ -57,6 +61,44 @@ pub fn Sys(comptime Self: type) type {
             if (slot != Event.no_slot and !eql(self.state.players[slot].ped, v.driver)) {
                 self.addPoints(slot, if (dmg < T.damage_band_low) 1 else if (dmg < T.damage_band_high) 10 else 100);
             }
+        }
+
+        /// `damageCar`, then a dent in the quarter of the car that `(px,
+        /// py)` (world blocks) falls in, when the hit is hard enough:
+        /// anti-strength x impact at least 1 (car-collision.md 3.5), that
+        /// is, at least `impact_damage` after scaling. The callers apply
+        /// the notes' speed and impact gates (`T.dent_min_impact`).
+        pub fn damageCarAt(self: *Self, id: EntityId, raw: i64, by: EntityId, px: Fx, py: Fx) void {
+            self.damageCar(id, raw, by);
+            self.dentAt(id, raw, px, py);
+        }
+
+        /// The dent half of `damageCarAt`.
+        pub fn dentAt(self: *Self, id: EntityId, raw: i64, px: Fx, py: Fx) void {
+            if (!self.writable(id)) return;
+            const w = &self.state.world;
+            const v = w.get(id, c.Vehicle) orelse return;
+            if (v.flags & c.Vehicle.flag_wrecked != 0) return;
+            const anti: i64 = T.carModel(v.model).anti_strength;
+            if ((raw * anti) >> (2 * fx.frac_bits) < T.impact_damage) return;
+            v.dents |= dentBit(w.get(id, c.Transform) orelse return, px, py);
+        }
+
+        /// Which corner dent a hit at `(px, py)` makes: the car's quarter
+        /// is front or back by the point's distance along the car, left
+        /// or right by its distance across (ours: the notes name the
+        /// struck quarter; the style draws a dent per corner).
+        pub fn dentBit(t: *const c.Transform, px: Fx, py: Fx) u8 {
+            const dx = fx.cos(t.heading);
+            const dy = fx.sin(t.heading);
+            const rx = px - t.x;
+            const ry = py - t.y;
+            const along = fx.mul(rx, dx) + fx.mul(ry, dy);
+            // Left of the heading, with y pointing south.
+            const left = fx.mul(rx, dy) - fx.mul(ry, dx);
+            const V = c.Vehicle;
+            if (along >= 0) return if (left >= 0) V.dent_front_left else V.dent_front_right;
+            return if (left >= 0) V.dent_rear_left else V.dent_rear_right;
         }
 
         /// Per ped, per tick: power-up timers run down, burning hurts, and

@@ -202,6 +202,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     if (!renderer) return;
     const night = renderer.lighting.ambient > 0.6;
     renderer.lighting = night ? { ambient: 0.35, lightGain: 1.0 } : { ambient: 1.0, lightGain: 0.35 };
+    game?.setNight(night);
   };
 
   hud.append(

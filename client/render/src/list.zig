@@ -45,6 +45,8 @@ pub const Instance = extern struct {
     pub const flag_dark: u8 = 1;
     /// Drawn at full brightness whatever the lighting (fire, explosions).
     pub const flag_glow: u8 = 2;
+    /// A car delta overlay (`style.Overlay`), lifted just above its car.
+    pub const flag_overlay: u8 = 4;
     /// `kind` of effect sprites a host adds after `build` (drawn on top).
     pub const kind_effect: u8 = 5;
 };

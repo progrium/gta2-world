@@ -409,6 +409,8 @@ pub fn Sim(comptime cfg: Config) type {
         pub const carHitPed = sys_contacts.carHitPed;
         pub const hurt = sys_health.hurt;
         pub const damageCar = sys_health.damageCar;
+        pub const damageCarAt = sys_health.damageCarAt;
+        pub const dentAt = sys_health.dentAt;
         pub const sysPedStatus = sys_health.sysPedStatus;
         pub const sysHealth = sys_health.sysHealth;
         pub const sysProjectileHits = sys_projectile_hits.sysProjectileHits;

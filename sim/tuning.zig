@@ -210,6 +210,7 @@ pub const impulse_min = t_damage.impulse_min;
 pub const unstick_turn = t_damage.unstick_turn;
 pub const unstick_push = t_damage.unstick_push;
 pub const impact_min_speed = t_damage.impact_min_speed;
+pub const dent_min_impact = t_damage.dent_min_impact;
 pub const car_hit_min = t_damage.car_hit_min;
 pub const knock_lift_light = t_damage.knock_lift_light;
 pub const knock_lift_mid = t_damage.knock_lift_mid;
