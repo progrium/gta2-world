@@ -32,9 +32,8 @@ const W = @import("world.zig");
 const Cmd = W.Cmd;
 const Outcome = W.Outcome;
 
-pub const done = [_]u16{ 43, 44, 45, 46, 394, 395, 396, 397, 100, 175, 170, 169, 368, 167, 171, 166, 330, 254, 253, 155, 144, 398, 403, 404, 405, 142, 399, 406, 129, 157, 158, 159, 139, 270, 189, 208, 206, 207, 209, 250, 130, 154, 190, 191, 128, 267, 358, 366, 305, 188, 374, 316, 246, 247, 303, 310, 278, 311, 312, 313, 361, 417 };
-/// Waiting on: vehicle weapons (G), dents (C).
-pub const stubbed = [_]u16{ 200, 241 };
+pub const done = [_]u16{ 43, 44, 45, 46, 394, 395, 396, 397, 100, 175, 170, 169, 368, 167, 171, 166, 330, 254, 253, 155, 144, 398, 403, 404, 405, 142, 399, 406, 129, 157, 158, 159, 139, 270, 189, 208, 206, 207, 209, 250, 130, 154, 190, 191, 128, 267, 358, 366, 305, 188, 374, 316, 246, 247, 303, 310, 278, 311, 312, 313, 361, 417, 200, 241 };
+pub const stubbed = [_]u16{};
 
 /// The explosion kinds `explodeAt` takes (0 small, 1 car).
 const explosion_small: u8 = 0;
@@ -279,7 +278,27 @@ pub fn Sys(comptime Self: type) type {
                         ctx.setHandle(p.u16_(0), car);
                     }
                 },
-                200, 241 => return condStub(ctx, false),
+                // Is that quarter dented (car-collision.md 3.5)? The
+                // quarter's numbering is a guess: 0 front, 1 back, 2 left,
+                // 3 right; each takes in its two corner dents.
+                200 => {
+                    const v = w.get(ctx.handle(p.u16_(0)), c.Vehicle) orelse return cond(ctx, false);
+                    const V = c.Vehicle;
+                    const mask: u8 = switch (p.u16_(2)) {
+                        0 => V.dent_front_left | V.dent_front_right,
+                        1 => V.dent_rear_left | V.dent_rear_right,
+                        2 => V.dent_front_left | V.dent_rear_left,
+                        else => V.dent_front_right | V.dent_rear_right,
+                    };
+                    ctx.setCond(v.dents & mask != 0);
+                },
+                // Does the car carry that vehicle weapon (fitted or built
+                // in)?
+                241 => {
+                    const car = ctx.handle(p.u16_(0));
+                    const want = @import("../tuning/career.zig").carWeaponOfScript(p.u16_(2)) orelse return cond(ctx, false);
+                    ctx.setCond(w.isAlive(car) and Self.car_weapons.weaponOf(self, car) == want);
+                },
                 else => return .unhandled,
             }
             return .done;

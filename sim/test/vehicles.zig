@@ -447,3 +447,44 @@ test "cranes: a driver rides along and cannot get out while lifted" {
     }
     try std.testing.expect(tried);
 }
+
+// --------------------------------------------------------------------------
+// Dents (car-collision.md 3.5)
+
+test "dents: a hard hit dents the struck corner, a light one does not; the windscreen cracks at the first fire stage" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    // Heading 0 faces +x (east); its left is north (-y).
+    const car = h.sim.spawnCarAt(blk(44), blk(36), 0, 0).?;
+    h.run(1);
+    const t = tr(&h, car).*;
+    // Front left: ahead and to the north.
+    h.sim.damageCarAt(car, 2 << fx.frac_bits, .none, t.x + fx.half, t.y - fx.ratio(1, 4));
+    try std.testing.expectEqual(@as(u8, 0), veh(&h, car).dents);
+    h.sim.damageCarAt(car, @as(i64, 300) << fx.frac_bits, .none, t.x + fx.half, t.y - fx.ratio(1, 4));
+    try std.testing.expectEqual(V.dent_front_left, veh(&h, car).dents);
+    h.sim.damageCarAt(car, @as(i64, 300) << fx.frac_bits, .none, t.x - fx.half, t.y + fx.ratio(1, 4));
+    try std.testing.expectEqual(V.dent_front_left | V.dent_rear_right, veh(&h, car).dents);
+    h.sim.damageCar(car, @as(i64, T.car_fire_damage) << fx.frac_bits, .none);
+    try std.testing.expect(veh(&h, car).dents & V.dent_windscreen != 0);
+}
+
+test "dents: driving into a wall dents the front" {
+    var h = try Harness.init(.authoritative);
+    defer h.deinit();
+    h.join(0, 40, 35);
+    const car = h.sim.spawnCarAt(blk(44), fx.fromInt(35) + fx.half, 0, 0).?;
+    h.run(1);
+    // A wall across the road ahead, on the car's level.
+    for (30..42) |y| h.grid.blocks[1][y][60] = map.makeCell(map.Shape.solid, 0, map.Ground.pavement, 0);
+    h.sim.board(h.sim.pedOf(0).?, car);
+    h.frames[0].throttle = 127;
+    var dented = false;
+    for (0..400) |_| {
+        h.run(1);
+        if (veh(&h, car).dents & (V.dent_front_left | V.dent_front_right) != 0) dented = true;
+    }
+    try std.testing.expect(dented);
+    try std.testing.expect(hp(&h, car) < T.car_damage_max);
+    try std.testing.expect(veh(&h, car).dents & (V.dent_rear_left | V.dent_rear_right) == 0);
+}

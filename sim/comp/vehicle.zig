@@ -71,7 +71,9 @@ pub const Vehicle = extern struct {
     /// Who armed the bomb: player slot + 1 (0 = nobody), credited with
     /// the blast.
     bomb_by: u8 = 0,
-    _arm_pad: u8 = 0,
+    /// A train's carriage (`sys/trains.zig`): the train's index + 1, else
+    /// 0. Trains move on their rails, not by physics, and take no damage.
+    train: u8 = 0,
     _pad: [2]u8 = .{ 0, 0 },
     /// Towing (`sys/trailers.zig`): on a cab, the trailer it pulls, as the
     /// entity id + 1 (0 none, so a zeroed car tows nothing); use
@@ -90,7 +92,11 @@ pub const Vehicle = extern struct {
     /// Ticks left of "recently hit": an unhitched trailer is not drawn to a
     /// hitch while it runs (car-collision.md 3.4).
     hit_n: u8 = 0,
-    _pad2: [3]u8 = .{ 0, 0, 0 },
+    /// Visible damage (car-collision.md 3.5), `dent_*` bits: the four
+    /// corner dents and the cracked windscreen, drawn with the style's car
+    /// deltas 0-4.
+    dents: u8 = 0,
+    _pad2: [2]u8 = .{ 0, 0 },
 
     pub const drive_none: u8 = 0;
     pub const drive_forward: u8 = 1;
@@ -155,6 +161,13 @@ pub const Vehicle = extern struct {
     pub const xf_siren: u8 = 32;
     /// Held by a crane: "zoomed" out of normal play (no driving, no exit).
     pub const xf_lifted: u8 = 64;
+
+    /// `dents`, in the style's car delta order (public style format doc).
+    pub const dent_rear_right: u8 = 1;
+    pub const dent_rear_left: u8 = 2;
+    pub const dent_front_left: u8 = 4;
+    pub const dent_front_right: u8 = 8;
+    pub const dent_windscreen: u8 = 16;
 
     pub fn trailerId(v: *const Vehicle) EntityId {
         return if (v.trailer_ref == 0) .none else .{ .raw = v.trailer_ref -% 1 };

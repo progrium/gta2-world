@@ -30,7 +30,8 @@ pub fn Sys(comptime Self: type) type {
                     const m = T.carModel(v.model);
                     // Towed trailers and cars on a crane are placed by
                     // their own systems.
-                    if (!v.towId().isNone() or v.xflags & c.Vehicle.xf_lifted != 0) return;
+                    // Trains run on their rails (`sys/trains.zig`).
+                    if (!v.towId().isNone() or v.xflags & c.Vehicle.xf_lifted != 0 or v.train != 0) return;
                     // Rotate first; a turn that would put a corner in a wall
                     // does not happen.
                     if (vel.spin != 0) {
@@ -115,6 +116,9 @@ pub fn Sys(comptime Self: type) type {
             const vpy = vel.vy + fx.mul(vel.spin, r[0]);
             const vn = fx.mul(vpx, nx) + fx.mul(vpy, ny);
             if (vn < 0) {
+                // Damage and the dent go by the speed going in, not the
+                // rebound (car-collision.md 3.5).
+                const speed_in = fx.length(vel.vx, vel.vy);
                 const rn = fx.mul(r[0], ny) - fx.mul(r[1], nx);
                 const denom = fx.div(fx.one, m.mass) + fx.div(fx.mul(rn, rn), m.inertia);
                 const j: Fx = @intCast(@divTrunc(@as(i64, -fx.div(vn, denom)) * (8 + m.restitution_8ths), 8));
@@ -122,7 +126,8 @@ pub fn Sys(comptime Self: type) type {
                 // The normal speed never stays pointing into the wall.
                 if (x_axis and fx.mul(vel.vx, nx) < 0) vel.vx = 0;
                 if (!x_axis and fx.mul(vel.vy, ny) < 0) vel.vy = 0;
-                if (fx.length(vel.vx, vel.vy) > T.impact_min_speed) self.damageCar(id, @as(i64, j) * T.impact_damage, .none);
+                // The contact corner takes the dent (car-collision.md 3.5).
+                if (speed_in > T.impact_min_speed) self.damageCarAt(id, @as(i64, j) * T.impact_damage, .none, t.x + r[0], t.y + r[1]);
             }
             // Airborne and rising or level: bounce down (0.7, cut at 1/32).
             if (vel.vz >= 0 and self.state.world.get(id, c.Collider).?.flags & c.Collider.flag_grounded == 0) {

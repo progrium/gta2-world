@@ -182,11 +182,20 @@ export fn tilesPtr() [*]const u8 {
 export fn tilesLen() usize {
     return style.?.tiles.len;
 }
+/// The style's sprite pages plus the car delta overlay pages
+/// (render/style.zig `deltaOverlays`).
 export fn spritePagesPtr() [*]const u8 {
-    return style.?.sprite_graphics.ptr;
+    return prepared.?.sprite_pages.ptr;
 }
 export fn spritePagesLen() usize {
-    return style.?.sprite_graphics.len;
+    return prepared.?.sprite_pages.len;
+}
+
+/// Night lighting is on (the shell's N key): cars show headlights and
+/// roof lights.
+var night = false;
+export fn setNight(on: bool) void {
+    night = on;
 }
 export fn ppalPtr() [*]const u8 {
     return style.?.ppal.ptr;
@@ -627,9 +636,19 @@ export fn gameSpawnPickup(slot: u32, kind: u32) bool {
     return if (offline == .sp) spawnPickupFor(SimSp, &game_sp, slot, kind) else spawnPickupFor(Sim, &game, slot, kind);
 }
 fn spawnPickupFor(comptime S: type, g: *S, slot: u32, kind: u32) bool {
-    if (slot >= S.config.max_players or kind >= sim.tuning.pickup_kinds) return false;
+    if (slot >= S.config.max_players) return false;
     const ped = g.pedOf(slot) orelse return false;
     const car = g.playerRow(slot).car;
+    // Past the pickups, while driving: vehicle weapons that have no pickup,
+    // fitted straight to the car (flamethrower, rockets, instant bomb).
+    if (kind >= sim.tuning.pickup_kinds) {
+        const fits = [_]sim.tuning_career.CarWeapon{ .flamethrower, .tank_gun, .instant_bomb };
+        const i = kind - sim.tuning.pickup_kinds;
+        if (car.isNone() or i >= fits.len) return false;
+        const ok = S.car_weapons.arm(g, car, fits[i], sim.tuning_career.script_car_rounds);
+        savePrev();
+        return ok;
+    }
     const t = (if (car.isNone()) null else g.transformOf(car)) orelse g.transformOf(ped) orelse return false;
     const a = @as(f32, @floatFromInt(t.heading)) * (std.math.tau / 65536.0);
     const d: f32 = @as(f32, if (car.isNone()) 1.0 else 1.5) * @as(f32, abi.fx_one);
@@ -1197,6 +1216,7 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
     const obj_col = columnOf(.map_object, .object);
     const car_vel_col = columnOf(.car, .velocity);
     skids.beginFrame();
+    doorsScan(state, n_in, ped_col);
     for (instances[0..n_in]) |*in| {
         switch (in.kind) {
             @intFromEnum(abi.Kind.projectile) => {
@@ -1313,6 +1333,7 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                     in.flags |= list.Instance.flag_dark;
                     in.palette = list.Instance.own_palette;
                 }
+                n = carOverlays(in, v, frame16, n);
                 if (v.flags & sim.c.Vehicle.flag_burning != 0 and n < instances.len) {
                     instances[n] = .{ .x = in.x, .y = in.y, .z = in.z, .angle = 0, .sprite = @intCast(code + spr.fire_first + (frame16 +% in.index) % spr.fire_frames), .palette = list.Instance.own_palette, .kind = list.Instance.kind_effect, .flags = list.Instance.flag_glow };
                     n += 1;
@@ -1338,6 +1359,133 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
         n += 1;
     }
     watch(state, own_slot);
+    return n;
+}
+
+// ------------------------------------------------------------------ car deltas
+
+/// Doors open this frame: car index and the delta to draw (7-10 left
+/// front, 24-27 right front), from peds getting in or out.
+const DoorOpen = struct { car: u16, delta: u8 };
+var doors_open: [64]DoorOpen = undefined;
+var doors_open_len: usize = 0;
+
+/// Which car doors stand open, from the peds getting in, out or being
+/// pulled out (`Pedestrian.car_phase`). Ours: the door swings open over
+/// the first frames of the animation and shut over the last two; the
+/// driver's side (door bit 0 clear) is the car's left.
+fn doorsScan(state: []const u8, n_in: usize, ped_col: ?abi.ColumnDesc) void {
+    doors_open_len = 0;
+    const pc = ped_col orelse return;
+    const A = sim.anim;
+    for (instances[0..n_in]) |in| {
+        if (in.kind != @intFromEnum(abi.Kind.ped)) continue;
+        if (doors_open_len == doors_open.len) return;
+        const p = readAt(sim.c.Pedestrian, state, pc, in.index) orelse continue;
+        if (p.car.isNone() or p.car.kind() != @intFromEnum(abi.Kind.car)) continue;
+        const open: u16 = switch (p.car_phase) {
+            2 => blk: { // at the door, getting in
+                const total: u16 = A.frames.enter_car + (if (p.car_flags & 2 != 0) A.frames.pull_out else 0);
+                const f = A.frameAt(p.car_ticks, A.ticks_per_frame.enter_car);
+                break :blk if (f + 2 >= total) (total -| f) else @min(f, 3);
+            },
+            3 => blk: { // getting out
+                const total: u16 = A.frames.exit_car;
+                const f = A.frameAt(p.car_ticks, A.ticks_per_frame.exit_car);
+                break :blk if (f + 2 >= total) (total -| f) else @min(f + 1, 3);
+            },
+            4 => 3, // being pulled out
+            else => continue,
+        };
+        if (open == 0) continue;
+        const first: u8 = if (p.car_flags & 1 == 0) 7 else 24;
+        doors_open[doors_open_len] = .{ .car = @intCast(p.car.index()), .delta = first + @as(u8, @intCast(@min(open, 4) - 1)) };
+        doors_open_len += 1;
+    }
+}
+
+/// Adds the style's car deltas over car instance `in` (public style
+/// format document, car delta usage): dents and the cracked windscreen
+/// from `Vehicle.dents`; brake lights while braking; headlights and roof
+/// lights at night; the taxi light and roof decals; flashing emergency
+/// lights while the siren is on; the racing car's roof number; and doors
+/// standing open. Returns the new instance count.
+fn carOverlays(in: *const list.Instance, v: sim.c.Vehicle, frame16: u16, n_in: usize) usize {
+    const pp = &(prepared orelse return n_in);
+    const s = &(style orelse return n_in);
+    const car_base = s.sprite_base.base(.car);
+    if (in.sprite < car_base) return n_in;
+    const car: u32 = in.sprite - car_base;
+    if (car >= pp.car_sprites) return n_in;
+    var n = n_in;
+    const V = sim.c.Vehicle;
+    const flags = sim.tuning.carModel(v.model).flags;
+    const wrecked = v.flags & V.flag_wrecked != 0;
+    const driven = !v.driver.isNone() or v.flags & V.flag_ai != 0;
+    var want: [12]u8 = undefined;
+    var glow: u12 = 0;
+    var k: usize = 0;
+    const add = struct {
+        fn f(w: *[12]u8, kk: *usize, g: *u12, d: u8, lit: bool) void {
+            if (kk.* == w.len) return;
+            w[kk.*] = d;
+            if (lit) g.* |= @as(u12, 1) << @intCast(kk.*);
+            kk.* += 1;
+        }
+    }.f;
+    for (0..5) |d| if (v.dents & (@as(u8, 1) << @intCast(d)) != 0) add(&want, &k, &glow, @intCast(d), false);
+    if (!wrecked) {
+        if (v.brake > 0 and driven) {
+            add(&want, &k, &glow, 5, true);
+            add(&want, &k, &glow, 22, true);
+        }
+        if (night and driven) {
+            add(&want, &k, &glow, 6, true);
+            add(&want, &k, &glow, 23, true);
+        }
+        const flash = frame16 / 3 % 2 == 0;
+        if (flags & 0x02 != 0) {
+            // Emergency lights: 15 and 16 alternate while the siren runs.
+            if (v.xflags & V.xf_siren != 0) {
+                add(&want, &k, &glow, if (flash) 15 else 16, true);
+                if (flags & 0x80 != 0) add(&want, &k, &glow, if (flash) 17 else 18, true);
+            }
+        } else if (flags & 0x04 != 0) {
+            if (night) add(&want, &k, &glow, 15, true);
+        } else if (flags & 0x20 != 0) {
+            add(&want, &k, &glow, 15, night);
+        } else if (flags & 0x40 != 0) {
+            // A roof decal; the racing car's roof number uses 11-20.
+            if (v.roof > 0) add(&want, &k, &glow, 10 + @as(u8, @intCast((v.roof - 1) % 10 + 1)), false) else add(&want, &k, &glow, 15, false);
+        }
+    }
+    for (doors_open[0..doors_open_len]) |o| if (o.car == in.index) add(&want, &k, &glow, o.delta, false);
+    const palette: u16 = if (in.palette == list.Instance.own_palette) @intCast(s.palette_base.base(.sprite) + in.sprite) else in.palette;
+    const a = in.angle;
+    const rx = -@sin(a);
+    const ry = @cos(a);
+    const dx_ = -@cos(a);
+    const dy_ = -@sin(a);
+    for (want[0..k], 0..) |d, i| {
+        if (n >= instances.len) break;
+        const o = pp.overlay(car, d) orelse continue;
+        const ox = @as(f32, @floatFromInt(o.dx)) / 64.0;
+        const oy = @as(f32, @floatFromInt(o.dy)) / 64.0;
+        var f = (in.flags & list.Instance.flag_dark) | list.Instance.flag_overlay;
+        if (glow & (@as(u12, 1) << @intCast(i)) != 0 and night) f |= list.Instance.flag_glow;
+        instances[n] = .{
+            .x = in.x + rx * ox + dx_ * oy,
+            .y = in.y + ry * ox + dy_ * oy,
+            .z = in.z,
+            .angle = a,
+            .sprite = o.sprite,
+            .palette = palette,
+            .kind = in.kind,
+            .flags = f,
+            .index = in.index,
+        };
+        n += 1;
+    }
     return n;
 }
 

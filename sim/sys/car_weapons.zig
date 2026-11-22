@@ -125,7 +125,7 @@ pub fn Sys(comptime Self: type) type {
                         }
                     }
                     v.bomb_by = 0;
-                    if (v.arm == @intFromEnum(CarWeapon.car_bomb) and v.arm_ammo == 0) v.arm = 0;
+                    if ((v.arm == @intFromEnum(CarWeapon.car_bomb) or v.arm == @intFromEnum(CarWeapon.instant_bomb)) and v.arm_ammo == 0) v.arm = 0;
                 }
             }.f);
             for (self.state.players, 0..) |pl, slot| {
@@ -155,7 +155,7 @@ pub fn Sys(comptime Self: type) type {
             }
             if (v.arm_wait > 0) return;
             // An armed bomb is already ticking; pressing again does nothing.
-            if (kind == .car_bomb and v.bomb_fuse > 0) return;
+            if ((kind == .car_bomb or kind == .instant_bomb) and v.bomb_fuse > 0) return;
             const t = w.get(car, c.Transform) orelse return;
             const vel = w.get(car, c.Velocity) orelse return;
             const m = T.carModel(v.model);
@@ -184,8 +184,9 @@ pub fn Sys(comptime Self: type) type {
                     // A sound for the press (oil then keeps dropping quietly).
                     if (fresh) self.pushEvent(.{ .kind = .car_weapon, .a = slot, .b = k, .c = @intFromEnum(Fitted.dropped), .x = ox, .y = oy, .z = t.z });
                 },
-                .car_bomb => {
-                    v.bomb_fuse = TC.car_bomb_fuse;
+                .car_bomb, .instant_bomb => {
+                    // The instant bomb goes off on the next tick.
+                    v.bomb_fuse = if (kind == .instant_bomb) 1 else TC.car_bomb_fuse;
                     v.bomb_by = slot + 1;
                     self.pushEvent(.{ .kind = .car_weapon, .a = slot, .b = k, .c = @intFromEnum(Fitted.bomb_armed), .x = t.x, .y = t.y, .z = t.z });
                 },

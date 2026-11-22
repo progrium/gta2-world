@@ -14,6 +14,7 @@ pub const world = @import("../script/world.zig");
 pub const objects = @import("../sys/objects_state.zig");
 pub const traffic = @import("../sys/spawn.zig");
 pub const vehicles = @import("../sys/cranes.zig");
+pub const trains = @import("../sys/trains.zig");
 
 pub fn SpState(comptime max_players: u16) type {
     return extern struct {
@@ -28,5 +29,6 @@ pub fn SpState(comptime max_players: u16) type {
         objects: objects.State, // B
         traffic: traffic.State, // F (zone spawn settings)
         vehicles: vehicles.State, // cranes (trailers, cranes and car flags)
+        trains: trains.State, // vehicles (sys/trains.zig)
     };
 }

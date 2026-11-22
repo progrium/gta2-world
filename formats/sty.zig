@@ -88,6 +88,35 @@ pub const CarInfo = struct {
     num_doors: u8 = 0,
 };
 
+/// The deltas of one sprite (DELX, public format document): small patches
+/// written over the sprite to show dents, lights, opening doors and the
+/// like. `first` is the byte offset of the set's first delta in DELS and
+/// `sizes` the byte size of each delta, in order.
+pub const DeltaSet = struct {
+    sprite: u16,
+    first: u32,
+    sizes: []const u16,
+};
+
+/// Walks one delta's records (offset u16, length u8, data). Offsets are
+/// relative to the position the last record ended at, starting at the
+/// sprite's top left, in a 256-pixel-wide page. Calls `put(x, y, pixels)`
+/// for each run, with x and y relative to the sprite.
+pub fn forEachDeltaRun(delta: []const u8, ctx: anytype, comptime put: fn (@TypeOf(ctx), u32, u32, []const u8) void) void {
+    var pos: u32 = 0;
+    var o: usize = 0;
+    while (o + 3 <= delta.len) {
+        const off = std.mem.readInt(u16, delta[o..][0..2], .little);
+        const len = delta[o + 2];
+        o += 3;
+        if (o + len > delta.len) break;
+        pos += off;
+        put(ctx, pos % page_size, pos / page_size, delta[o..][0..len]);
+        pos += len;
+        o += len;
+    }
+}
+
 /// A map object model's sprites (OBJI).
 pub const ObjectInfo = struct { model: u8, sprites: u8 };
 
@@ -107,7 +136,26 @@ pub const Style = struct {
     cars: []CarInfo = &.{},
     /// Map object models from OBJI, in file order.
     objects: []ObjectInfo = &.{},
+    /// Delta sets from DELX, in file order (and DELS order).
+    delta_sets: []DeltaSet = &.{},
+    /// Raw DELS bytes the sets point into.
+    delta_store: []const u8 = &.{},
     unknown_chunks: u32 = 0,
+
+    /// The deltas of absolute sprite `sprite`, or null if it has none.
+    pub fn deltasOf(s: *const Style, sprite: u16) ?*const DeltaSet {
+        for (s.delta_sets) |*d| if (d.sprite == sprite) return d;
+        return null;
+    }
+
+    /// Bytes of delta `i` of a set (empty past the end).
+    pub fn delta(s: *const Style, set: *const DeltaSet, i: usize) []const u8 {
+        if (i >= set.sizes.len) return &.{};
+        var o: usize = set.first;
+        for (set.sizes[0..i]) |z| o += z;
+        const end = @min(s.delta_store.len, o + set.sizes[i]);
+        return if (o >= end) &.{} else s.delta_store[o..end];
+    }
 
     pub fn deinit(s: *Style) void {
         s.arena.deinit();
@@ -224,8 +272,12 @@ pub fn parse(gpa: std.mem.Allocator, bytes: []const u8) Error!Style {
             // object_info: u8 model, u8 sprites (public format document).
             style.objects = try a.alloc(ObjectInfo, c.data.len / 2);
             for (style.objects, 0..) |*o, i| o.* = .{ .model = c.data[i * 2], .sprites = c.data[i * 2 + 1] };
+        } else if (c.is("DELS")) {
+            style.delta_store = try a.dupe(u8, c.data);
+        } else if (c.is("DELX")) {
+            style.delta_sets = try parseDeltaIndex(a, c.data);
         } else if (isKnownUnused(c)) {
-            // DELS, DELX, FONB, PSXT, RECY, SPEC: not needed yet.
+            // FONB, PSXT, RECY, SPEC: not needed yet.
         } else {
             style.unknown_chunks += 1;
         }
@@ -272,8 +324,32 @@ fn parseCars(a: std.mem.Allocator, data: []const u8) Error![]CarInfo {
     return list.toOwnedSlice(a);
 }
 
+/// DELX: delta_entry records (u16 sprite, u8 count, u8 pad, u16 size per
+/// delta). The store holds the sets back to back in the same order.
+fn parseDeltaIndex(a: std.mem.Allocator, data: []const u8) Error![]DeltaSet {
+    var list: std.ArrayList(DeltaSet) = .empty;
+    var o: usize = 0;
+    var at: u32 = 0;
+    while (o + 4 <= data.len) {
+        const sprite = std.mem.readInt(u16, data[o..][0..2], .little);
+        const n = data[o + 2];
+        o += 4;
+        if (o + 2 * @as(usize, n) > data.len) break;
+        const sizes = try a.alloc(u16, n);
+        var total: u32 = 0;
+        for (sizes, 0..) |*z, k| {
+            z.* = std.mem.readInt(u16, data[o + 2 * k ..][0..2], .little);
+            total += z.*;
+        }
+        o += 2 * @as(usize, n);
+        try list.append(a, .{ .sprite = sprite, .first = at, .sizes = sizes });
+        at += total;
+    }
+    return list.toOwnedSlice(a);
+}
+
 fn isKnownUnused(c: chunk.Chunk) bool {
-    const known = [_]*const [4]u8{ "DELS", "DELX", "FONB", "CARI", "OBJI", "PSXT", "RECY", "SPEC" };
+    const known = [_]*const [4]u8{ "FONB", "CARI", "OBJI", "PSXT", "RECY", "SPEC" };
     for (known) |k| if (c.is(k)) return true;
     return false;
 }

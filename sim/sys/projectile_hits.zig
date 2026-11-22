@@ -93,7 +93,10 @@ pub fn Sys(comptime Self: type) type {
                             // Proofing (script-cars.md 2.5): rockets and
                             // molotovs, flames, bullets.
                             const cause: Self.CarHitCause = if (def.explosive or shot == T.shot_molotov) .rocket else if (shot == T.shot_flame) .flame else if (shot == T.shot_water) .other else .bullet;
-                            if (!Self.car_flags.shielded(sim, e.id, cause)) sim.damageCar(e.id, raw << fx.frac_bits, p.owner);
+                            // The hit lands halfway between the shot and the
+                            // car's centre, which picks the dent
+                            // (projectiles.md).
+                            if (!Self.car_flags.shielded(sim, e.id, cause)) sim.damageCarAt(e.id, raw << fx.frac_bits, p.owner, (t.x + e.x) >> 1, (t.y + e.y) >> 1);
                             if (def.explosive) sim.explodeAt((t.x + e.x) >> 1, (t.y + e.y) >> 1, e.z, p.owner, 0);
                         } else {
                             const player = ww.get(e.id, c.Controller).?.player != c.Controller.no_player;

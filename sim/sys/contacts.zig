@@ -60,6 +60,8 @@ pub fn Sys(comptime Self: type) type {
                     if (col.flags & c.Collider.flag_disabled != 0) return;
                     const m = T.carModel(v.model);
                     sim.addEntry(id, t, m.radius, m.mass);
+                    // A train is not pushed about (`sys/trains.zig`).
+                    if (v.train != 0) sim.scratch.entries[sim.scratch.n - 1].movable = false;
                 }
             }.f);
             self.state.world.each(.{ c.Pedestrian, c.Transform, c.Collider }, self, struct {
@@ -148,6 +150,17 @@ pub fn Sys(comptime Self: type) type {
         /// They are pushed apart along the shallowest axis, then take the
         /// rigid-body impulse with restitution 0.5 along the line from the
         /// contact point to car a's centre, so off-centre hits spin both.
+        /// Do two cars' boxes overlap (on the same level)?
+        fn carsTouch(self: *Self, a: *Entry, b: *Entry) bool {
+            const w = &self.state.world;
+            const ta = w.get(a.id, c.Transform).?;
+            const tb = w.get(b.id, c.Transform).?;
+            if (fx.abs(ta.z - tb.z) > fx.half) return false;
+            const ma = T.carModel(w.get(a.id, c.Vehicle).?.model);
+            const mb = T.carModel(w.get(b.id, c.Vehicle).?.model);
+            return rectOverlap(ta, ma, tb, mb) != null;
+        }
+
         pub fn carCar(self: *Self, a: *Entry, b: *Entry) void {
             const w = &self.state.world;
             const ta = w.get(a.id, c.Transform).?;
@@ -238,6 +251,10 @@ pub fn Sys(comptime Self: type) type {
                 self.scratch.stats.impacts += 1;
                 self.damageCar(a.id, @as(i64, j) * T.impact_damage, b.id);
                 self.damageCar(b.id, @as(i64, j) * T.impact_damage, a.id);
+                if (j > T.dent_min_impact) {
+                    self.dentAt(a.id, @as(i64, j) * T.impact_damage, px, py);
+                    self.dentAt(b.id, @as(i64, j) * T.impact_damage, px, py);
+                }
                 // E: driving into a police car (car-collision.md 3.7).
                 Self.wanted.onCarImpact(self, a.id, b.id, j, false);
                 Self.wanted.onCarImpact(self, b.id, a.id, j, false);
@@ -347,6 +364,24 @@ pub fn Sys(comptime Self: type) type {
             if (a_car and b_car) {
                 // A cab and its own trailer never collide.
                 if (Self.trailers.paired(self, a.id, b.id)) return;
+                // A moving train blows up a car it touches (car-collision.md
+                // 3.6); carriages of trains pass through each other.
+                if (comptime Self.city) {
+                    const w = &self.state.world;
+                    const va = w.get(a.id, c.Vehicle).?;
+                    const vb = w.get(b.id, c.Vehicle).?;
+                    if (va.train != 0 and vb.train != 0) return;
+                    if (va.train != 0 or vb.train != 0) {
+                        const other = if (va.train != 0) b else a;
+                        const train = if (va.train != 0) a else b;
+                        if (Self.trains.moving(self, train.id) and Me.carsTouch(self, a, b)) {
+                            const ov = w.get(other.id, c.Vehicle).?;
+                            if (ov.flags & c.Vehicle.flag_wrecked == 0) {
+                                if (w.get(other.id, c.Health)) |h| h.hp = 0;
+                            }
+                        }
+                    }
+                }
                 return self.carCar(a, b);
             }
             const w = &self.state.world;
@@ -414,6 +449,13 @@ pub fn Sys(comptime Self: type) type {
                     const j: i64 = @divTrunc(-@as(i64, rel) * m_eff * e8, 8 << fx.frac_bits);
                     self.damageCar(a.id, j * T.impact_damage, b.id);
                     self.damageCar(b.id, j * T.impact_damage, a.id);
+                    // The contact is between the two centres.
+                    if (j > T.dent_min_impact) {
+                        const mx = ta.x + @divTrunc(tb.x - ta.x, 2);
+                        const my = ta.y + @divTrunc(tb.y - ta.y, 2);
+                        self.dentAt(a.id, j * T.impact_damage, mx, my);
+                        self.dentAt(b.id, j * T.impact_damage, mx, my);
+                    }
                 }
             }
             a.x = ta.x;

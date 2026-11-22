@@ -44,6 +44,7 @@ pub fn Sys(comptime Self: type) type {
                     if (!v.driver.isNone() or v.flags & c.Vehicle.flag_wrecked != 0) return;
                     // Script and task cars stay where they are.
                     if (v.ai_flags & c.Vehicle.ai_script != 0) return;
+                    if (v.train != 0) return;
                     if (cx.sim.state.world.get(id, c.CarTask)) |ct| if (ct.task != 0) return;
                     if (cx.sim.state.world.get(id, c.ScriptTag)) |tag| if (tag.handle != 0) return;
                     if (!farFromAll(cx.pos, t)) return;
