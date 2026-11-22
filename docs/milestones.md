@@ -81,8 +81,8 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [camera](coverage/camera.md) | 6 | 3 | 1 | 2 | 0 | 0 |  |
 | [car-collision](coverage/car-collision.md) | 7 | 7 | 0 | 0 | 0 | 0 |  |
 | [car-handling](coverage/car-handling.md) | 5 | 4 | 0 | 0 | 1 | 0 |  |
-| [car-height](coverage/car-height.md) | 8 | 6 | 0 | 0 | 1 | 1 |  |
-| [crushers-and-garages](coverage/crushers-and-garages.md) | 4 | 1 | 1 | 0 | 2 | 0 |  |
+| [car-height](coverage/car-height.md) | 8 | 6 | 1 | 0 | 0 | 1 |  |
+| [crushers-and-garages](coverage/crushers-and-garages.md) | 4 | 1 | 2 | 0 | 1 | 0 |  |
 | [entering-and-exiting-cars](coverage/entering-and-exiting-cars.md) | 5 | 2 | 3 | 0 | 0 | 0 |  |
 | [explosions-and-damage](coverage/explosions-and-damage.md) | 9 | 0 | 0 | 0 | 0 | 9 |  |
 | [gangs-and-respect](coverage/gangs-and-respect.md) | 3 | 3 | 0 | 0 | 0 | 0 |  |
@@ -94,10 +94,10 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [power-ups-death-and-arrest](coverage/power-ups-death-and-arrest.md) | 4 | 0 | 4 | 0 | 0 | 0 |  |
 | [projectiles](coverage/projectiles.md) | 4 | 0 | 1 | 0 | 0 | 3 |  |
 | [scoring](coverage/scoring.md) | 4 | 1 | 3 | 0 | 0 | 0 |  |
-| [script-cars](coverage/script-cars.md) | 7 | 0 | 0 | 0 | 0 | 7 |  |
+| [script-cars](coverage/script-cars.md) | 7 | 0 | 2 | 0 | 0 | 5 |  |
 | [script-characters](coverage/script-characters.md) | 11 | 0 | 0 | 0 | 0 | 11 |  |
 | [script-counters](coverage/script-counters.md) | 6 | 2 | 3 | 0 | 1 | 0 |  |
-| [script-declarations](coverage/script-declarations.md) | 16 | 0 | 1 | 4 | 1 | 10 |  |
+| [script-declarations](coverage/script-declarations.md) | 16 | 0 | 2 | 4 | 0 | 10 |  |
 | [script-flow-control](coverage/script-flow-control.md) | 7 | 5 | 2 | 0 | 0 | 0 |  |
 | [script-messages](coverage/script-messages.md) | 7 | 5 | 2 | 0 | 0 | 0 |  |
 | [script-missions](coverage/script-missions.md) | 7 | 3 | 3 | 1 | 0 | 0 |  |
@@ -107,6 +107,6 @@ Rolled up from `docs/coverage/` by `node tools/coverage/rollup.mjs`. A rule is a
 | [traffic-and-car-ai](coverage/traffic-and-car-ai.md) | 7 | 4 | 3 | 0 | 0 | 0 |  |
 | [wanted-level](coverage/wanted-level.md) | 6 | 4 | 2 | 0 | 0 | 0 |  |
 | [weapons](coverage/weapons.md) | 8 | 0 | 2 | 0 | 0 | 6 |  |
-| **all notes** | **197** | **73** | **52** | **13** | **7** | **52** | |
+| **all notes** | **197** | **73** | **57** | **13** | **4** | **50** | |
 
 <!-- coverage:end -->
