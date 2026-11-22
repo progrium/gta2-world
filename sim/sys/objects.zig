@@ -47,6 +47,9 @@ pub const phone_spoken_for: u8 = 16;
 /// Someone was touching it last tick (edge detection for the hook).
 pub const phone_touched: u8 = 32;
 
+/// `Object.state` bit for a decoration a generator made (`markGenerated`).
+pub const decoration_generated: u8 = 1;
+
 /// Is `model` one of the pickup object models (script-objects.md 4)?
 pub fn isPickupModel(model: u16) bool {
     return (model >= OT.pickup_model_lo and model <= OT.pickup_model_hi) or
@@ -128,6 +131,18 @@ pub fn Sys(comptime Self: type) type {
                 else => {},
             }
             return id;
+        }
+
+        /// A generator's non-pickup object (a cone or a drum on a factory
+        /// belt): it rides conveyors, a destructor removes it, and it goes
+        /// after `generated_life` ticks whatever happens (ours: generators
+        /// of these spawn every cycle without waiting, script-objects.md
+        /// 2.3, so without an end they would fill the object slots and the
+        /// city's lights and the script's objects would find none left).
+        pub fn markGenerated(self: *Self, id: EntityId) void {
+            const o = self.state.world.get(id, c.Object) orelse return;
+            o.state |= decoration_generated;
+            o.timer = @as(u16, @truncate(self.state.tick)) +% OT.generated_life;
         }
 
         /// Set an object's value byte (a pickup's value, a shop's type:
@@ -331,6 +346,7 @@ pub fn Sys(comptime Self: type) type {
             // Oil and mines come from cars, in every configuration.
             sysOilAndMines(self);
             if (comptime sp) {
+                sysGenerated(self);
                 sysDestructors(self);
                 sysBarriers(self);
             }
@@ -563,6 +579,27 @@ pub fn Sys(comptime Self: type) type {
                         sim.releaseCar(id);
                         ww.despawn(id);
                         return;
+                    }
+                }
+            }.f);
+        }
+
+        /// Generated objects (`markGenerated`): moved along by a conveyor
+        /// under them, removed in a destructor area or when their time is
+        /// up.
+        fn sysGenerated(self: *Self) void {
+            self.state.world.each(.{ c.Object, c.Transform }, self, struct {
+                fn f(sim: *Self, id: EntityId, o: *c.Object, t: *c.Transform) void {
+                    if (kindOf(o) != .decoration or o.state & decoration_generated == 0) return;
+                    if (reached(sim, o.timer)) return sim.state.world.despawn(id);
+                    const ss = &sim.state.sp.objects;
+                    for (&ss.areas) |*a| {
+                        if (!slotUsed(sim, a.obj) or !inArea(a, t.x, t.y, t.z)) continue;
+                        if (a.kind == @intFromEnum(AreaKind.destructor)) return sim.state.world.despawn(id);
+                    }
+                    if (conveyorPush(sim, t.x, t.y, t.z)) |p| {
+                        t.x += p.vx;
+                        t.y += p.vy;
                     }
                 }
             }.f);

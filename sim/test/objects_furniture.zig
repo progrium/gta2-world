@@ -435,6 +435,30 @@ test "conveyors push inside their area; destructors remove empty cars, not the p
     try std.testing.expect(h.sim.state.world.isAlive(car2));
 }
 
+test "generated objects ride a conveyor into a destructor, and go when their time is up" {
+    var h = try H.init(null);
+    defer h.deinit();
+    // A belt east from the generator to a destructor two blocks on.
+    _ = O.addArea(h.sim, .conveyor, fx.fromInt(60), fx.fromInt(34), O.ground_z, fx.fromInt(2), fx.fromInt(1), fx.ratio(1, 20), 0).?;
+    _ = O.addArea(h.sim, .destructor, fx.fromInt(62), fx.fromInt(34), O.ground_z, fx.fromInt(1), fx.fromInt(1), 0, 0).?;
+    const gen = O.addGenerator(h.sim, .{ .x = blk(60), .y = blk(34), .z = O.ground_z, .model = 5, .min_delay = 10, .max_delay = 10 }).?;
+    h.run(2);
+    try std.testing.expectEqual(@as(u32, 1), h.count(.decoration));
+    O.setGenerator(h.sim, gen, false);
+    // 1.5 blocks at 1/20 a tick: in the destructor after 30 ticks.
+    h.run(40);
+    try std.testing.expectEqual(@as(u32, 0), h.count(.decoration));
+    // Off the belt, a generated object still goes after its lifetime.
+    const gen2 = O.addGenerator(h.sim, .{ .x = blk(44), .y = blk(36), .z = O.ground_z, .model = 5, .min_delay = 10, .max_delay = 10 }).?;
+    O.startGenerator(h.sim, gen2, 1, null);
+    h.run(2);
+    try std.testing.expectEqual(@as(u32, 1), h.count(.decoration));
+    h.run(OT.generated_life - 5);
+    try std.testing.expectEqual(@as(u32, 1), h.count(.decoration));
+    h.run(10);
+    try std.testing.expectEqual(@as(u32, 0), h.count(.decoration));
+}
+
 // --------------------------------------------------------------------------
 // Determinism, removal, and the deathmatch configuration
 

@@ -129,6 +129,10 @@ pub const spawns_unlimited: u16 = 0xFFFF;
 /// player within this distance (as the deathmatch pickups).
 pub const object_pickup_reach = fx.ratio(6, 10);
 
+/// Ours: a generator's non-pickup object (not a pickup: those wait to be
+/// taken) is gone after 60 s if no destructor took it first.
+pub const generated_life: u16 = 1800;
+
 // --- Conveyors and destructors (notes: script-declarations.md 2.8)
 
 /// Ours: conveyor and destructor areas a level may declare.

@@ -54,7 +54,10 @@ pub const config_200: Config = .{
 };
 
 /// Single player (W0 of docs/plan-notes.md): one player, room for a
-/// scripted city, and the single-player components and state block.
+/// scripted city, and the single-player components and state block. The
+/// three cities place 760 to 900 map objects (traffic lights' markers and
+/// lamps, phones, doors, generators, the scripts' objects): 1536 leaves
+/// room for the missions' own (tools/level --sp reports the count).
 /// `dm16` keeps its layout.
 /// Deathmatch with police: the first-release room with the living city
 /// (`isCity`), for a host who turns police on. `dm16` stays as it is.
@@ -77,7 +80,7 @@ pub const config_sp: Config = .{
     .ped_capacity = 512,
     .projectile_capacity = 128,
     .pickup_capacity = 64,
-    .map_object_capacity = 512,
+    .map_object_capacity = 1536,
     .ambient_cars = 48,
     .ambient_peds = 160,
 };

@@ -253,6 +253,7 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
         try main.appendf(report, arena, "  - thread {d} at command {d} (type {d}), noticed at tick {d}\n", .{ x.thread, x.cmd, x.kind, x.ticks });
     try main.appendf(report, arena, "- step: mean {d:.4} ms, p99 {d:.4} ms, max {d:.4} ms\n", .{ main.ms(@divTrunc(total, @as(i64, @intCast(n)))), main.ms(times[n * 99 / 100]), main.ms(times[n - 1]) });
     try main.appendf(report, arena, "- invariant breaks: {d}\n", .{checker.total()});
+    try objectCensus(report, arena);
     if (mission_log.items.len > 0) try main.appendf(report, arena, "- mission log:\n{s}", .{mission_log.items});
     var buf: [16384]u8 = undefined;
     var w: std.Io.Writer = .fixed(&buf);
@@ -262,6 +263,24 @@ pub fn runLevel(io: std.Io, gpa: std.mem.Allocator, arena: std.mem.Allocator, re
     try w.print("```\n\n", .{});
     try report.appendSlice(arena, w.buffered());
     return checker.total() == 0;
+}
+
+/// Map objects at the end of the run, against the capacity, by kind.
+fn objectCensus(report: *std.ArrayList(u8), arena: std.mem.Allocator) !void {
+    var counts: [256]u32 = @splat(0);
+    s.state.world.each(.{c.Object}, &counts, struct {
+        fn f(cs: *[256]u32, _: abi.EntityId, o: *c.Object) void {
+            cs[o.kind] += 1;
+        }
+    }.f);
+    var total: u32 = 0;
+    for (counts) |n| total += n;
+    try main.appendf(report, arena, "- map objects: {d} of {d}", .{ total, S.MapObject.capacity });
+    for (counts, 0..) |n, k| if (n > 0) {
+        const name = std.enums.tagName(sim.ids.ObjectKind, @enumFromInt(k)) orelse "other";
+        try main.appendf(report, arena, "; {s} {d}", .{ name, n });
+    };
+    try main.appendf(report, arena, "\n", .{});
 }
 
 /// The nearest live phone not in `skip`.

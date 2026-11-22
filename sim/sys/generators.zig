@@ -132,6 +132,7 @@ pub fn Sys(comptime Self: type) type {
                 const kind: ids.ObjectKind = if (objects_mod.isPickupModel(g.model)) .pickup else .decoration;
                 const id = objects.spawnObject(self, kind, g.model, g.x, g.y, g.z, g.heading) orelse continue;
                 if (g.ammo != 0) w.get(id, c.Object).?.value = @intCast(@min(g.ammo, 255));
+                if (kind == .decoration) objects.markGenerated(self, id);
                 w.get(id, c.Object).?.owner = g.obj;
                 g.child = id;
                 if (g.remaining != OT.spawns_unlimited) g.remaining -= 1;

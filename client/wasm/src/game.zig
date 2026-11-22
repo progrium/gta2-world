@@ -870,6 +870,14 @@ const spr = struct {
     const lamp_red: u16 = 549;
     const lamp_green: u16 = 550;
     const lamp_amber: u16 = 551;
+    /// Crane parts, picked by eye from the code objects (the same in all
+    /// three districts): four jib sections (base to tip), the
+    /// counterweight end, the slewing deck, the trolley and the hook.
+    const crane_jib = [_]u16{ 260, 261, 262, 263 };
+    const crane_tail: u16 = 266;
+    const crane_deck: u16 = 264;
+    const crane_trolley: u16 = 265;
+    const crane_hook: u16 = 267;
     /// Thrown grenade and molotov in flight: the pickup's first frame.
     const grenade: u16 = 58;
     const molotov: u16 = 50;
@@ -1004,6 +1012,60 @@ fn lampLook(in: *list.Instance, o: sim.c.Object, code: u32, n: *usize) void {
             extra.y += @floatFromInt(y - by);
             lampAt(&extra, x, y, d);
             instances[n.*] = extra;
+            n.* += 1;
+        }
+    }
+}
+
+/// The cranes' jibs (single player): the deck on the tower top, the jib
+/// out along the crane's angle with the trolley at the hook's radius, and
+/// the counterweight end behind. The tower is map blocks and the hook its
+/// own object. The jib rides a block over the tower, and never lower than
+/// a car carried at the hook's carry height would reach.
+fn cranes(code: u32, n: *usize) void {
+    if (!isSp()) return;
+    const per: f32 = 1.0 / @as(f32, abi.fx_one);
+    const Part = struct { sprite: u16, along: f32 };
+    for (&game_sp.state.sp.vehicles.cranes) |*cr| {
+        if (cr.used == 0 or n.* + 8 > instances.len) continue;
+        const bx = @as(f32, @floatFromInt(cr.bx)) * per;
+        const by = @as(f32, @floatFromInt(cr.by)) * per;
+        const bz = @as(f32, @floatFromInt(cr.bz)) * per;
+        const th = @as(f32, @floatFromInt(cr.angle)) / 65536.0 * std.math.tau;
+        const dx = @cos(th);
+        const dy = @sin(th);
+        // Two blocks of carry height (tuning/vehicles.zig) and a block more.
+        var z = bz + 3.0;
+        if (map) |*m| {
+            const cx: i32 = @intFromFloat(@floor(bx));
+            const cy: i32 = @intFromFloat(@floor(by));
+            var k: i32 = formats.gmp.size_z - 1;
+            while (k >= 0) : (k -= 1) if (!m.getOrAir(cx, cy, k).isAir()) break;
+            z = @max(z, @as(f32, @floatFromInt(k + 1)) + 0.05);
+        }
+        const radius = @as(f32, @floatFromInt(cr.radius)) * per;
+        const parts = [_]Part{
+            .{ .sprite = spr.crane_tail, .along = -1.0 },
+            .{ .sprite = spr.crane_jib[0], .along = 1.0 },
+            .{ .sprite = spr.crane_jib[1], .along = 2.0 },
+            .{ .sprite = spr.crane_jib[2], .along = 3.0 },
+            .{ .sprite = spr.crane_jib[3], .along = 4.0 },
+            .{ .sprite = spr.crane_deck, .along = 0 },
+            .{ .sprite = spr.crane_trolley, .along = radius },
+        };
+        for (parts, 0..) |pt, i| {
+            instances[n.*] = .{
+                .x = bx + dx * pt.along,
+                .y = by + dy * pt.along,
+                // Each part a little over the one before, so the deck and
+                // the trolley sit on the jib.
+                .z = z + @as(f32, @floatFromInt(i)) * 0.004,
+                .angle = th,
+                .sprite = @intCast(code + pt.sprite),
+                .palette = list.Instance.own_palette,
+                .kind = @intFromEnum(abi.Kind.map_object),
+                .flags = 0,
+            };
             n.* += 1;
         }
     }
@@ -1188,8 +1250,14 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 switch (@as(sim.ids.ObjectKind, @enumFromInt(o.kind))) {
                     // Traffic AI markers are not drawn. Doors are drawn as
                     // wall faces (`doorFaces`), not sprites.
-                    .crossing_marker, .traffic_light, .door, .crane => {
+                    .crossing_marker, .traffic_light, .door => {
                         in.kind = hidden_kind;
+                        continue;
+                    },
+                    // The hook; its jib is drawn from the crane (`cranes`).
+                    .crane => {
+                        in.sprite = @intCast(code + spr.crane_hook);
+                        in.palette = list.Instance.own_palette;
                         continue;
                     },
                     .lamp => {
@@ -1253,6 +1321,7 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
             else => {},
         }
     }
+    cranes(code, &n);
     // Drop hidden instances, keeping the order of the rest.
     var kept: usize = 0;
     for (0..n) |i| {
