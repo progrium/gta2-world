@@ -1,0 +1,22 @@
+name: "Sound mapping"
+description: Send a sound cue mapping made on the Sound cues page.
+title: "Sound mapping"
+labels: ["sound-mapping"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping! The page is at https://progrium.github.io/gta2-world/play/#sounds
+  - type: textarea
+    id: mapping
+    attributes:
+      label: Mapping file
+      description: Drag the gta2-sound-mapping.json file you exported into this box. If it will not attach, press Copy JSON on the page and paste it here instead.
+      placeholder: Drop gta2-sound-mapping.json here
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Optional. Which cues you are unsure about, or anything that sounded wrong in the game.
