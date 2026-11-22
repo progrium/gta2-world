@@ -19,6 +19,7 @@ import { Effects, rumbleSettings, rumbleSupport } from "../input/rumble.ts";
 import type { InputSystem, SchemeSetting } from "../input/system.ts";
 import { FixedLoop } from "../loop.ts";
 import { clear, h } from "./dom.ts";
+import { soundCheck } from "./soundCheck.ts";
 import { openRemap } from "./remap.ts";
 import { soundBoard } from "./soundBoard.ts";
 import { applySavedTuning, tuningPanel } from "./tuning.ts";
@@ -739,7 +740,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const renderSoundPrompt = (): void => void soundPrompt.classList.toggle("hidden", audio.running || audio.muted);
   const offSound = audio.on(renderSoundPrompt);
   renderSoundPrompt();
-  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores, soundPrompt), hud);
+  // ?soundcheck: the sound check panel over the game, for a device that hears nothing.
+  let checkPanel: (HTMLElement & { dispose: () => void }) | null = null;
+  if (new URLSearchParams(location.search).has("soundcheck")) {
+    checkPanel = soundCheck(audio, () => {
+      checkPanel?.dispose();
+      checkPanel?.remove();
+      checkPanel = null;
+    });
+    checkPanel.classList.add("floating");
+  }
+  const section = h("section", { class: "screen game" }, h("div", { class: "stage" }, canvas, spHud?.el ?? null, status, weaponLine, feed, banner, scores, soundPrompt, checkPanel), hud);
   root.append(section);
   input.allowLocalJoin = false;
   loop.start();
@@ -753,6 +764,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     closeOverlay();
     audio.stopAll();
     offSound();
+    checkPanel?.dispose();
     offInput();
     removeEventListener("focus", renderPads);
     removeEventListener("blur", renderPads);

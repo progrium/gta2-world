@@ -8,6 +8,7 @@ import { CUES, CUE_GROUPS, CUE_INFO, CUE_LABELS, type Cue, type SampleRef, type 
 import type { AudioEngine, BankId } from "../audio/engine.ts";
 import type { SampleFormat } from "../audio/sdt.ts";
 import { clear, h } from "./dom.ts";
+import { soundCheck } from "./soundCheck.ts";
 
 const clone = (m: SoundMapping): SoundMapping => normalizeMapping(JSON.parse(JSON.stringify(m)), emptyMapping());
 const refLabel = (r: SampleRef, names: Partial<Record<BankId, string>>): string =>
@@ -215,6 +216,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
   addEventListener("keydown", onKey, { capture: true });
   const off = audio.on(renderAll);
   const poll = setInterval(renderStatus, 1000);
+  const check = soundCheck(audio);
 
   const panel = h(
     "div",
@@ -223,6 +225,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
     h("p", { class: "muted small" }, "Pick a cue, then step through the samples with ↑ ↓ (each one plays) and press Enter or Assign to give it to the cue. A cue with several samples picks one at random. A cue with none borrows a related cue's samples where it has one (dual pistol uses the pistol's), else plays a built-in sound. Cues under “Not in the game yet” can be mapped now; the game doesn't play them yet. The engine uses its first sample as a loop. Your mapping stays in this browser; export it to keep it or send it back."),
     h("div", { class: "row" }, h("label", {}, "Volume ", vol), h("label", {}, mute, " mute (M)")),
     status,
+    h("details", {}, h("summary", {}, "Sound check (hearing nothing?)"), check),
     h(
       "div",
       { class: "row" },
@@ -273,6 +276,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
     removeEventListener("keydown", onKey, { capture: true });
     off();
     clearInterval(poll);
+    check.dispose();
     audio.stopPreview();
   };
   return panel;

@@ -47,7 +47,7 @@ interface Voice {
 interface Engine {
   src: AudioBufferSourceNode;
   gain: GainNode;
-  pan: StereoPannerNode;
+  pan: StereoPannerNode | Panless;
   seen: number;
   key: string;
 }
@@ -148,7 +148,8 @@ export class AudioEngine {
   unlock(): void {
     const c = this.context();
     if (!c || c.state === "closed") return;
-    if (c.state !== "running") Promise.resolve(c.resume?.()).catch(() => undefined);
+    if (c.state !== "running") Promise.resolve(c.resume?.()).catch((e: unknown) => this.note(e));
+    this.unlockSilentMode();
     try {
       const src = c.createBufferSource();
       src.buffer = c.createBuffer(1, 1, c.sampleRate);
@@ -156,6 +157,95 @@ export class AudioEngine {
       src.start(0);
     } catch {
       /* not yet */
+    }
+  }
+
+  private silentEl: HTMLAudioElement | null = null;
+  /**
+   * iOS before 17 puts web audio in the "ambient" category, which the silent
+   * switch (or Silent Mode in Control Center) mutes, while a playing <audio>
+   * element moves the page to "playback". So, from the gesture, loop a
+   * silent one for as long as the page lives.
+   */
+  private unlockSilentMode(): void {
+    if (typeof Audio === "undefined" || typeof URL === "undefined" || typeof Blob === "undefined") return;
+    try {
+      if (!this.silentEl) {
+        const el = new Audio();
+        el.setAttribute("playsinline", "");
+        el.setAttribute("x-webkit-airplay", "deny");
+        el.loop = true;
+        el.preload = "auto";
+        el.src = URL.createObjectURL(new Blob([wavBytes(new Float32Array(4410), 44100)], { type: "audio/wav" }));
+        this.silentEl = el;
+      }
+      if (this.silentEl.paused) this.silentEl.play().catch((e: unknown) => this.note(e));
+    } catch (e) {
+      this.note(e);
+    }
+  }
+
+  // ---- diagnostics (the sound check panel) -------------------------------
+
+  private stats = { plays: 0, lastCue: "", lastPeak: 0, lastGain: 0, errors: [] as string[] };
+  private note(e: unknown): void {
+    const m = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    this.stats.errors = [...this.stats.errors.slice(-4), m];
+  }
+
+  /** What a player can read out when they hear nothing. */
+  diagnostics(): Record<string, string> {
+    const c = this.ctx;
+    const n = (v: number | undefined): string => (v === undefined ? "n/a" : v.toFixed(3));
+    const banks = (Object.keys(this.banks) as BankId[]).map((k) => `${k} ${this.banks[k]!.entries.length}`).join(", ") || "none";
+    const session = (navigator as { audioSession?: { type: string; state?: string } }).audioSession;
+    return {
+      "Context": c ? c.state : "not made yet",
+      "Sample rate": c ? `${c.sampleRate} Hz` : "n/a",
+      "Clock": c ? `${c.currentTime.toFixed(2)} s` : "n/a",
+      "Output latency": c ? n((c as { outputLatency?: number }).outputLatency) : "n/a",
+      "Volume": `${Math.round(this.volume_ * 100)}%${this.muted_ ? " (muted)" : ""}`,
+      "Master gain": this.master ? n(this.master.gain.value) : "n/a",
+      "Audio session": session ? `${session.type}${session.state ? `, ${session.state}` : ""}` : "not available",
+      "Silent-mode loop": this.silentEl ? (this.silentEl.paused ? "paused" : "playing") : "not started",
+      "Banks": banks,
+      "Buffers made": String(this.buffers.size),
+      "Voices": `${this.voices.filter((v) => !v.ended).length} playing, ${this.engines.size} engines`,
+      "Sounds played": String(this.stats.plays),
+      "Last sound": this.stats.lastCue ? `${this.stats.lastCue}, peak ${this.stats.lastPeak < 0 ? "no buffer" : n(this.stats.lastPeak)}, gain ${n(this.stats.lastGain)}` : "none",
+      "Errors": this.stats.errors.join(" | ") || "none",
+      "Browser": navigator.userAgent,
+    };
+  }
+
+  /** A plain 440 Hz beep straight to the speakers, past the mapping and banks. */
+  testTone(): void {
+    this.unlock();
+    const c = this.ctx;
+    if (!c) return;
+    try {
+      const o = c.createOscillator();
+      const g = c.createGain();
+      o.frequency.value = 440;
+      g.gain.setValueAtTime(0.3, c.currentTime);
+      g.gain.setTargetAtTime(0, c.currentTime + 0.5, 0.05);
+      o.connect(g).connect(c.destination);
+      o.start();
+      o.stop(c.currentTime + 0.8);
+    } catch (e) {
+      this.note(e);
+    }
+  }
+
+  /** The same beep through an <audio> element, which the silent switch doesn't mute. */
+  testToneHtml(): void {
+    try {
+      const d = new Float32Array(26460);
+      for (let i = 0; i < d.length; i++) d[i] = 0.3 * Math.sin((2 * Math.PI * 440 * i) / 44100) * Math.min(1, (d.length - i) / 2000);
+      const el = new Audio(URL.createObjectURL(new Blob([wavBytes(d, 44100)], { type: "audio/wav" })));
+      el.play().catch((e: unknown) => this.note(e));
+    } catch (e) {
+      this.note(e);
     }
   }
 
@@ -270,7 +360,22 @@ export class AudioEngine {
     if (sp.gain <= 0.01) return;
     const m = this.mapping.cues[cue];
     const b = this.bufferForCue(cue);
-    if (!b) return;
+    this.stats.lastCue = cue;
+    if (!b) {
+      this.stats.lastPeak = -1;
+      return;
+    }
+    this.stats.plays++;
+    this.stats.lastPeak = peakOf(b.buf);
+    this.stats.lastGain = sp.gain * m.gain;
+    try {
+      this.startVoice(c, cue, b, sp, m.gain);
+    } catch (e) {
+      this.note(e);
+    }
+  }
+
+  private startVoice(c: AudioContext, cue: Cue, b: { buf: AudioBuffer }, sp: { gain: number; pan: number }, gain: number): void {
     this.voices = this.voices.filter((v) => !v.ended);
     const same = this.voices.filter((v) => v.cue === cue);
     if (same.length >= MAX_PER_CUE) this.kill(same[0]!);
@@ -279,10 +384,10 @@ export class AudioEngine {
     src.buffer = b.buf;
     src.playbackRate.value = 0.96 + Math.random() * 0.08;
     const g = c.createGain();
-    g.gain.value = sp.gain * m.gain;
-    const p = c.createStereoPanner();
+    g.gain.value = sp.gain * gain;
+    const p = panner(c);
     p.pan.value = sp.pan;
-    src.connect(g).connect(p).connect(this.master);
+    src.connect(g).connect(p).connect(this.master!);
     const v: Voice = { cue, src, ended: false };
     src.onended = () => {
       v.ended = true;
@@ -319,7 +424,7 @@ export class AudioEngine {
       src.loopEnd = b.buf.duration;
       const gain = c.createGain();
       gain.gain.value = 0;
-      const pan = c.createStereoPanner();
+      const pan = panner(c);
       src.connect(gain).connect(pan).connect(this.master);
       src.start();
       e = { src, gain, pan, seen: 0, key };
@@ -469,6 +574,47 @@ export class AudioEngine {
     v.ended = true;
     this.voices = this.voices.filter((x) => x !== v);
   }
+}
+
+/** Stands in for a StereoPannerNode on Safari before 14.1, which lacks it. */
+type Panless = GainNode & { pan: AudioParam };
+function panner(c: AudioContext): StereoPannerNode | Panless {
+  if (typeof c.createStereoPanner === "function") return c.createStereoPanner();
+  const g = c.createGain() as Panless;
+  // A param nothing listens to, so callers can still set .pan.
+  (g as { pan: AudioParam }).pan = c.createGain().gain;
+  return g;
+}
+
+function peakOf(b: AudioBuffer): number {
+  const d = b.getChannelData(0);
+  let m = 0;
+  for (let i = 0; i < d.length; i++) m = Math.max(m, Math.abs(d[i]!));
+  return m;
+}
+
+/** Mono 16-bit PCM WAVE bytes. */
+export function wavBytes(d: Float32Array, rate: number): ArrayBuffer {
+  const buf = new ArrayBuffer(44 + d.length * 2);
+  const v = new DataView(buf);
+  const str = (o: number, t: string): void => {
+    for (let i = 0; i < 4; i++) v.setUint8(o + i, t.charCodeAt(i));
+  };
+  str(0, "RIFF");
+  v.setUint32(4, 36 + d.length * 2, true);
+  str(8, "WAVE");
+  str(12, "fmt ");
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate * 2, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  str(36, "data");
+  v.setUint32(40, d.length * 2, true);
+  for (let i = 0; i < d.length; i++) v.setInt16(44 + i * 2, Math.round(Math.max(-1, Math.min(1, d[i]!)) * 32767), true);
+  return buf;
 }
 
 function stop(src: AudioBufferSourceNode): void {
