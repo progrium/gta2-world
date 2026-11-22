@@ -110,7 +110,7 @@ pub fn emergencyKind(model: u8) ?u3 {
 // --- Vehicle weapons (weapons.md 3.7)
 
 
-/// Vehicle weapons. Kinds are stored per car in `car_weapons.State`.
+/// Vehicle weapons. A car's fitted kind is `c.Vehicle.arm`.
 pub const CarWeapon = enum(u8) {
     none = 0,
     /// Two bullets from the car's left and right front, every 2 ticks.
@@ -183,5 +183,3 @@ pub const drop_behind = fx.ratio(1, 4);
 /// Ours: an armed car bomb goes off this many ticks later. The notes say
 /// only that the press arms it.
 pub const car_bomb_fuse: u16 = 150;
-/// Most cars with weapons at once (the state table).
-pub const max_armed_cars = 16;

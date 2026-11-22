@@ -59,6 +59,19 @@ pub const Vehicle = extern struct {
     ai_pass: u8 = 0,
     /// Traffic: the overtake side, -1 or 1, or 0.
     ai_side: i8 = 0,
+    /// Vehicle weapon (`sys/car_weapons.zig`): the fitted `CarWeapon`
+    /// (tuning/career.zig), 0 none. Built-in weapons come from the model.
+    arm: u8 = 0,
+    /// Ticks until the car's weapon, fitted or built in, can fire again.
+    arm_wait: u8 = 0,
+    /// The fitted weapon's ammo, in tenths of a displayed round.
+    arm_ammo: u16 = 0,
+    /// An armed car bomb: ticks until it goes off (0 = not armed).
+    bomb_fuse: u16 = 0,
+    /// Who armed the bomb: player slot + 1 (0 = nobody), credited with
+    /// the blast.
+    bomb_by: u8 = 0,
+    _arm_pad: u8 = 0,
     _pad: [2]u8 = .{ 0, 0 },
     /// Towing (`sys/trailers.zig`): on a cab, the trailer it pulls, as the
     /// entity id + 1 (0 none, so a zeroed car tows nothing); use

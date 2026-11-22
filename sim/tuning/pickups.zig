@@ -19,8 +19,9 @@ pub const pickup_reach = fx.ratio(6, 10);
 /// Odds of each pickup kind, out of 100 (ours), in `Weapon.kind` order:
 /// pistol (never), machine gun, shotgun, rockets, dual pistols, silenced
 /// machine gun, flamethrower, electro gun, grenades, molotovs, then health,
-/// armour, invulnerability, double damage, fast reload.
-pub const pickup_odds = [pickup_kinds]u32{ 0, 12, 10, 6, 8, 5, 6, 5, 7, 7, 14, 6, 3, 5, 6 };
+/// armour, invulnerability, double damage, fast reload, then the vehicle
+/// weapons: car bomb, oil, mines, car machine guns.
+pub const pickup_odds = [pickup_kinds]u32{ 0, 10, 9, 6, 7, 5, 6, 5, 6, 6, 12, 6, 3, 5, 6, 1, 2, 2, 3 };
 comptime {
     var sum: u32 = 0;
     for (pickup_odds) |o| sum += o;

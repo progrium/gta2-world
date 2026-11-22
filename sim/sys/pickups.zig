@@ -41,7 +41,8 @@ pub fn Sys(comptime Self: type) type {
                         if (fx.abs(pt.z - t.z) > fx.half) continue;
                         if (fx.abs(pt.x - t.x) > T.pickup_reach or fx.abs(pt.y - t.y) > T.pickup_reach) continue;
                         if (fx.length(pt.x - t.x, pt.y - t.y) > T.pickup_reach) continue;
-                        if (!sim.givePickup(ped, give)) continue;
+                        const took = if (T.isCarPickup(give.kind)) sim.giveCarPickup(row.car, give.kind) else sim.givePickup(ped, give);
+                        if (!took) continue;
                         sim.scratch.stats.pickups_taken += 1;
                         sim.pushEvent(.{ .kind = .pickup, .a = @intCast(slot), .b = give.kind, .x = t.x, .y = t.y, .z = t.z });
                         give.cooldown = 0;
@@ -75,6 +76,14 @@ pub fn Sys(comptime Self: type) type {
             const amount: u16 = if (kind < T.weapon_count) T.weapons[kind].pickup_rounds * 10 else 0;
             w.get(id, c.Weapon).?.* = .{ .cooldown = T.pickup_life, .kind = kind, .a0 = amount, .a1 = 0, .a2 = 0, .a3 = 0 };
             w.get(id, c.Appearance).?.* = .{ .sprite = kind, .remap = c.Appearance.no_remap };
+        }
+
+        /// Fit a vehicle weapon pickup to `car` (a player's car; none on
+        /// foot). False when on foot or the car already has it in full.
+        pub fn giveCarPickup(self: *Self, car: EntityId, kind: u8) bool {
+            if (car.isNone() or !T.isCarPickup(kind)) return false;
+            const i = kind - T.pickup_car_bomb;
+            return Self.car_weapons.arm(self, car, @enumFromInt(T.car_pickup_weapon[i]), T.car_pickup_rounds[i]);
         }
 
         /// Apply a pickup to `ped`. False if it does not need it.

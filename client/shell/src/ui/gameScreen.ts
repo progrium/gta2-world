@@ -11,7 +11,9 @@
 import { ChaseCamera, Renderer } from "../../../render/ts/src/index.ts";
 import type { AssetStore, MapChoice } from "../assets/store.ts";
 import { audio, loadBanks } from "../audio/index.ts";
-import { type Cue, type GameEvent, GameModule, type SoundSource, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_NAMES } from "../game/wasm.ts";
+import { type Cue, type GameEvent, GameModule, type SoundSource, CAR_WEAPON_ICONS, CAR_WEAPON_NAMES, MAX_PLAYERS, PICKUP_NAMES, type PlayerInfo, WEAPON_ICONS, WEAPON_NAMES } from "../game/wasm.ts";
+import type { StyleData } from "../../../render/ts/src/index.ts";
+import { drawSprite } from "./spriteIcon.ts";
 import type { Cue as CueName } from "../audio/cues.ts";
 import { carInfoRecord } from "../lobby/assets.ts";
 import { type ConnectOptions, Connection } from "../net/connection.ts";
@@ -81,7 +83,12 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const playLine = h("div", { class: "mono" });
   const frameLine = h("div", { class: "mono frame small muted" });
   const fpsLine = h("span", { class: "mono small muted" });
+  // The weapon line: an icon from the player's style, then the text.
+  const weaponIcon = h("canvas", { class: "weaponicon", width: 32, height: 32 }) as HTMLCanvasElement;
+  const weaponText = h("span", {});
   const weaponLine = h("div", { class: "weaponhud" });
+  let style: (StyleData & { codeObjBase: number }) | null = null;
+  let iconShown = -1;
   const feed = h("div", { class: "feed" });
   const banner = h("div", { class: "banner hidden" });
   const scores = h("div", { class: "scores hidden" });
@@ -374,7 +381,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       frameLine.textContent = `I2 ${hex(f)}  steer ${f.steer} throttle ${f.throttle} aim ${f.aim} [${bnames.join(" ")}]`;
       const where = p.respawnTimer > 0 || (sp && game!.tick < holdUntil) ? "dead, respawning" : p.inCar ? `in car · ${(p.speed * 30).toFixed(1)} blocks/s` : `on foot (${input.schemeOf(input.players[0]!)})`;
       playLine.textContent = sp ? `tick ${g.tick} · ${where} · hp ${p.hp}` : `tick ${g.tick} · ${where} · hp ${p.hp} · frags ${p.kills} · ${p.score} pts · deaths ${p.deaths}${online ? netLine : ""}`;
-      weaponLine.textContent = p.respawnTimer > 0 ? "" : hudLine(p);
+      setWeaponHud(p);
     }
   }
 
@@ -421,7 +428,8 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       const [gmp, sty] = await Promise.all([o.store.read(o.map.gmpRecord.hash), o.store.read(o.map.styRecord.hash)]);
       if (disposed) return;
       renderer = new Renderer(canvas);
-      renderer.setStyle(g.loadStyle(new Uint8Array(sty)));
+      style = g.loadStyle(new Uint8Array(sty));
+      renderer.setStyle(style);
       // Car handling from the style and a .gci (nyc.gci). Offline: the
       // player's own, if imported. A browser-hosted game: the host's (it
       // came with the match files), so prediction matches the host. The
@@ -543,11 +551,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   // a tick would be noise) and throws.
   // By weapon id (WEAPON_NAMES order).
   const SHOT_CUES: CueName[] = ["pistol", "machine_gun", "shotgun", "rocket_launch", "dual_pistol", "silenced_mg", "flamethrower", "electro_gun", "grenade_throw", "molotov_throw"];
+  // Vehicle weapon shots (`Projectile.weapon` 16 on): car guns, jeep gun,
+  // tank gun, water cannon, flamethrower.
+  const CAR_SHOT_CUES: CueName[] = ["car_guns", "car_guns", "tank_gun", "water_cannon", "flamethrower"];
   // What the announcer says for each pickup kind: weapons, then PICKUP_NAMES.
   const SAY_PICKUP: CueName[] = [
     "say_pistol", "say_machine_gun", "say_shotgun", "say_rocket_launcher", "say_dual_pistol", "say_silenced_mg", "say_flamethrower", "say_electro_gun", "say_grenades", "say_molotovs",
     "say_health", "say_armour", "say_invulnerability", "say_double_damage", "say_fast_reload",
+    "say_car_bomb", "say_oil_slick", "say_car_mines", "say_car_guns",
   ];
+  // The announcer for a fitted vehicle weapon, by `CarWeapon`.
+  const SAY_CAR_WEAPON: (CueName | null)[] = [null, "say_car_guns", null, null, null, null, "say_oil_slick", "say_car_mines", "say_car_bomb"];
   const secs = (ticks: number): number => Math.ceil(ticks / 30);
   // Debug: add cash (single player) or points, offline or as the host.
   function addMoney(): void {
@@ -566,8 +580,32 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     game.spawnPickup(nextPickup);
     nextPickup = nextPickup + 1 >= WEAPON_NAMES.length + PICKUP_NAMES.length ? 1 : nextPickup + 1;
   }
+  /** The weapon line and its icon: the car's weapon while driving one that has it, else the hand weapon. */
+  function setWeaponHud(p: PlayerInfo): void {
+    if (p.respawnTimer > 0) {
+      weaponLine.replaceChildren();
+      iconShown = -1;
+      return;
+    }
+    const car = p.inCar && p.carWeapon > 0;
+    const icon = car ? (CAR_WEAPON_ICONS[p.carWeapon] ?? 0) : p.rounds === 0 ? 0 : (WEAPON_ICONS[p.weapon] ?? 0);
+    if (icon !== iconShown) {
+      iconShown = icon;
+      weaponIcon.hidden = !(icon && style && drawSprite(weaponIcon, style, style.codeObjBase + icon));
+    }
+    weaponText.textContent = hudLine(p);
+    if (weaponLine.firstChild !== weaponIcon) weaponLine.replaceChildren(weaponIcon, weaponText);
+  }
+  function weaponPart(p: PlayerInfo): string {
+    if (p.inCar && p.carWeapon > 0) {
+      const name = CAR_WEAPON_NAMES[p.carWeapon] ?? "?";
+      if (p.bombFuse > 0) return `${name} · armed, ${secs(p.bombFuse)}s · get out!`;
+      return p.carRounds < 0 ? name : `${name} · ${p.carRounds}`;
+    }
+    return p.rounds === 0 ? "Unarmed" : `${WEAPON_NAMES[p.weapon] ?? "?"}${p.rounds < 0 ? "" : ` · ${p.rounds}`}`;
+  }
   function hudLine(p: PlayerInfo): string {
-    const parts = [p.rounds === 0 ? "Unarmed" : `${WEAPON_NAMES[p.weapon] ?? "?"}${p.rounds < 0 ? "" : ` · ${p.rounds}`}`];
+    const parts = [weaponPart(p)];
     if (p.charge > 0) parts.push(`throw ${"▮".repeat(Math.min(6, Math.ceil(p.charge / 10)))}`);
     parts.push(`♥ ${Math.max(0, p.hp)}`);
     if (p.armour > 0) parts.push(`armour ${p.armour}`);
@@ -632,7 +670,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
       case 6:
         if (e.a === ownSlot) {
           const extra = e.b - WEAPON_NAMES.length;
-          audio.play(extra < 0 ? "pickup" : extra === 0 ? "pickup_health" : extra === 1 ? "pickup_armour" : "pickup_powerup", e.x, e.y, e.z);
+          audio.play(extra < 0 || extra >= 5 ? "pickup" : extra === 0 ? "pickup_health" : extra === 1 ? "pickup_armour" : "pickup_powerup", e.x, e.y, e.z);
           const say = SAY_PICKUP[e.b];
           if (say) audio.play(say);
           feedLine(e.b < WEAPON_NAMES.length ? WEAPON_NAMES[e.b]! : (PICKUP_NAMES[e.b - WEAPON_NAMES.length] ?? "Power-up"), true);
@@ -656,6 +694,30 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         // a car alarm went off
         audio.play("car_alarm", e.x, e.y, e.z);
         break;
+      case 22: {
+        // a vehicle weapon: a slot, b the weapon (CAR_WEAPON_NAMES), c 0
+        // fitted (shop or pickup), 1 could not pay, 2 already full, 3 car
+        // bomb armed, 4 a mine or oil dropped
+        const name = CAR_WEAPON_NAMES[e.b] ?? "Vehicle weapon";
+        const mine = e.a === ownSlot;
+        if (e.c === 0) {
+          audio.play("car_shop", e.x, e.y, e.z);
+          if (mine) {
+            const say = SAY_CAR_WEAPON[e.b];
+            if (say) audio.play(say);
+            feedLine(`${name} fitted`, true);
+          }
+        } else if (e.c === 1 && mine) feedLine(`${name}: you can't afford it (${sp ? "cash" : "points"})`, true);
+        else if (e.c === 2 && mine) feedLine(`${name}: already full`, true);
+        else if (e.c === 3) {
+          audio.play("bomb_armed", e.x, e.y, e.z);
+          if (mine) {
+            audio.play("say_bomb_armed");
+            feedLine("Car bomb armed: get out!", true);
+          }
+        } else if (e.c === 4) audio.play(e.b === 7 ? "mine_drop" : "oil_drop", e.x, e.y, e.z);
+        break;
+      }
       case 19:
         // police voice: a = 0 a cop shouts ("Freeze!"), 1 radio chatter
         audio.play(e.a === 0 ? "cop_shout" : "police_radio", e.x, e.y, e.z);
@@ -779,9 +841,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     }
   }
 
+  const streamAt = new Map<CueName, number>();
   function playCue(c: Cue): void {
     if (c.kind === 1) {
-      audio.play(SHOT_CUES[c.a] ?? "pistol", c.x, c.y, c.z);
+      const name = (c.a >= 16 ? CAR_SHOT_CUES[c.a - 16] : SHOT_CUES[c.a]) ?? "pistol";
+      // Streams fire every tick: one sound per stream sound's length.
+      if (name === "water_cannon" || name === "flamethrower") {
+        const now = performance.now();
+        if (now < (streamAt.get(name) ?? 0)) return;
+        streamAt.set(name, now + 220);
+      }
+      audio.play(name, c.x, c.y, c.z);
     }
     else if (c.kind === 2) audio.play("ped_hurt", c.x, c.y, c.z);
     else if (c.kind === 3) audio.play("bullet_hit", c.x, c.y, c.z);

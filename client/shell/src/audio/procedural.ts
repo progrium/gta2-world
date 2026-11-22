@@ -106,6 +106,13 @@ const BUILD: Partial<Record<Cue, () => Float32Array>> = {
   throw: () => normalize(lowpass(noise(0.25, 24, (t) => Math.sin((Math.PI * t) / 0.25)), (t) => 600 + 4000 * t)),
   tyre_screech: () => normalize(tone(0.6, 1500, 1300, gate(0.6, 0.06), "saw").map((v, i) => v * (0.7 + 0.3 * Math.sin(i * 0.013))), 0.5),
   siren: () => normalize(wail(1.2, 700, 250, 1.5), 0.6),
+  // A hiss of water, a low thud for a dropped mine, a wet slap for oil, a
+  // clock's tick for an armed car bomb, and a garage's air wrench.
+  water_cannon: () => normalize(lowpass(noise(0.25, 37, gate(0.25, 0.03)), () => 2600), 0.5),
+  mine_drop: () => normalize(mix([tone(0.18, 160, 90, decay(22), "square"), 0.7], [lowpass(noise(0.1, 38, decay(50)), () => 2500), 0.6]), 0.7),
+  oil_drop: () => normalize(lowpass(noise(0.3, 39, attackDecay(0.01, 12)), (t) => 1200 * Math.exp(-t * 6) + 200), 0.6),
+  bomb_armed: () => normalize(seq(...[0, 1, 2, 3].map(() => seq(tone(0.03, 2400, 2400, decay(120), "square"), rest(0.22)))), 0.5),
+  car_shop: () => normalize(seq(...[0, 1, 2].map((i) => seq(mix([lowpass(noise(0.12, 40 + i, gate(0.12, 0.01)), () => 5000), 0.7], [tone(0.12, 900, 900, gate(0.12, 0.01), "square"), 0.3]), rest(0.06)))), 0.5),
   // Two bursts of spray-can hiss.
   respray: () => normalize(seq(lowpass(noise(0.45, 35, gate(0.45, 0.05)), () => 7000), rest(0.12), lowpass(noise(0.6, 36, gate(0.6, 0.08)), () => 7000)), 0.5),
   wanted_up: () => normalize(seq(beep(0.08, 660, "square"), beep(0.12, 990, "square")), 0.5),

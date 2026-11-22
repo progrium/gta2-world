@@ -27,6 +27,8 @@ const eql = prelude.eql;
 const ids = @import("../ids.zig");
 const OT = @import("../tuning/objects.zig");
 const st = @import("objects_state.zig");
+/// The oil spin direction (`ids.salts.objects`; generators use 0x1100).
+const salt_oil_dir: u32 = 0x1101;
 
 pub const State = st.State;
 pub const OpenRule = st.OpenRule;
@@ -102,21 +104,26 @@ pub fn Sys(comptime Self: type) type {
 
         /// Place an object (`ids.ObjectKind`, `model` is the object type).
         /// `z` at or above `ground_z` puts it on the ground at (x, y).
-        /// Authoritative `sp` only.
+        /// Authoritative only. Every configuration carries objects (oil and
+        /// mines from cars); the city's own kinds are placed only there.
         pub fn spawnObject(self: *Self, kind: ids.ObjectKind, model: u16, x: Fx, y: Fx, z: Fx, heading: u16) ?EntityId {
-            if (comptime !sp) return null;
             if (self.predicting()) return null;
+            if (comptime !sp) if (kind != .oil and kind != .mine) return null;
             const w = &self.state.world;
             const id = w.spawn(MapObject) orelse return null;
             const zz = if (z >= ground_z) groundAt(self, x, y) else z;
             w.get(id, c.Transform).?.* = .{ .x = x, .y = y, .z = zz, .heading = heading };
             const o = w.get(id, c.Object).?;
             o.* = .{ .kind = @intFromEnum(kind), .model = model };
+            // Oil and mines keep the tick they expire (and a mine the tick
+            // it arms), not a countdown, so they never change once dropped
+            // and cost nothing more to replicate.
+            const now: u16 = @truncate(self.state.tick);
             switch (kind) {
-                .oil => o.timer = OT.oil_life,
+                .oil => o.timer = now +% OT.oil_life,
                 .mine => {
-                    o.timer = OT.mine_life;
-                    o.aux = OT.mine_arm_ticks;
+                    o.timer = now +% OT.mine_life;
+                    o.aux = now +% OT.mine_arm_ticks;
                 },
                 else => {},
             }
@@ -162,16 +169,14 @@ pub fn Sys(comptime Self: type) type {
 
         /// Oil dropped by a car (weapons.md 3.7), credited to `by`.
         pub fn dropOil(self: *Self, x: Fx, y: Fx, z: Fx, by: EntityId) ?EntityId {
-            if (comptime !sp) return null;
-            const id = spawnObject(self, .oil, 0, x, y, z, 0) orelse return null;
+            const id = spawnObject(self, .oil, OT.oil_model, x, y, z, 0) orelse return null;
             self.state.world.get(id, c.Object).?.owner = by;
             return id;
         }
 
         /// A mine dropped by a car (weapons.md 3.7), credited to `by`.
         pub fn dropMine(self: *Self, x: Fx, y: Fx, z: Fx, by: EntityId) ?EntityId {
-            if (comptime !sp) return null;
-            const id = spawnObject(self, .mine, 0, x, y, z, 0) orelse return null;
+            const id = spawnObject(self, .mine, OT.mine_model, x, y, z, 0) orelse return null;
             self.state.world.get(id, c.Object).?.owner = by;
             return id;
         }
@@ -296,7 +301,6 @@ pub fn Sys(comptime Self: type) type {
         /// Is there an oil patch under (x, y, z)? For car handling's oil
         /// spin (car-handling.md "Oil slick"; workstream C applies it).
         pub fn oilAt(self: *Self, x: Fx, y: Fx, z: Fx) bool {
-            if (comptime !sp) return false;
             const Ctx = struct { x: Fx, y: Fx, z: Fx, hit: bool = false };
             var ctx = Ctx{ .x = x, .y = y, .z = z };
             self.state.world.each(.{ c.Object, c.Transform }, &ctx, struct {
@@ -315,17 +319,21 @@ pub fn Sys(comptime Self: type) type {
         /// Doors, generators, crushers, phones, pickups, oil, mines and
         /// destructors, once a tick (after contacts and hits).
         pub fn sysObjects(self: *Self) void {
-            if (comptime !sp) return;
             if (self.predicting()) return;
-            placeMapObjects(self);
-            doors.sysDoors(self);
-            gens.sysGenerators(self);
-            crusher.sysCrushers(self);
-            sysPhones(self);
-            sysObjectPickups(self);
+            if (comptime sp) {
+                placeMapObjects(self);
+                doors.sysDoors(self);
+                gens.sysGenerators(self);
+                crusher.sysCrushers(self);
+                sysPhones(self);
+                sysObjectPickups(self);
+            }
+            // Oil and mines come from cars, in every configuration.
             sysOilAndMines(self);
-            sysDestructors(self);
-            sysBarriers(self);
+            if (comptime sp) {
+                sysDestructors(self);
+                sysBarriers(self);
+            }
         }
 
         /// The map's own objects (`Level.objects`), once, as decorations
@@ -443,8 +451,15 @@ pub fn Sys(comptime Self: type) type {
             return true;
         }
 
-        /// Oil patches age away; mines lie still until a car or a ped
-        /// touches them, then blow up, credited to whoever dropped them
+        /// Has the tick `at` (low 16 bits) come? Oil and mine times.
+        fn reached(self: *const Self, at: u16) bool {
+            const now: u16 = @truncate(self.state.tick);
+            return now -% at < 0x8000;
+        }
+
+        /// Oil patches age away and send cars that touch them spinning
+        /// (car-handling.md "Oil slick"); mines lie still until a car or a
+        /// ped touches them, then blow up, credited to whoever dropped them
         /// (projectiles.md 3.1-3.3). Only one mine goes off a tick.
         fn sysOilAndMines(self: *Self) void {
             const Ctx = struct { sim: *Self, blasted: bool = false };
@@ -454,13 +469,9 @@ pub fn Sys(comptime Self: type) type {
                     const sim = cx.sim;
                     const k = kindOf(o);
                     if (k != .oil and k != .mine) return;
-                    if (o.timer == 0) return sim.state.world.despawn(id);
-                    o.timer -= 1;
-                    if (k != .mine) return;
-                    if (o.aux > 0) {
-                        o.aux -= 1;
-                        return;
-                    }
+                    if (reached(sim, o.timer)) return sim.state.world.despawn(id);
+                    if (k == .oil) return oilCars(sim, id, o, t);
+                    if (!reached(sim, o.aux)) return;
                     if (cx.blasted) return;
                     const victim = mineVictim(sim, t);
                     if (victim.isNone()) return;
@@ -470,6 +481,30 @@ pub fn Sys(comptime Self: type) type {
                     }
                     sim.explodeAt(t.x, t.y, t.z, o.owner, 0);
                     sim.state.world.despawn(id);
+                }
+            }.f);
+        }
+
+        /// Cars over an oil patch start an oil spin: a random direction,
+        /// `oil_ticks` of it and `oil_damage` (car-handling.md). The car that
+        /// dropped it is spared while the patch is fresh (ours), so a slow
+        /// car does not spin on its own trail.
+        fn oilCars(self: *Self, id: EntityId, o: *const c.Object, t: *const c.Transform) void {
+            const fresh = !reached(self, o.timer -% OT.oil_life +% OT.oil_own_grace);
+            const Ctx = struct { sim: *Self, id: EntityId, t: c.Transform, owner: EntityId, fresh: bool };
+            const ctx = Ctx{ .sim = self, .id = id, .t = t.*, .owner = o.owner, .fresh = fresh };
+            self.state.world.each(.{ c.Vehicle, c.Transform }, ctx, struct {
+                fn f(cx: Ctx, car: EntityId, v: *c.Vehicle, ct: *c.Transform) void {
+                    if (v.oil > 0 or v.flags & (c.Vehicle.flag_wrecked | c.Vehicle.flag_in_water) != 0) return;
+                    if (cx.fresh and eql(car, cx.owner)) return;
+                    if (fx.abs(ct.z - cx.t.z) > fx.half) return;
+                    const m = T.carModel(v.model);
+                    const reach = OT.oil_radius + m.half_wid;
+                    if (fx.abs(ct.x - cx.t.x) > reach or fx.abs(ct.y - cx.t.y) > reach) return;
+                    if (fx.length(ct.x - cx.t.x, ct.y - cx.t.y) > reach) return;
+                    v.oil = T.oil_ticks;
+                    v.oil_dir = @intCast(cx.sim.randBelow(car, salt_oil_dir, 2));
+                    cx.sim.damageCar(car, T.oil_damage, cx.owner);
                 }
             }.f);
         }

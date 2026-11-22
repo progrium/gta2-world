@@ -193,3 +193,72 @@ test "shops: in single player the shop takes career cash to clear the stars" {
     try std.testing.expectEqual(@as(i32, 100), S.career.score(w.sim, 0));
     try std.testing.expectEqual(@as(u16, 9), w.remap(car));
 }
+
+/// The weapon shop events from the last step.
+fn fitEvents(S: type, sim: *S) ?S.Event {
+    var ev: ?S.Event = null;
+    for (sim.events()) |e| if (e.kind == .car_weapon) {
+        ev = e;
+    };
+    return ev;
+}
+
+test "shops: a weapon shop fits its weapon for points in a deathmatch room, once full it charges nothing" {
+    const Wd = World(simmod.Sim16);
+    const S = simmod.Sim16;
+    var w: Wd = undefined;
+    try w.init();
+    defer w.deinit();
+    const car = try w.drive();
+    const bx = fx.toInt(w.carT(car).x);
+    const by = fx.toInt(w.carT(car).y);
+    const mg = OT.weaponShop(250).?;
+    w.shopAt(20, bx + 4, by, 250);
+    // Can't pay: nothing fitted.
+    w.sim.state.players[0].score = mg.price_mp - 1;
+    w.moveTo(car, bx + 4, by);
+    w.run(1);
+    try std.testing.expectEqual(@as(u8, 1), fitEvents(S, w.sim).?.c);
+    try std.testing.expectEqual(@as(u8, 0), w.sim.state.world.get(car, c.Vehicle).?.arm);
+    // With the points: fitted and charged.
+    w.moveTo(car, bx, by);
+    w.run(1);
+    w.sim.state.players[0].score = mg.price_mp * 2;
+    w.moveTo(car, bx + 4, by);
+    w.run(1);
+    const ev = fitEvents(S, w.sim).?;
+    try std.testing.expectEqual(@as(u8, 0), ev.c);
+    try std.testing.expectEqual(@as(u8, 1), ev.b);
+    try std.testing.expectEqual(mg.price_mp, w.sim.state.players[0].score);
+    try std.testing.expectEqual(@as(u16, mg.rounds * 10), S.car_weapons.ammoOf(w.sim, car));
+    // Already full: no charge.
+    S.car_weapons.disarm(w.sim, car);
+    _ = S.car_weapons.arm(w.sim, car, .car_guns, 99);
+    w.moveTo(car, bx, by);
+    w.run(1);
+    w.moveTo(car, bx + 4, by);
+    w.run(1);
+    try std.testing.expectEqual(@as(u8, 2), fitEvents(S, w.sim).?.c);
+    try std.testing.expectEqual(mg.price_mp, w.sim.state.players[0].score);
+}
+
+test "shops: in single player a weapon shop takes career cash; code 253 is no shop" {
+    const Wd = World(simmod.Sim(simmod.config_sp));
+    const S = simmod.Sim(simmod.config_sp);
+    var w: Wd = undefined;
+    try w.init();
+    defer w.deinit();
+    const car = try w.drive();
+    const bx = fx.toInt(w.carT(car).x);
+    const by = fx.toInt(w.carT(car).y);
+    const bomb = OT.weaponShop(254).?;
+    w.shopAt(20, bx + 4, by, 254);
+    w.run(1);
+    S.career.addScore(w.sim, 0, bomb.price_sp + 100, .flat);
+    w.moveTo(car, bx + 4, by);
+    w.run(1);
+    try std.testing.expectEqual(@as(i32, 100), S.career.score(w.sim, 0));
+    try std.testing.expectEqual(@import("../tuning/career.zig").CarWeapon.car_bomb, S.car_weapons.weaponOf(w.sim, car));
+    w.shopAt(20, bx + 6, by, 253);
+    try std.testing.expect(S.shops.shopAt(w.sim, fx.fromInt(bx + 6) + fx.half, fx.fromInt(by) + fx.half, w.carT(car).z) == null);
+}

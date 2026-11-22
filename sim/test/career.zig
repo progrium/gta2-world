@@ -470,7 +470,7 @@ test "car weapons: car guns fire two shots while held and spend ammo" {
     }
     h.run(9);
     // A shot every 2 ticks: 5 pulls in 10 ticks, a tenth each.
-    try std.testing.expectEqual(@as(u16, 50 - 5), Sp.car_weapons.armOf(h.sim, car).?.ammo);
+    try std.testing.expectEqual(@as(u16, 50 - 5), Sp.car_weapons.ammoOf(h.sim, car));
     h.frames[0].buttons = 0;
 }
 
@@ -511,7 +511,7 @@ test "car weapons: the tank gun needs a fresh press each shot; disarm removes a 
     h.run(1);
     try std.testing.expectEqual(@as(u32, 1), h.sim.state.world.count(Sp.Shot));
     h.run(60); // held: no second shot
-    try std.testing.expectEqual(@as(u16, 90), Sp.car_weapons.armOf(h.sim, car).?.ammo);
+    try std.testing.expectEqual(@as(u16, 90), Sp.car_weapons.ammoOf(h.sim, car));
     Sp.car_weapons.disarm(h.sim, car);
     try std.testing.expectEqual(TC.CarWeapon.none, Sp.car_weapons.weaponOf(h.sim, car));
     h.frames[0].buttons = 0;
@@ -570,7 +570,7 @@ test "car weapons: mines drop behind the car on a fresh press, credited to the d
     h.run(5); // held: no second mine
     h.frames[0].buttons = 0;
     try std.testing.expectEqual(before + 1, w.count(Sp.MapObject));
-    try std.testing.expectEqual(@as(u16, 20), Sp.car_weapons.armOf(h.sim, car).?.ammo);
+    try std.testing.expectEqual(@as(u16, 20), Sp.car_weapons.ammoOf(h.sim, car));
     const Ctx = struct { me: EntityId, found: *bool };
     var found = false;
     w.each(.{c.Object}, Ctx{ .me = h.me(), .found = &found }, struct {

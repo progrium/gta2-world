@@ -26,4 +26,5 @@ test {
     _ = @import("test/traffic_spawn.zig");
     _ = @import("test/shops.zig");
     _ = @import("test/vehicles.zig");
+    _ = @import("test/car_weapons.zig");
 }

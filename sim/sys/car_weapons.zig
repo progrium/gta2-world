@@ -2,9 +2,12 @@
 //! belongs to the car and is fired by its driver with the fire button.
 //! Built-in ones (tank gun, army jeep gun, fire truck cannon) come from the
 //! car's model role (`tuning/career.zig`) and never run out; fitted ones
-//! (car guns, oil, mines, car bomb, or any of the others from a kill
-//! frenzy or a script) are kept in a small table in the single-player
-//! block, `state.sp.arms`. Oil and mines are dropped as B's objects.
+//! (car guns, oil, mines, car bomb from a pickup, a weapon shop, a kill
+//! frenzy or a script) live on the car itself, in `c.Vehicle` (`arm`,
+//! `arm_ammo`, `bomb_fuse`), so they work in every configuration and reach
+//! joining players with the car. Oil and mines are dropped as B's objects.
+//! Like the other weapons, only the authoritative sim fires them; a
+//! predicting client sees the shots in the next snapshot.
 //!
 //! The electro baton (weapons.md 3.6) is a hand weapon that the weapon
 //! table does not have yet; it is not here.
@@ -20,144 +23,120 @@ const Fx = prelude.Fx;
 const EntityId = prelude.EntityId;
 const Button = prelude.Button;
 const eql = prelude.eql;
-const ids = @import("../ids.zig");
 const TC = @import("../tuning/career.zig");
 const CarWeapon = TC.CarWeapon;
 
-/// One fitted vehicle weapon.
-pub const Arm = extern struct {
-    car: EntityId = .none,
-    /// `CarWeapon`.
-    kind: u8 = 0,
-    /// Ticks until it can fire again.
-    cooldown: u8 = 0,
-    flags: u8 = 0,
-    _pad: u8 = 0,
-    /// Ammo in tenths of a displayed round.
-    ammo: u16 = 0,
-    /// An armed car bomb: ticks until it goes off (0 = not armed).
-    fuse: u16 = 0,
-    /// Who armed the bomb (credited with the blast).
-    armed_by: EntityId = .none,
-};
-
-/// In the SP state block (`state.sp.arms`).
-pub const State = extern struct {
-    arms: [TC.max_armed_cars]Arm = @splat(.{}),
-    /// Cooldown of a built-in weapon, per player slot's car (ours: one
-    /// player in `sp`, so one counter is enough).
-    builtin_cooldown: u8 = 0,
-    _pad: [3]u8 = .{ 0, 0, 0 },
-};
-
 pub fn Sys(comptime Self: type) type {
     return struct {
-        const sp = Self.city;
         const Shot = Self.Shot;
 
-        /// The fitted weapon of `car`, if any.
-        pub fn armOf(self: *Self, car: EntityId) ?*Arm {
-            if (comptime !sp) return null;
+        fn vehicle(self: *Self, car: EntityId) ?*c.Vehicle {
             if (car.isNone()) return null;
-            for (&self.state.sp.arms.arms) |*a| {
-                if (eql(a.car, car)) return a;
-            }
-            return null;
+            return self.state.world.get(car, c.Vehicle);
+        }
+
+        /// The fitted weapon of `car` while it has ammo (or an armed bomb),
+        /// else none.
+        pub fn fittedOf(self: *Self, car: EntityId) CarWeapon {
+            const v = vehicle(self, car) orelse return .none;
+            if (v.arm == 0 or v.arm >= TC.car_weapon_kinds) return .none;
+            if (v.arm_ammo == 0 and v.bomb_fuse == 0) return .none;
+            return @enumFromInt(v.arm);
         }
 
         /// The weapon `car` carries: fitted, else built in, else none.
         pub fn weaponOf(self: *Self, car: EntityId) CarWeapon {
-            if (armOf(self, car)) |a| {
-                if (a.ammo > 0 or a.fuse > 0) return @enumFromInt(a.kind);
-            }
-            const v = self.state.world.get(car, c.Vehicle) orelse return .none;
+            const v = vehicle(self, car) orelse return .none;
+            const f = fittedOf(self, car);
+            if (f != .none) return f;
             return TC.builtinCarWeapon(v.model);
+        }
+
+        /// The fitted weapon's ammo in tenths of a displayed round (0 for
+        /// none or a built-in one).
+        pub fn ammoOf(self: *Self, car: EntityId) u16 {
+            const v = vehicle(self, car) orelse return 0;
+            return if (v.arm == 0) 0 else v.arm_ammo;
         }
 
         /// Fit `kind` to `car` with `rounds` displayed rounds (a pickup, a
         /// shop, a kill frenzy or a script). The same kind adds ammo up to
         /// its maximum; another kind replaces the old one. False when the
-        /// table is full or it is already full of that kind.
+        /// car already has that kind full (or an armed bomb).
         pub fn arm(self: *Self, car: EntityId, kind: CarWeapon, rounds: u16) bool {
-            if (comptime !sp) return false;
             if (self.predicting()) return false;
             const k = @intFromEnum(kind);
             if (k == 0 or k >= TC.car_weapon_kinds) return false;
-            if (self.state.world.get(car, c.Vehicle) == null) return false;
+            const v = vehicle(self, car) orelse return false;
+            if (v.flags & c.Vehicle.flag_wrecked != 0) return false;
+            if (v.bomb_fuse > 0) return false;
             const def = TC.car_weapons[k];
-            const a = armOf(self, car) orelse freeSlot(self) orelse return false;
-            if (a.car.isNone() or a.kind != k) {
-                a.* = .{ .car = car, .kind = k };
-            } else if (a.ammo >= def.max_tenths) return false;
-            a.ammo = @min(def.max_tenths, a.ammo +| rounds *| 10);
+            if (v.arm != k) {
+                v.arm = k;
+                v.arm_ammo = 0;
+            } else if (v.arm_ammo >= def.max_tenths) return false;
+            v.arm_ammo = @min(def.max_tenths, v.arm_ammo +| rounds *| 10);
             return true;
+        }
+
+        /// Would `arm(car, kind, ..)` take anything? (A shop charges only
+        /// then.)
+        pub fn canArm(self: *Self, car: EntityId, kind: CarWeapon) bool {
+            const k = @intFromEnum(kind);
+            if (k == 0 or k >= TC.car_weapon_kinds) return false;
+            const v = vehicle(self, car) orelse return false;
+            if (v.flags & c.Vehicle.flag_wrecked != 0 or v.bomb_fuse > 0) return false;
+            return v.arm != k or v.arm_ammo < TC.car_weapons[k].max_tenths;
         }
 
         /// Remove `car`'s fitted weapon (death and arrest, kill frenzy end).
         /// An armed bomb stays armed.
         pub fn disarm(self: *Self, car: EntityId) void {
-            const a = armOf(self, car) orelse return;
-            if (a.fuse > 0) {
-                a.ammo = 0;
-                return;
-            }
-            a.* = .{};
+            const v = vehicle(self, car) orelse return;
+            v.arm_ammo = 0;
+            if (v.bomb_fuse == 0) v.arm = 0;
         }
 
         /// Is a car bomb armed on `car` (script-cars.md 2.6, type 305)?
         pub fn bombArmed(self: *Self, car: EntityId) bool {
-            const a = armOf(self, car) orelse return false;
-            return a.fuse > 0;
+            const v = vehicle(self, car) orelse return false;
+            return v.bomb_fuse > 0;
         }
 
-        fn freeSlot(self: *Self) ?*Arm {
-            const w = &self.state.world;
-            for (&self.state.sp.arms.arms) |*a| {
-                if (a.car.isNone() or !w.isAlive(a.car)) {
-                    a.* = .{};
-                    return a;
-                }
-            }
-            return null;
-        }
-
-        /// Once a tick, before hand weapons: each driven car's weapon fires
-        /// while its driver holds fire (or on a fresh press, for the car
-        /// bomb, oil, mines and the tank gun); armed bombs burn down.
+        /// Once a tick, before hand weapons: weapon waits run down, armed
+        /// bombs burn down, and each player's car fires while its driver
+        /// holds fire (or on a fresh press, for the car bomb, oil, mines
+        /// and the tank gun).
         pub fn sysCarWeapons(self: *Self) void {
-            if (comptime !sp) return;
             if (self.predicting()) return;
             const w = &self.state.world;
-            for (&self.state.sp.arms.arms) |*a| {
-                if (a.car.isNone()) continue;
-                if (!w.isAlive(a.car)) {
-                    a.* = .{};
-                    continue;
-                }
-                if (a.cooldown > 0) a.cooldown -= 1;
-                if (a.fuse > 0) {
-                    a.fuse -= 1;
-                    if (a.fuse == 0) {
-                        // The bomb goes off: the car is destroyed, credited
-                        // to whoever armed it (sysHealth explodes it).
-                        if (w.get(a.car, c.Health)) |h| {
-                            h.hp = 0;
-                            h.last_hit_by = a.armed_by;
+            w.each(.{ c.Vehicle, c.Health }, self, struct {
+                fn f(sim: *Self, _: EntityId, v: *c.Vehicle, h: *c.Health) void {
+                    if (v.arm_wait > 0) v.arm_wait -= 1;
+                    if (v.bomb_fuse == 0) return;
+                    v.bomb_fuse -= 1;
+                    if (v.bomb_fuse > 0) return;
+                    // The bomb goes off: the car is destroyed, credited to
+                    // whoever armed it (sysHealth explodes it).
+                    if (v.flags & c.Vehicle.flag_wrecked == 0) {
+                        h.hp = 0;
+                        if (v.bomb_by > 0 and v.bomb_by <= sim.state.players.len) {
+                            h.last_hit_by = sim.state.players[v.bomb_by - 1].ped;
                         }
-                        a.* = .{};
                     }
+                    v.bomb_by = 0;
+                    if (v.arm == @intFromEnum(CarWeapon.car_bomb) and v.arm_ammo == 0) v.arm = 0;
                 }
-            }
-            const bs = &self.state.sp.arms;
-            if (bs.builtin_cooldown > 0) bs.builtin_cooldown -= 1;
-            for (self.state.players) |pl| {
+            }.f);
+            for (self.state.players, 0..) |pl, slot| {
                 if (pl.flags & abi.PlayerRow.flag_active == 0 or pl.car.isNone()) continue;
-                fireCar(self, pl.car, pl.ped);
+                fireCar(self, pl.car, pl.ped, @intCast(slot));
             }
         }
 
-        /// The driver `driver` of `car` works its weapon this tick.
-        pub fn fireCar(self: *Self, car: EntityId, driver: EntityId) void {
+        /// The driver `driver` (player `slot`) of `car` works its weapon
+        /// this tick.
+        pub fn fireCar(self: *Self, car: EntityId, driver: EntityId, slot: u8) void {
             const w = &self.state.world;
             const v = w.get(car, c.Vehicle) orelse return;
             if (!eql(v.driver, driver) or v.flags & c.Vehicle.flag_wrecked != 0) return;
@@ -165,16 +144,8 @@ pub fn Sys(comptime Self: type) type {
             const held = ctl.in.buttons & Button.fire != 0;
             const fresh = held and @as(u16, @truncate(ctl.prev_buttons)) & Button.fire == 0;
             if (!held) return;
-            const fitted = armOf(self, car);
-            var kind: CarWeapon = .none;
-            var cooldown: *u8 = &self.state.sp.arms.builtin_cooldown;
-            if (fitted) |a| {
-                if (a.ammo > 0) {
-                    kind = @enumFromInt(a.kind);
-                    cooldown = &a.cooldown;
-                }
-            }
-            if (kind == .none) kind = TC.builtinCarWeapon(v.model);
+            const fitted = fittedOf(self, car);
+            const kind: CarWeapon = if (fitted != .none) fitted else TC.builtinCarWeapon(v.model);
             const k = @intFromEnum(kind);
             if (k == 0 or k >= TC.car_weapon_kinds) return;
             const def = TC.car_weapons[k];
@@ -182,7 +153,9 @@ pub fn Sys(comptime Self: type) type {
                 // Oil keeps dropping while held after the press.
                 if (kind != .oil) return;
             }
-            if (cooldown.* > 0) return;
+            if (v.arm_wait > 0) return;
+            // An armed bomb is already ticking; pressing again does nothing.
+            if (kind == .car_bomb and v.bomb_fuse > 0) return;
             const t = w.get(car, c.Transform) orelse return;
             const vel = w.get(car, c.Velocity) orelse return;
             const m = T.carModel(v.model);
@@ -206,24 +179,44 @@ pub fn Sys(comptime Self: type) type {
                     const ox = t.x - fx.mul(dx, back);
                     const oy = t.y - fx.mul(dy, back);
                     // Credited: oil to the car, a mine's blast to the driver.
-                    _ = if (kind == .oil) Self.objects.dropOil(self, ox, oy, t.z, car) else Self.objects.dropMine(self, ox, oy, t.z, driver);
+                    const dropped = if (kind == .oil) Self.objects.dropOil(self, ox, oy, t.z, car) else Self.objects.dropMine(self, ox, oy, t.z, driver);
+                    if (dropped == null) return;
+                    // A sound for the press (oil then keeps dropping quietly).
+                    if (fresh) self.pushEvent(.{ .kind = .car_weapon, .a = slot, .b = k, .c = @intFromEnum(Fitted.dropped), .x = ox, .y = oy, .z = t.z });
                 },
                 .car_bomb => {
-                    const a = fitted orelse return;
-                    a.fuse = TC.car_bomb_fuse;
-                    a.armed_by = driver;
+                    v.bomb_fuse = TC.car_bomb_fuse;
+                    v.bomb_by = slot + 1;
+                    self.pushEvent(.{ .kind = .car_weapon, .a = slot, .b = k, .c = @intFromEnum(Fitted.bomb_armed), .x = t.x, .y = t.y, .z = t.z });
                 },
                 else => return,
             }
-            cooldown.* = def.wait;
-            if (fitted) |a| {
-                if (a.ammo > 0 and @intFromEnum(kind) == a.kind) a.ammo -|= def.tenths_per_use;
+            v.arm_wait = def.wait;
+            if (fitted != .none) {
+                v.arm_ammo -|= def.tenths_per_use;
+                // Spent: the car goes back to its built-in weapon, if any
+                // (an armed bomb keeps its kind until it goes off).
+                if (v.arm_ammo == 0 and v.bomb_fuse == 0) v.arm = 0;
             }
             self.scratch.stats.shots += 1;
             // Armed attacks are reported as a crime (weapons.md 3.7); the
-            // wanted API (E) files it.
+            // wanted API (E) files it in the living city.
             if (def.armed_attack) Self.wanted.reportCrime(self, .shot_fired, driver, t.x, t.y, t.z);
         }
+
+        /// What a `car_weapon` event's `c` says (`wire.EventKind`).
+        pub const Fitted = enum(u8) {
+            /// A pickup or shop fitted the weapon (b = the kind).
+            fitted = 0,
+            /// A shop could not fit it: not enough cash or points.
+            cannot_pay = 1,
+            /// The car already carries it in full.
+            full = 2,
+            /// The driver armed the car bomb.
+            bomb_armed = 3,
+            /// The driver dropped a mine or started an oil slick.
+            dropped = 4,
+        };
 
         /// A vehicle weapon's projectile from (t + off), flying along the
         /// car's heading with the car's own velocity added. Its owner is

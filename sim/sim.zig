@@ -138,7 +138,9 @@ pub fn Sim(comptime cfg: Config) type {
             c.Transform, c.Velocity, c.Projectile,
         });
         pub const Pickup = ecs.Kind(.pickup, cfg.pickup_capacity, &.{ c.Transform, c.Weapon, c.Appearance });
-        pub const MapObject = ecs.Kind(.map_object, cfg.map_object_capacity, if (city) &.{ c.Transform, c.Object, c.ScriptTag } else &.{c.Transform});
+        /// Every configuration carries `Object` (deathmatch drops oil and
+        /// mines from cars); only the city tags objects for scripts.
+        pub const MapObject = ecs.Kind(.map_object, cfg.map_object_capacity, if (city) &.{ c.Transform, c.Object, c.ScriptTag } else &.{ c.Transform, c.Object });
         pub const World = ecs.World(&.{ Car, Ped, Shot, Pickup, MapObject });
 
         /// Components replicated per kind (for I3 codecs, workstream C), in
@@ -148,7 +150,7 @@ pub fn Sim(comptime cfg: Config) type {
             .{ abi.Kind.ped, .{ c.Transform, c.Velocity, c.Collider, c.Health, c.Controller, c.Pedestrian, c.Riding, c.Weapon, c.Appearance } },
             .{ abi.Kind.projectile, .{ c.Transform, c.Velocity, c.Projectile } },
             .{ abi.Kind.pickup, .{ c.Transform, c.Weapon, c.Appearance } },
-            .{ abi.Kind.map_object, .{c.Transform} },
+            .{ abi.Kind.map_object, .{ c.Transform, c.Object } },
         };
 
         pub const SpState = sp_state.SpState(cfg.max_players);
@@ -275,6 +277,12 @@ pub fn Sim(comptime cfg: Config) type {
                 /// A car alarm went off: x, y, z of the car
                 /// (`sys/car_flags.zig`, `wire.EventKind`).
                 car_alarm = 21,
+                /// A vehicle weapon fitted or used: x, y, z of the car or
+                /// shop; a = slot, b = the `CarWeapon`, c = what happened
+                /// (`car_weapons.Fitted`: 0 fitted, 1 could not pay, 2
+                /// already full, 3 car bomb armed, 4 mine or oil dropped)
+                /// (`wire.EventKind`).
+                car_weapon = 22,
             };
             pub const no_slot: u8 = 0xFF;
             pub const weapon_car: u8 = 0x80;
@@ -416,6 +424,7 @@ pub fn Sim(comptime cfg: Config) type {
         pub const sysPickups = sys_pickups.sysPickups;
         pub const initPickup = sys_pickups.initPickup;
         pub const givePickup = sys_pickups.givePickup;
+        pub const giveCarPickup = sys_pickups.giveCarPickup;
         pub const sysAmbient = sys_ambient.sysAmbient;
         pub const farFromAll = sys_ambient.farFromAll;
         pub const dir_heading = sys_traffic.dir_heading;

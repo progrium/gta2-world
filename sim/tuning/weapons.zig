@@ -58,7 +58,21 @@ pub const pickup_armour: u8 = 11;
 pub const pickup_invulnerable: u8 = 12;
 pub const pickup_double_damage: u8 = 13;
 pub const pickup_fast_reload: u8 = 14;
-pub const pickup_kinds = 15;
+/// Vehicle weapon pickups (weapons.md 3.7), taken only by a player driving
+/// over them; in the order the public object docs number them (COLLECT_15
+/// vehicle bomb, 16 oil slick, 17 mines, 18 machine guns).
+pub const pickup_car_bomb: u8 = 15;
+pub const pickup_car_oil: u8 = 16;
+pub const pickup_car_mines: u8 = 17;
+pub const pickup_car_guns: u8 = 18;
+pub const pickup_kinds = 19;
+pub fn isCarPickup(kind: u8) bool {
+    return kind >= pickup_car_bomb and kind < pickup_kinds;
+}
+/// The `tuning/career.zig` `CarWeapon` a car pickup fits, and its rounds
+/// (ours: half a shop's load, one bomb).
+pub const car_pickup_weapon = [4]u8{ 8, 6, 7, 1 };
+pub const car_pickup_rounds = [4]u16{ 1, 5, 5, 25 };
 pub const infinite_ammo: u16 = 0xFFFF;
 /// Most ammo held for any weapon: 99 displayed rounds, in tenths.
 pub const max_ammo_tenths: u16 = 990;

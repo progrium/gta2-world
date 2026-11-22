@@ -1,16 +1,19 @@
-//! Car shops: the spray shop. A level script declares each shop as an
-//! object of model `car_shop_model` (`CAR_SHOP` in the public scripting
-//! docs); the declaration's value byte is a paint remap for a spray shop,
-//! or one of the weapon shop codes from `first_weapon_shop` up (not built
-//! yet). Driving a player's car into a spray shop's block repaints it and,
-//! in the living city, clears the wanted level for a price.
+//! Car shops: the spray shop and the weapon shops. A level script declares
+//! each shop as an object of model `car_shop_model` (`CAR_SHOP` in the
+//! public scripting docs); the declaration's value byte is a paint remap
+//! for a spray shop, or one of the weapon shop codes from
+//! `first_weapon_shop` up (`OT.weapon_shops`). Driving a player's car into
+//! a spray shop's block repaints it and, in the living city, clears the
+//! wanted level for a price. Driving into a weapon shop fits its vehicle
+//! weapon (`car_weapons.zig`) for a price: career cash in single player,
+//! points in a room.
 //!
-//! No behaviour note covers shops yet: the trigger box, the price and
-//! "repaint every visit, charge only to clear the stars" are ours
-//! (`tuning/objects.zig`). Shops come from the level's script, so they
-//! work in every configuration whose host attaches the level; the repaint
-//! and the wanted clear are authoritative only (a predicting client gets
-//! them in the next snapshot).
+//! No behaviour note covers shops yet: the trigger box, the prices in
+//! rooms and "repaint every visit, charge only to clear the stars" are
+//! ours (`tuning/objects.zig`). Shops come from the level's script, so they
+//! work in every configuration whose host attaches the level; what they do
+//! is authoritative only (a predicting client gets it in the next
+//! snapshot).
 
 const std = @import("std");
 const prelude = @import("../prelude.zig");
@@ -20,6 +23,7 @@ const c = prelude.c;
 const T = prelude.T;
 const Fx = prelude.Fx;
 const OT = @import("../tuning/objects.zig");
+const TC = @import("../tuning/career.zig");
 const W = @import("../script/world.zig");
 const lv = @import("interfaces").level;
 
@@ -80,10 +84,18 @@ pub fn Sys(comptime Self: type) type {
 
         /// The spray shop whose block holds (x, y, z), if any.
         pub fn sprayAt(self: *const Self, x: Fx, y: Fx, z: Fx) ?*const Shop {
+            const s = shopAt(self, x, y, z) orelse return null;
+            return if (s.isSpray()) s else null;
+        }
+
+        /// The shop (spray or weapon) whose block holds (x, y, z), if any.
+        /// Codes no shop uses (253) are not shops.
+        pub fn shopAt(self: *const Self, x: Fx, y: Fx, z: Fx) ?*const Shop {
             const bx = fx.toInt(x);
             const by = fx.toInt(y);
             for (self.shop_list[0..self.shop_count]) |*s| {
-                if (!s.isSpray() or s.bx != bx or s.by != by) continue;
+                if (s.bx != bx or s.by != by) continue;
+                if (!s.isSpray() and OT.weaponShop(s.value) == null) continue;
                 if (@abs(z - s.z) >= @as(u32, @intCast(OT.shop_reach_z))) continue;
                 return s;
             }
@@ -92,8 +104,9 @@ pub fn Sys(comptime Self: type) type {
 
         /// Once a tick: each player's car that has just driven into a
         /// spray shop is repainted with the shop's remap, and the player's
-        /// wanted level is cleared if they can pay. `flag_in_shop` marks a
-        /// car inside a shop, so a visit acts once.
+        /// wanted level is cleared if they can pay; one that has driven
+        /// into a weapon shop is fitted with its weapon if they can pay.
+        /// `flag_in_shop` marks a car inside a shop, so a visit acts once.
         pub fn sysShops(self: *Self) void {
             if (self.shop_count == 0 or self.predicting()) return;
             const w = &self.state.world;
@@ -103,13 +116,17 @@ pub fn Sys(comptime Self: type) type {
                 if (car.isNone()) continue;
                 const v = w.get(car, c.Vehicle) orelse continue;
                 const t = w.get(car, c.Transform) orelse continue;
-                const shop = sprayAt(self, t.x, t.y, t.z) orelse {
+                const shop = shopAt(self, t.x, t.y, t.z) orelse {
                     v.flags &= ~c.Vehicle.flag_in_shop;
                     continue;
                 };
                 if (v.flags & c.Vehicle.flag_in_shop != 0) continue;
                 v.flags |= c.Vehicle.flag_in_shop;
                 if (v.flags & c.Vehicle.flag_wrecked != 0) continue;
+                if (OT.weaponShop(shop.value)) |ws| {
+                    fitWeapon(self, slot, car, shop, ws);
+                    continue;
+                }
                 if (w.get(car, c.Appearance)) |a| a.remap = shop.value;
                 const cleared = clearWanted(self, slot);
                 self.pushEvent(.{
@@ -124,6 +141,41 @@ pub fn Sys(comptime Self: type) type {
             }
         }
 
+        /// A weapon shop fits its weapon to `slot`'s `car` if the car does
+        /// not have it in full and the player can pay.
+        fn fitWeapon(self: *Self, slot: u8, car: prelude.EntityId, shop: *const Shop, ws: OT.WeaponShop) void {
+            const Fitted = Self.car_weapons.Fitted;
+            const kind: TC.CarWeapon = @enumFromInt(ws.weapon);
+            const what: Fitted = if (!Self.car_weapons.canArm(self, car, kind))
+                .full
+            else if (!pay(self, slot, if (comptime Self.single_player) ws.price_sp else ws.price_mp))
+                .cannot_pay
+            else if (Self.car_weapons.arm(self, car, kind, ws.rounds)) .fitted else .full;
+            self.pushEvent(.{
+                .kind = .car_weapon,
+                .a = slot,
+                .b = ws.weapon,
+                .c = @intFromEnum(what),
+                .x = (fx.fromInt(shop.bx)) + fx.one / 2,
+                .y = (fx.fromInt(shop.by)) + fx.one / 2,
+                .z = shop.z,
+            });
+        }
+
+        /// Take `price` from `slot`: career cash in single player, points
+        /// in a room. False (nothing taken) when they have too little.
+        fn pay(self: *Self, slot: u8, price: i32) bool {
+            if (comptime Self.single_player) {
+                if (Self.career.score(self, slot) < price) return false;
+                Self.career.addScore(self, slot, -price, .flat);
+                return true;
+            }
+            const row = &self.state.players[slot];
+            if (row.score < price) return false;
+            row.score -= price;
+            return true;
+        }
+
         pub const Cleared = enum(u8) { no_stars = 0, cleared = 1, cannot_pay = 2 };
 
         /// Clear `slot`'s wanted level for the shop's price: career cash in
@@ -132,14 +184,7 @@ pub fn Sys(comptime Self: type) type {
         fn clearWanted(self: *Self, slot: u8) Cleared {
             if (comptime !Self.city) return .no_stars;
             if (Self.wanted.stars(self, slot) == 0) return .no_stars;
-            if (comptime Self.single_player) {
-                if (Self.career.score(self, slot) < OT.shop_price_sp) return .cannot_pay;
-                Self.career.addScore(self, slot, -OT.shop_price_sp, .flat);
-            } else {
-                const row = &self.state.players[slot];
-                if (row.score < OT.shop_price_mp) return .cannot_pay;
-                row.score -= OT.shop_price_mp;
-            }
+            if (!pay(self, slot, if (comptime Self.single_player) OT.shop_price_sp else OT.shop_price_mp)) return .cannot_pay;
             Self.wanted.clear(self, slot);
             return .cleared;
         }
