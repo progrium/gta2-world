@@ -156,3 +156,18 @@ button.link { border: 0; background: none; padding: 0 2px; color: var(--accent);
 .pa-label.left { transform: translateX(calc(-100% - 10px)); }
 .pa-label.right { transform: translateX(10px); }
 .scores .pdot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+/* Sound cues on their own page (play/#sounds) */
+.screen.sounds { height: 100%; display: flex; flex-direction: column; }
+.sounds-top { padding: 16px 16px 0; max-width: 1180px; width: 100%; margin: 0 auto; }
+.sounds-top h1 { font-size: 24px; }
+.sounds-top p { margin: 0 0 8px; }
+.sounds-board { flex: 1; min-height: 0; display: flex; }
+.overlay.sound.standalone { position: static; flex: 1; margin: 8px 12px 12px; max-width: 1180px; margin-inline: auto; width: calc(100% - 24px); box-shadow: none; }
+.sounds-empty { margin: 24px auto; max-width: 640px; padding: 0 16px; }
+.join-paste { margin-top: 8px; max-width: 560px; }
+@media (max-width: 720px) {
+  .screen.sounds { height: auto; min-height: 100%; }
+  .sound-grid { grid-template-columns: minmax(0, 1fr); }
+  .sound-grid .scroll { max-height: 60vh; }
+}
+.sounds-top a, .screen.import > a { color: var(--accent); }

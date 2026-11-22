@@ -13,7 +13,8 @@ const clone = (m: SoundMapping): SoundMapping => normalizeMapping(JSON.parse(JSO
 const refLabel = (r: SampleRef, names: Partial<Record<BankId, string>>): string =>
   r.bank === "vocals" ? `“${r.name}”` : `${(names[r.bank] ?? r.bank).replace(/\.sdt$/, "")} #${r.index}${r.format ? ` ${r.format}` : ""}`;
 
-export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement {
+/** `standalone`: the board is the whole page (play/#sounds), so it has no close button and B and Escape do nothing. */
+export function soundBoard(audio: AudioEngine, onClose: () => void, standalone = false): HTMLElement {
   let bank: BankId = audio.banks.map ? "map" : "fstyle";
   let target: Cue = "pistol";
   let selected = -1;
@@ -207,7 +208,7 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
     else if (ev.key === "ArrowUp" && n) play(Math.max(0, selected - 1));
     else if (ev.key === " " && selected >= 0) play(selected);
     else if (ev.key === "Enter" && selected >= 0) assign(selected);
-    else if (ev.key === "Escape" || ev.code === "KeyB") onClose();
+    else if (!standalone && (ev.key === "Escape" || ev.code === "KeyB")) onClose();
     else return;
     ev.preventDefault();
     ev.stopImmediatePropagation();
@@ -218,8 +219,8 @@ export function soundBoard(audio: AudioEngine, onClose: () => void): HTMLElement
 
   const panel = h(
     "div",
-    { class: "overlay sound" },
-    h("div", { class: "hudtop" }, h("h2", {}, "Sound board"), h("button", { onclick: onClose }, "Close (B)")),
+    { class: standalone ? "overlay sound standalone" : "overlay sound" },
+    standalone ? null : h("div", { class: "hudtop" }, h("h2", {}, "Sound board"), h("button", { onclick: onClose }, "Close (B)")),
     h("p", { class: "muted small" }, "Pick a cue, then step through the samples with ↑ ↓ (each one plays) and press Enter or Assign to give it to the cue. A cue with several samples picks one at random. A cue with none borrows a related cue's samples where it has one (dual pistol uses the pistol's), else plays a built-in sound. Cues under “Not in the game yet” can be mapped now; the game doesn't play them yet. The engine uses its first sample as a loop. Your mapping stays in this browser; export it to keep it or send it back."),
     h("div", { class: "row" }, h("label", {}, "Volume ", vol), h("label", {}, mute, " mute (M)")),
     status,

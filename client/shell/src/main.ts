@@ -2,6 +2,8 @@
 // Opening the page with cached assets goes straight into the last map.
 // A join link (#join/<room>.<maphash12>) opens the join screen instead, and
 // "Host a game" runs the session in this tab for others to join.
+// The site's front page links straight to a screen: #files (game files and
+// map list), #host (host a game) and #sounds (the sound cue board).
 
 import { AssetStore, type MapChoice } from "./assets/store.ts";
 import { audio } from "./audio/index.ts";
@@ -15,6 +17,7 @@ import { gameScreen } from "./ui/gameScreen.ts";
 import { hostPanel, hostScreen } from "./ui/hostScreen.ts";
 import { importScreen, levelKey } from "./ui/importScreen.ts";
 import { joinScreen } from "./ui/joinScreen.ts";
+import { soundsScreen } from "./ui/soundsScreen.ts";
 
 const LAST_MAP = "gta2.lastMap";
 const root = document.getElementById("app")!;
@@ -37,12 +40,19 @@ const lastMap = (): string | null => {
   }
 };
 
+/** Drops a #files, #host or #sounds hash once the player moves on, so a reload doesn't land back there. */
+function clearRoute(): void {
+  if (/^#(files|host|sounds)$/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search);
+}
+
 function showImport(): void {
+  if (location.hash === "#host" || location.hash === "#sounds") clearRoute();
   teardown?.();
   teardown = importScreen(root, { store, lastMap: lastMap(), onStart: showGame, onHost: showHost });
 }
 
 function showGame(map: MapChoice): void {
+  clearRoute();
   try {
     localStorage.setItem(LAST_MAP, levelKey(map));
   } catch {
@@ -53,6 +63,7 @@ function showGame(map: MapChoice): void {
 }
 
 function showHost(): void {
+  if (location.hash === "#files" || location.hash === "#sounds") clearRoute();
   teardown?.();
   teardown = hostScreen(root, {
     store,
@@ -79,6 +90,26 @@ function playHosted(s: HostSession): void {
     panel.dispose();
     end();
   };
+}
+
+function showSounds(): void {
+  teardown?.();
+  teardown = soundsScreen(root, {
+    store,
+    onFiles: () => {
+      history.replaceState(null, "", "#files");
+      showImport();
+    },
+  });
+}
+
+/** The screen a front-page link asks for, if any. */
+function route(): boolean {
+  if (location.hash === "#files") showImport();
+  else if (location.hash === "#host") showHost();
+  else if (location.hash === "#sounds") showSounds();
+  else return false;
+  return true;
 }
 
 function leaveJoin(): void {
@@ -108,6 +139,7 @@ async function boot(autoStart = true): Promise<void> {
   }
   const join = parseJoinHash(location.hash);
   if (join) return showJoin(join.room, join.mapHash12, join.police);
+  if (route()) return;
   const maps = [...store.levels(), ...store.maps()];
   const want = lastMap();
   const m = maps.find((x) => levelKey(x) === want);
@@ -118,6 +150,7 @@ async function boot(autoStart = true): Promise<void> {
 addEventListener("hashchange", () => {
   const join = parseJoinHash(location.hash);
   if (join) showJoin(join.room, join.mapHash12, join.police);
+  else route();
 });
 
 void boot();

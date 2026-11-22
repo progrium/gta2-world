@@ -150,29 +150,19 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
     const maps = o.store.maps();
     const levels = o.store.levels();
     const files = o.store.manifest.files;
-    if (levels.length > 0) {
-      const list = h("div", { class: "maplist" });
-      for (const m of levels) {
-        const key = levelKey(m);
-        list.append(
-          h(
-            "button",
-            { class: `${key === o.lastMap ? "map current" : "map"}${m.story?.bonus ? " bonus" : ""}`, onclick: () => o.onStart(m) },
-            h("strong", {}, m.description),
-            h("span", { class: "muted" }, ` ${m.story?.bonus ? "bonus stage · " : ""}${m.gmp} · ${m.scr ?? ""}`),
-          ),
-        );
-      }
-      mapsBox.append(h("h2", {}, "Single player"), list);
-      const texts = files.filter((f) => f.kind === "gxt" && f.info.ok);
-      if (texts.length > 1) {
-        const sel = h("select", { onchange: (e: Event) => setTextChoice((e.target as HTMLSelectElement).value) }, ...texts.map((f) => h("option", { value: f.name }, f.name))) as HTMLSelectElement;
-        sel.value = textChoice(files) ?? "";
-        mapsBox.append(h("p", { class: "small" }, "Game text: ", sel));
-      }
+    // Multiplayer first: hosting or joining a game, then the maps to drive
+    // offline, then the single-player levels.
+    const mp: Node[] = [];
+    const sp: Node[] = [];
+    if (maps.length > 0 && o.onHost) {
+      mp.push(
+        h("h2", {}, "Play with others"),
+        h("div", { class: "row" }, h("button", { class: "host-game primary", onclick: () => o.onHost?.() }, "Host a game…"), h("span", { class: "muted small" }, "Run a game in this tab and invite players with a link.")),
+      );
     }
+    if (o.onHost) mp.push(joinBox());
     if (maps.length === 0) {
-      mapsBox.append(h("p", { class: "muted" }, files.length ? "No complete map yet: a map needs its .gmp and .sty (and the .mmp that names them)." : "Nothing imported yet."));
+      mp.push(h("p", { class: "muted" }, files.length ? "No complete map yet: a map needs its .gmp and .sty (and the .mmp that names them)." : "Nothing imported yet."));
     } else {
       const list = h("div", { class: "maplist" });
       for (const m of maps) {
@@ -186,14 +176,30 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
           ),
         );
       }
-      mapsBox.append(h("h2", {}, levels.length ? "Deathmatch maps" : "Pick a map to drive"), list);
-      if (o.onHost) {
-        mapsBox.append(
-          h("h2", {}, "Play with others"),
-          h("div", { class: "row" }, h("button", { class: "host-game", onclick: () => o.onHost?.() }, "Host a game…"), h("span", { class: "muted small" }, "Run a game in this tab and invite players with a link.")),
+      mp.push(h("h2", {}, levels.length ? "Deathmatch maps" : "Pick a map to drive"), h("p", { class: "muted small" }, "Drive a multiplayer map on your own, offline."), list);
+    }
+    if (levels.length > 0) {
+      const list = h("div", { class: "maplist" });
+      for (const m of levels) {
+        const key = levelKey(m);
+        list.append(
+          h(
+            "button",
+            { class: `${key === o.lastMap ? "map current" : "map"}${m.story?.bonus ? " bonus" : ""}`, onclick: () => o.onStart(m) },
+            h("strong", {}, m.description),
+            h("span", { class: "muted" }, ` ${m.story?.bonus ? "bonus stage · " : ""}${m.gmp} · ${m.scr ?? ""}`),
+          ),
         );
       }
+      sp.push(h("h2", {}, "Single player"), list);
+      const texts = files.filter((f) => f.kind === "gxt" && f.info.ok);
+      if (texts.length > 1) {
+        const sel = h("select", { onchange: (e: Event) => setTextChoice((e.target as HTMLSelectElement).value) }, ...texts.map((f) => h("option", { value: f.name }, f.name))) as HTMLSelectElement;
+        sel.value = textChoice(files) ?? "";
+        sp.push(h("p", { class: "small" }, "Game text: ", sel));
+      }
     }
+    mapsBox.append(...mp, ...sp);
     if (files.length) {
       clearBox.append(
         h(
@@ -237,6 +243,7 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
     h(
       "section",
       { class: "screen import" },
+      h("a", { class: "small", href: "../" }, "← Setup"),
       h("h1", {}, "GTA2 World"),
       h("p", {}, "This game runs on your own copy of GTA2. Point it at the folder where GTA2 is installed. Your files are checked and cached in this browser only. They are never uploaded."),
       drop,
@@ -252,6 +259,24 @@ export function importScreen(root: HTMLElement, o: ImportScreenOpts): () => void
   );
   render();
   return () => clear(root);
+}
+
+/** "Got an invite link?": paste a join link to open it in this page. */
+function joinBox(): HTMLElement {
+  const note = h("span", { class: "muted small" });
+  const input = h("input", { class: "joinlink mono", placeholder: "Paste an invite link", "aria-label": "Invite link" }) as HTMLInputElement;
+  const go = (): void => {
+    const i = input.value.indexOf("#join/");
+    if (i < 0) {
+      note.textContent = "That isn't an invite link. It has #join/ in it.";
+      return;
+    }
+    location.hash = input.value.slice(i);
+  };
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") go();
+  });
+  return h("div", { class: "row join-paste" }, input, h("button", { onclick: go }, "Join"), note);
 }
 
 /** The key a level or map is remembered by (the last one played). */

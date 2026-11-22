@@ -3,70 +3,126 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gta2-world tests</title>
+<title>GTA2 World</title>
 <link rel="stylesheet" href="assets/site.css">
+<style>
+  .steps { display: grid; gap: 14px; margin: 0 0 36px; }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: grid; grid-template-columns: 34px 1fr; gap: 4px 14px; }
+  .step .n { grid-row: span 3; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; display: grid; place-items: center; font-size: 15px; }
+  .step h2 { margin: 2px 0 0; font-size: 19px; }
+  .step p { margin: 0; color: var(--muted); font-size: 15px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 10px; }
+  .btn { display: inline-block; text-decoration: none; font: inherit; font-size: 15px; font-weight: 600; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn:hover { border-color: var(--accent); }
+  .status { font-size: 14px; margin-top: 8px; }
+  .status.ok b { color: #2f7d32; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .status.ok b { color: #7cc97f; } }
+  .join { display: flex; gap: 8px; flex: 1 1 320px; max-width: 520px; }
+  .join input { flex: 1; min-width: 0; font: 14px ui-monospace, Menlo, monospace; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  .err { color: var(--accent); font-size: 14px; }
+  .help h2 { font-size: 16px; margin: 0 0 4px; }
+  .help > p { color: var(--muted); font-size: 14px; margin: 0 0 12px; }
+  .help ul { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 10px; }
+  .help li a { display: block; text-decoration: none; color: inherit; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+  .help li a:hover { border-color: var(--accent); }
+  .help li b { display: block; font-size: 15px; }
+  .help li span { color: var(--muted); }
+</style>
 </head>
 <body>
 <main>
-  <h1>Help test a GTA2 remake for the browser</h1>
-  <p class="lede">These are small experiments for an open-source project that rebuilds GTA2 to run in a web browser. Each one answers a single question, and some of them need a person to try them. Pick any you can do. Each takes between 2 and 20 minutes.</p>
+  <h1>GTA2 World</h1>
+  <p class="lede">An open-source remake of GTA2 that runs in your web browser, with online multiplayer. Set up in three steps, then play.</p>
 
-  <section class="how">
-    <h2>How it works</h2>
-    <ol>
-      <li>Open a test. A <b>Tester guide</b> on the right side of the page tells you what to do.</li>
-      <li>Follow the steps and answer the short questions in the guide.</li>
-      <li>Press <b>Download results</b>, then <b>Submit on GitHub</b>. That opens a GitHub issue where you drag in the file and press Create. You need a free GitHub account. If you do not have one, send the file to Jeff the way you got this link.</li>
-    </ol>
-    <p style="margin:10px 0 0;color:var(--muted);font-size:14px">Two tests read files from your own copy of GTA2. Those files are opened inside your browser and are never uploaded anywhere. This site does not host any game files.</p>
-  </section>
+  <div class="steps">
+    <section class="step" id="files">
+      <span class="n">1</span>
+      <h2>Get the game files</h2>
+      <p>The game runs on the data files from a copy of GTA2. Rockstar gave GTA2 away as freeware, so you can download it straight from the Internet Archive in the page, or pick the folder of a copy you already have. The files are checked and kept in this browser only.</p>
+      <div>
+        <p class="status" id="status" role="status">Checking this browser for game files…</p>
+        <div class="actions"><a class="btn" id="files-btn" href="play/#files">Get game files</a></div>
+      </div>
+    </section>
 
-  <div class="grid">
-    <a class="card" href="play/">
-      <span class="k">M1 · playable build</span>
-      <h3>Walk and drive a real GTA2 map</h3>
-      <p>The first playable build: your own GTA2 map, walking, jumping, getting into cars and driving, with live handling tuning (press T). Placeholder handling, one player, no server yet.</p>
-      <div class="chips"><span class="chip">As long as you like</span><span class="chip data">Needs your GTA2 files</span><span class="chip">Keyboard or gamepad</span></div>
-    </a>
-    <a class="card" href="s3/">
-      <span class="k">S3 · netcode</span>
-      <h3>Can you feel the network lag?</h3>
-      <p>Drive a little car and guess, trial by trial, whether you are on a laggy network or not.</p>
-      <div class="chips"><span class="chip">15 min</span><span class="chip">Keyboard or gamepad</span><span class="chip">Any browser</span></div>
-    </a>
-    <a class="card" href="s2/">
-      <span class="k">S2 · simulation</span>
-      <h3>Same results in every browser?</h3>
-      <p>Press one button. It replays 10,000 game ticks and checks they match exactly.</p>
-      <div class="chips"><span class="chip">2 min per browser</span><span class="chip">Chrome, Firefox, Safari</span></div>
-    </a>
-    <a class="card" href="s6/">
-      <span class="k">S6 · controllers</span>
-      <h3>Do game controllers work the same everywhere?</h3>
-      <p>A guided check of buttons, sticks, delay and rumble for your controller.</p>
-      <div class="chips"><span class="chip">3 min per pad</span><span class="chip">Xbox, DualSense or Switch Pro</span></div>
-    </a>
-    <a class="card" href="s5/">
-      <span class="k">S5 · car handling</span>
-      <h3>Does this car feel like GTA2?</h3>
-      <p>For people who know the game: drive the rebuilt handling and rate it. Earlier ratings do not count, so please rate again.</p>
-      <div class="chips"><span class="chip">15 min</span><span class="chip data">Needs your GTA2 files</span><span class="chip">Knows GTA2</span></div>
-    </a>
-    <a class="card" href="s1/">
-      <span class="k">S1 · map viewer</span>
-      <h3>Does the map look right, and run at 60 fps?</h3>
-      <p>Fly around the original city maps, compare with the game, and run a 20 second benchmark.</p>
-      <div class="chips"><span class="chip">20 min</span><span class="chip data">Needs your GTA2 files</span><span class="chip">Laptop or desktop</span></div>
-    </a>
-    <a class="card off" href="s4/">
-      <span class="k">S4 · connection</span>
-      <h3>Hour-long connection test</h3>
-      <p>Not open yet. It needs a live test server, which Jeff will start when there is a group ready.</p>
-      <div class="chips"><span class="chip">Coming later</span></div>
-    </a>
+    <section class="step" id="multi">
+      <span class="n">2</span>
+      <h2>Play with others</h2>
+      <p>Host a game in your browser tab and send the invite link to your friends, or open a link someone sent you.</p>
+      <div class="actions">
+        <a class="btn primary" href="play/#host">Host a game</a>
+        <form class="join" id="join">
+          <input id="join-link" placeholder="Paste an invite link" aria-label="Invite link" autocomplete="off">
+          <button class="btn" type="submit">Join</button>
+        </form>
+      </div>
+      <p class="err" id="join-err" hidden></p>
+    </section>
+
+    <section class="step" id="single">
+      <span class="n">3</span>
+      <h2>Or play on your own</h2>
+      <p>Drive any of the maps offline: walk, jump, steal cars and try the weapons. Keyboard, gamepad or the touch pad on phones and tablets.</p>
+      <div class="actions">
+        <a class="btn" href="play/#files">Pick a map</a>
+        <a class="btn" id="continue" href="play/" hidden>Continue where you left off</a>
+      </div>
+    </section>
   </div>
 
-  <footer>Source and write-ups: <a href="https://github.com/progrium/gta2-world" style="color:inherit">github.com/progrium/gta2-world</a>. GTA2 is a trademark of its owners; this project is unofficial and ships no game data.</footer>
+  <section class="help">
+    <h2>Help out</h2>
+    <p>Small jobs for anyone who wants to help the project. Each takes a few minutes and ends with a file you send on GitHub.</p>
+    <ul>
+      <li><a href="play/#sounds"><b>Match sounds to events</b><span>Listen to the game's sound banks and pick the right sample for each gunshot, crash and engine. Needs your game files.</span></a></li>
+      <li><a href="s5/"><b>Rate the car handling</b><span>For people who know GTA2: drive the rebuilt handling and say how close it feels. Needs your game files.</span></a></li>
+      <li><a href="s6/"><b>Check your game controller</b><span>A 3 minute check of buttons, sticks, delay and rumble on an Xbox, DualSense or Switch Pro pad.</span></a></li>
+      <li><a href="s2/"><b>Check your browser</b><span>Press one button to check that the simulation gives the same result in your browser. 2 minutes.</span></a></li>
+    </ul>
+  </section>
+
+  <footer>Source: <a href="https://github.com/progrium/gta2-world" style="color:inherit">github.com/progrium/gta2-world</a>. GTA2 is a trademark of its owners; this project is unofficial and ships no game data.</footer>
 </main>
+<script type="module">
+  // Game files live in this site's private browser storage (OPFS), written by
+  // the play page: gta2/manifest.json lists what was imported.
+  const status = document.getElementById("status");
+  const filesBtn = document.getElementById("files-btn");
+  async function check() {
+    try {
+      const top = await navigator.storage.getDirectory();
+      const root = await top.getDirectoryHandle("gta2");
+      const file = await (await root.getFileHandle("manifest.json")).getFile();
+      const files = (JSON.parse(await file.text()).files ?? []).filter((f) => f.info?.ok);
+      const count = (kind) => files.filter((f) => f.kind === kind).length;
+      const maps = count("mmp") || count("gmp");
+      if (!maps) throw new Error("no maps");
+      const sounds = count("sdt");
+      status.classList.add("ok");
+      status.innerHTML = `<b>✓ Ready.</b> ${files.length} game files are in this browser: ${maps} map${maps === 1 ? "" : "s"}${sounds ? `, ${sounds} sound banks` : ", no sound banks yet"}.`;
+      filesBtn.textContent = "Manage game files";
+    } catch {
+      status.textContent = "No game files in this browser yet. Start here.";
+      filesBtn.classList.add("primary");
+    }
+  }
+  check();
+  try {
+    if (localStorage.getItem("gta2.lastMap")) document.getElementById("continue").hidden = false;
+  } catch {}
+  document.getElementById("join").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = document.getElementById("join-link").value.trim();
+    const i = v.indexOf("#join/");
+    const err = document.getElementById("join-err");
+    if (i < 0) {
+      err.textContent = "That isn't an invite link. Invite links have #join/ in them.";
+      err.hidden = false;
+      return;
+    }
+    location.href = "play/" + v.slice(i);
+  });
+</script>
 </body>
 </html>
