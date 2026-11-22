@@ -20,6 +20,7 @@ import { Effects, rumbleSettings, rumbleSupport } from "../input/rumble.ts";
 import type { InputSystem, SchemeSetting } from "../input/system.ts";
 import { FixedLoop } from "../loop.ts";
 import { clear, h } from "./dom.ts";
+import { soundCheck } from "./soundCheck.ts";
 import { openRemap } from "./remap.ts";
 import { soundBoard } from "./soundBoard.ts";
 import { applySavedTuning, tuningPanel } from "./tuning.ts";
@@ -839,7 +840,17 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
   const renderSoundPrompt = (): void => void soundPrompt.classList.toggle("hidden", audio.running || audio.muted);
   const offSound = audio.on(renderSoundPrompt);
   renderSoundPrompt();
-  const stage = h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el, soundPrompt);
+  // ?soundcheck: the sound check panel over the game, for a device that hears nothing.
+  let checkPanel: (HTMLElement & { dispose: () => void }) | null = null;
+  if (new URLSearchParams(location.search).has("soundcheck")) {
+    checkPanel = soundCheck(audio, () => {
+      checkPanel?.dispose();
+      checkPanel?.remove();
+      checkPanel = null;
+    });
+    checkPanel.classList.add("floating");
+  }
+  const stage = h("div", { class: "stage" }, canvas, spHud?.el ?? null, mpStars, sp ? null : arrows.el, status, weaponLine, feed, banner, scores, touchView.el, soundPrompt, checkPanel);
   const section = h("section", { class: "screen game" }, stage, hud);
   root.append(section);
   // Pad buttons must drive the game, never the HUD's dropdown or buttons.
@@ -856,6 +867,7 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
     closeOverlay();
     audio.stopAll();
     offSound();
+    checkPanel?.dispose();
     offInput();
     offFocus();
     touchView.dispose();
