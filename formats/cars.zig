@@ -1,12 +1,18 @@
 //! Car models from the player's files: the style's car info (CARI) joined
 //! to the `.gci` handling records by model number (car-handling.md,
-//! "`.gci` car record"). The result is one `Spec` per style car entry, in
-//! style order; the field names match `sim.tuning.CarSpec`, so a host can
-//! copy them field by field.
+//! "`.gci` car record"). The result is one `Spec` per car model number,
+//! from 0 to the highest model the style has, so a script's model number
+//! (and the standard numbering, docs/research/public-sources.md 1) indexes
+//! it directly. A number the style skips gets the fallback, not ambient.
+//! The field names match `sim.tuning.CarSpec`, so a host can copy them
+//! field by field.
 
 const std = @import("std");
 const sty = @import("sty.zig");
 const gci = @import("gci.zig");
+
+/// The most model numbers kept (`sim.tuning.max_car_models`).
+pub const max_models = 96;
 
 pub const Spec = struct {
     mass: i32,
@@ -34,15 +40,50 @@ pub const Spec = struct {
     ambient: bool,
     /// The `.gci` value byte: points for stealing the car (scoring.md 3.3).
     value: i32,
+    /// The style's `info_flags` in bits 0-7 and `info_flags_2` in bits 8-15
+    /// (public STY doc, car_info): see `flag_*`.
+    flags: i32 = 0,
+    /// The style's door count (0: nobody can get in, as trains and the
+    /// container trailers).
+    doors: i32 = 2,
 };
 
-/// One spec per car in `style`. A car with no `.gci` record takes the
-/// handling numbers of `fallback` (sizes, wheels and sprite still come from
-/// the style). Trains, trams and tanks are marked not ambient: no doors,
-/// longer than 120 pixels, or flagged in `info_flags` bit 0.
+/// `Spec.flags` bits, from the public style format document.
+pub const flag_ped_jump: i32 = 0x01;
+pub const flag_emerg_lights: i32 = 0x02;
+pub const flag_roof_lights: i32 = 0x04;
+/// Can be an articulated cab.
+pub const flag_cab: i32 = 0x08;
+/// Can be an articulated trailer.
+pub const flag_trailer: i32 = 0x10;
+pub const flag_forhire_lights: i32 = 0x20;
+pub const flag_roof_decal: i32 = 0x40;
+pub const flag_rear_emerg_lights: i32 = 0x80;
+/// `info_flags_2` bit 0, `collide_over`: can drive over other cars (only
+/// the tank in the player's styles; the notes' "heavy").
+pub const flag_collide_over: i32 = 0x100;
+pub const flag_popup: i32 = 0x200;
+
+/// One spec per car model number, 0 to the style's highest (at most
+/// `max_models`). A car with no `.gci` record takes the handling numbers of
+/// `fallback` (sizes, wheels and sprite still come from the style). Trains,
+/// trams and tanks are marked not ambient: no doors, longer than 120
+/// pixels, or flagged in `info_flags` bit 0. A model number the style
+/// lacks is the fallback, not ambient, drawn with the first car sprite.
 pub fn build(gpa: std.mem.Allocator, style: *const sty.Style, records: []const gci.Record, fallback: Spec) ![]Spec {
-    const out = try gpa.alloc(Spec, style.cars.len);
+    var top: usize = 0;
+    for (style.cars) |ci| top = @max(top, @as(usize, ci.model) + 1);
+    top = @min(top, max_models);
+    const out = try gpa.alloc(Spec, top);
+    for (out) |*o| {
+        o.* = fallback;
+        o.sprite = 0;
+        o.ambient = false;
+        o.flags = 0;
+        o.doors = 0;
+    }
     for (style.cars, 0..) |ci, i| {
+        if (ci.model >= top) continue;
         var s = fallback;
         for (records) |r| {
             if (r.model != ci.model) continue;
@@ -72,7 +113,9 @@ pub fn build(gpa: std.mem.Allocator, style: *const sty.Style, records: []const g
         s.rear_wheel_px = ci.rear_wheel;
         s.sprite = style.carSprite(i);
         s.ambient = ci.num_doors > 0 and ci.h <= 120 and ci.info_flags & 1 == 0;
-        out[i] = s;
+        s.flags = @as(i32, ci.info_flags) | (@as(i32, ci.info_flags_2) << 8);
+        s.doors = ci.num_doors;
+        out[ci.model] = s;
     }
     return out;
 }

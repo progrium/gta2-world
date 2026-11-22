@@ -28,6 +28,9 @@ pub fn Sys(comptime Self: type) type {
             self.state.world.eachFiltered(.{ c.Vehicle, c.Transform, c.Velocity, c.Collider }, self.predicting(), self, struct {
                 fn f(sim: *Self, id: EntityId, v: *c.Vehicle, t: *c.Transform, vel: *c.Velocity, col: *c.Collider) void {
                     const m = T.carModel(v.model);
+                    // Towed trailers and cars on a crane are placed by
+                    // their own systems.
+                    if (!v.towId().isNone() or v.xflags & c.Vehicle.xf_lifted != 0) return;
                     // Rotate first; a turn that would put a corner in a wall
                     // does not happen.
                     if (vel.spin != 0) {

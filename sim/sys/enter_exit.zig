@@ -106,6 +106,7 @@ pub fn Sys(comptime Self: type) type {
             w.each(.{ c.Vehicle, c.Transform }, ctx, struct {
                 fn f(cx: Ctx, id: EntityId, v: *c.Vehicle, ct: *c.Transform) void {
                     if (v.flags & c.Vehicle.flag_wrecked != 0 or eql(v.driver, cx.ped)) return;
+                    if (!Me.enterable(v)) return;
                     if (fx.abs(ct.z - cx.z) > fx.half) return;
                     const ring: i32 = @intCast(@max(@abs(fx.toInt(ct.x) - cx.bx), @abs(fx.toInt(ct.y) - cx.by)));
                     if (ring > E.search_rings) return;
@@ -124,6 +125,8 @@ pub fn Sys(comptime Self: type) type {
             const car = w.get(ped, c.Riding).?.vehicle;
             const ct = (w.get(car, c.Transform) orelse return).*;
             if (speedOf(w.get(car, c.Velocity).?) >= T.exit_max_speed) return;
+            // Not while a crane holds the car (3.5: "zoomed").
+            if (w.get(car, c.Vehicle).?.xflags & c.Vehicle.xf_lifted != 0) return;
             const m = T.carModel(w.get(car, c.Vehicle).?.model);
             const door = Me.firstUsableDoor(self, car, &ct, m) orelse return;
             const pos = doorPos(&ct, m, door);
@@ -279,6 +282,8 @@ pub fn Sys(comptime Self: type) type {
                 p.state = c.Pedestrian.state_entering;
                 p.anim = c.Pedestrian.anim_enter_car;
                 p.car_phase = @intFromEnum(Phase.door);
+                // The alarm goes off at any attempt (3.2's edge case).
+                Self.car_flags.ringAlarm(self, car);
                 p.car_ticks = 0;
                 p.jump = 0;
                 p.turn = 0;
@@ -332,7 +337,7 @@ pub fn Sys(comptime Self: type) type {
             p.car_ticks +|= 1;
             const frame = anim.frameAt(p.car_ticks, anim.ticks_per_frame.enter_car);
             const occupied = !v.driver.isNone() or v.flags & c.Vehicle.flag_ai != 0;
-            if (frame != before and frame == anim.frames.enter_refuse and occupied and Me.refuses(self, car, id)) return Me.cancelEnter(self, id);
+            if (frame != before and frame == anim.frames.enter_refuse and ((occupied and Me.refuses(self, car, id)) or Me.locked(self, car, id))) return Me.cancelEnter(self, id);
             if (frame != before and frame == anim.frames.enter_hijack and occupied and p.car_flags & flag_hijacked == 0) {
                 p.car_flags |= flag_hijacked;
                 Me.hijack(self, id, car, pos, ct.heading, door);
@@ -479,6 +484,24 @@ pub fn Sys(comptime Self: type) type {
                 }
             }.f);
             return hit;
+        }
+
+        /// Can anyone get into this car at all? Not a model with no doors
+        /// (trains, container trailers), a towed trailer, or a car on a
+        /// crane (public-sources.md 5).
+        pub fn enterable(v: *const c.Vehicle) bool {
+            if (T.carModel(v.model).doors == 0) return false;
+            if (!v.towId().isNone()) return false;
+            return v.xflags & c.Vehicle.xf_lifted == 0;
+        }
+
+        /// Is `ped` locked out of `car` by its door lock (script-cars.md
+        /// 2.5, CHANGE_CAR_LOCK)? Checked at the refusal frame, occupied
+        /// or not; the alarm goes off at the attempt.
+        fn locked(self: *Self, car: EntityId, ped: EntityId) bool {
+            const player = self.state.world.get(ped, c.Controller).?.player != c.Controller.no_player;
+            const thief = !player and Me.occupation(self, ped) == .car_thief;
+            return Self.car_flags.lockedOut(self, car, player, thief);
         }
 
         /// Does `car` refuse `ped` (3.3)? A car the script locked refuses

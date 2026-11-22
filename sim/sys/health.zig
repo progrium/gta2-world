@@ -42,6 +42,8 @@ pub fn Sys(comptime Self: type) type {
             const w = &self.state.world;
             const v = w.get(id, c.Vehicle) orelse return;
             if (v.flags & c.Vehicle.flag_wrecked != 0) return;
+            // The alarm, and the "recently hit" window (car-collision.md 3.4).
+            Self.car_flags.onHit(self, id, 50);
             const anti: i64 = T.carModel(v.model).anti_strength;
             if (anti == 0) return;
             const dmg: i64 = @max(1, (raw * anti) >> (2 * fx.frac_bits));

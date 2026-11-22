@@ -49,12 +49,12 @@ const Outcome = W.Outcome;
 /// One unit of a conveyor's push, blocks per tick (ours).
 pub const conveyor_unit: Fx = fx.one >> 6;
 
-pub const done = [_]u16{ 102, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 6, 9, 14, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437 };
+pub const done = [_]u16{ 102, 211, 212, 213, 214, 434, 29, 30, 31, 32, 26, 27, 34, 35, 375, 376, 378, 379, 5, 7, 8, 10, 11, 12, 13, 425, 426, 427, 428, 15, 16, 17, 18, 19, 20, 6, 9, 14, 40, 230, 240, 429, 430, 431, 304, 343, 344, 345, 386, 387, 388, 346, 347, 348, 349, 389, 390, 353, 422, 435, 436, 437, 37, 38, 39, 439 };
 /// Decoded, waiting on another workstream's API: zone densities (F),
 /// cranes (cranes note), conveyors, generators, destructors and doors
 /// (B), triggers (A1), gang info (D2), lights (B), trains and radio,
-/// sound points (audio), the crane power-up link.
-pub const stubbed = [_]u16{ 37, 38, 39, 223, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 };
+/// sound points (audio).
+pub const stubbed = [_]u16{ 223, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327 };
 
 /// A trigger declaration (2.10), handed to the VM when it can take it
 /// (`ctx.addTrigger`, A1).
@@ -195,7 +195,31 @@ pub fn Sys(comptime Self: type) type {
                         .ped_ratio = .{ p.u16_(10), p.u16_(12), p.u16_(14), p.u16_(16) },
                     });
                 },
-                37, 38, 39, 217, 302, 285, 286, 295, 296, 297, 298, 287, 327, 439 => return .stubbed,
+                // 2.7 Cranes (sys/cranes.zig). From the player's scripts:
+                // @4 the home crane's command (0 none), @8 x, @12 y, @16
+                // home rotation; 38: @18 the target slot, @20 x, @24 y,
+                // @28 rotation; 37 (no level uses it, guessed): both
+                // targets, @20 and @32; 39: no target.
+                37, 38, 39 => {
+                    const link = if (p.u16_(4) == 0) EntityId.none else ctx.handle(p.u16_(4));
+                    const hook = Self.cranes.addCrane(self, p.fx_(8), p.fx_(12), W.heading(p.u16_(16)), link) orelse return .done;
+                    H.tag(self, hook, cmd.num, c.ScriptTag.flag_keep);
+                    ctx.setHandle(cmd.num, hook);
+                    switch (cmd.kind) {
+                        38 => Self.cranes.setTarget(self, hook, @intFromBool(p.u16_(18) != 0), p.fx_(20), p.fx_(24), W.heading(p.u16_(28))),
+                        37 => {
+                            Self.cranes.setTarget(self, hook, 0, p.fx_(20), p.fx_(24), W.heading(p.u16_(28)));
+                            Self.cranes.setTarget(self, hook, 1, p.fx_(32), p.fx_(36), W.heading(p.u16_(40)));
+                        },
+                        else => {},
+                    }
+                },
+                // The crane's power-up (from the scripts: crane @0,
+                // generator @2, then a scanner block x y z as bytes, which
+                // is not used: the reward comes when the crane drops a
+                // crushed car).
+                439 => Self.cranes.setPowerUp(self, ctx.handle(p.u16_(0)), ctx.handle(p.u16_(2))),
+                217, 302, 285, 286, 295, 296, 297, 298, 287, 327 => return .stubbed,
                 else => return .unhandled,
             }
             return .done;

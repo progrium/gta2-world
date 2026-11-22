@@ -466,7 +466,7 @@ pub fn Sys(comptime Self: type) type {
                     if (victim.isNone()) return;
                     cx.blasted = true;
                     if (sim.state.world.get(victim, c.Vehicle) != null) {
-                        sim.damageCar(victim, OT.mine_car_damage << fx.frac_bits, o.owner);
+                        if (!Self.car_flags.shielded(sim, victim, .blast)) sim.damageCar(victim, OT.mine_car_damage << fx.frac_bits, o.owner);
                     }
                     sim.explodeAt(t.x, t.y, t.z, o.owner, 0);
                     sim.state.world.despawn(id);

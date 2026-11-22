@@ -126,6 +126,8 @@ pub const EventKind = enum(u8) {
     /// x, y, z of a spray shop; a = slot, b = the car's new remap, c = 0 no
     /// wanted level, 1 wanted level cleared (paid), 2 could not pay
     respray = 20,
+    /// x, y, z of a car whose alarm went off (sim/sys/car_flags.zig)
+    car_alarm = 21,
     _,
 };
 

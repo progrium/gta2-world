@@ -1157,7 +1157,7 @@ fn decorate(state: []const u8, n_in: usize, now_ms: f64, own_slot: u32) usize {
                 switch (@as(sim.ids.ObjectKind, @enumFromInt(o.kind))) {
                     // Traffic AI markers are not drawn. Doors are drawn as
                     // wall faces (`doorFaces`), not sprites.
-                    .crossing_marker, .traffic_light, .door => {
+                    .crossing_marker, .traffic_light, .door, .crane => {
                         in.kind = hidden_kind;
                         continue;
                     },

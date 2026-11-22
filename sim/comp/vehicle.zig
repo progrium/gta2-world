@@ -60,6 +60,24 @@ pub const Vehicle = extern struct {
     /// Traffic: the overtake side, -1 or 1, or 0.
     ai_side: i8 = 0,
     _pad: [2]u8 = .{ 0, 0 },
+    /// Towing (`sys/trailers.zig`): on a cab, the trailer it pulls, as the
+    /// entity id + 1 (0 none, so a zeroed car tows nothing); use
+    /// `trailerId` and `setTrailer`.
+    trailer_ref: u32 = 0,
+    /// On a trailer, the car towing it, the same way (`towId`, `setTow`).
+    tow_ref: u32 = 0,
+    /// Door lock, `lock_*` (script CHANGE_CAR_LOCK).
+    lock: u8 = 0,
+    /// Script car flags, `xf_*`.
+    xflags: u8 = 0,
+    /// The number painted on the roof (0 none).
+    roof: u8 = 0,
+    /// Ticks left of the alarm ringing.
+    alarm_n: u8 = 0,
+    /// Ticks left of "recently hit": an unhitched trailer is not drawn to a
+    /// hitch while it runs (car-collision.md 3.4).
+    hit_n: u8 = 0,
+    _pad2: [3]u8 = .{ 0, 0, 0 },
 
     pub const drive_none: u8 = 0;
     pub const drive_forward: u8 = 1;
@@ -97,6 +115,46 @@ pub const Vehicle = extern struct {
     /// Traffic: taking a bend or a turn this tick; the car's steering lock
     /// is widened (`car_control`, `TF.corner_lock`).
     pub const ai_cornering: u8 = 64;
+
+    /// `lock`: the six lock types, in the public scripting docs' order.
+    pub const lock_none: u8 = 0;
+    /// Nobody gets in, players included.
+    pub const lock_locked: u8 = 1;
+    pub const lock_unlocked: u8 = 2;
+    /// Locked for everyone, and no other lock type replaces it.
+    pub const lock_permanent: u8 = 3;
+    /// AI car thieves cannot get in (the default for created cars).
+    pub const lock_thief: u8 = 4;
+    /// Players cannot get in.
+    pub const lock_player: u8 = 5;
+
+    /// `xflags`: no bullet damage.
+    pub const xf_bulletproof: u8 = 1;
+    /// No damage from rockets, molotovs or explosions short of a car bomb.
+    pub const xf_rocketproof: u8 = 2;
+    /// No fire damage.
+    pub const xf_flameproof: u8 = 4;
+    /// Has an alarm (rings when stolen or hit).
+    pub const xf_alarm: u8 = 8;
+    /// The accelerator is jammed on (a player's car).
+    pub const xf_jammed: u8 = 16;
+    /// Siren and emergency lights on.
+    pub const xf_siren: u8 = 32;
+    /// Held by a crane: "zoomed" out of normal play (no driving, no exit).
+    pub const xf_lifted: u8 = 64;
+
+    pub fn trailerId(v: *const Vehicle) EntityId {
+        return if (v.trailer_ref == 0) .none else .{ .raw = v.trailer_ref -% 1 };
+    }
+    pub fn towId(v: *const Vehicle) EntityId {
+        return if (v.tow_ref == 0) .none else .{ .raw = v.tow_ref -% 1 };
+    }
+    pub fn setTrailer(v: *Vehicle, e: EntityId) void {
+        v.trailer_ref = if (e.isNone()) 0 else e.raw +% 1;
+    }
+    pub fn setTow(v: *Vehicle, e: EntityId) void {
+        v.tow_ref = if (e.isNone()) 0 else e.raw +% 1;
+    }
 
     pub const reverse_base: u16 = 1000;
     pub const plan_in_junction: u8 = 0x80;

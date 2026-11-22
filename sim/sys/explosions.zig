@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const prelude = @import("../prelude.zig");
+const TV = @import("../tuning/vehicles.zig");
 const abi = prelude.abi;
 const input = prelude.input;
 const fx = prelude.fx;
@@ -75,6 +76,7 @@ pub fn Sys(comptime Self: type) type {
                 fn g(cx: Ctx, cid: EntityId, _: *c.Vehicle, ct: *c.Transform) void {
                     if (fx.abs(ct.z - cx.t.z) > T.explosion_reach_z) return;
                     if (@max(fx.abs(ct.x - cx.t.x), fx.abs(ct.y - cx.t.y)) > T.fire_radius) return;
+                    if (Self.car_flags.shielded(cx.sim, cid, .flame)) return;
                     cx.sim.damageCar(cid, @as(i64, T.fire_car_damage) << fx.frac_bits, cx.by);
                 }
             }.g);
@@ -98,8 +100,8 @@ pub fn Sys(comptime Self: type) type {
                     p.ttl -= 1;
                     if (p.weapon & 3 == T.explosion_fire) return sim.burnAround(t, timer, p.owner);
                     const r = if (p.weapon & 3 == 1) T.explosion_car else T.explosion_small;
-                    const Ctx = struct { sim: *Self, x: Fx, y: Fx, z: Fx, r: Fx, timer: u16, by: EntityId };
-                    const ctx = Ctx{ .sim = sim, .x = t.x, .y = t.y, .z = t.z, .r = r, .timer = timer, .by = p.owner };
+                    const Ctx = struct { sim: *Self, x: Fx, y: Fx, z: Fx, r: Fx, timer: u16, by: EntityId, car_size: bool };
+                    const ctx = Ctx{ .sim = sim, .x = t.x, .y = t.y, .z = t.z, .r = r, .timer = timer, .by = p.owner, .car_size = p.weapon & 3 == 1 };
                     const car_window = (timer >= 81 and timer <= 89) or (timer >= 51 and timer <= 59);
                     if (timer == T.explosion_ticks or car_window) {
                         sim.state.world.each(.{ c.Vehicle, c.Transform, c.Velocity }, ctx, struct {
@@ -117,6 +119,10 @@ pub fn Sys(comptime Self: type) type {
                                     vel.vx += fx.mul(fx.div(dx, d), dv);
                                     vel.vy += fx.mul(fx.div(dy, d), dv);
                                 } else {
+                                    // Rocketproof: only a car-size blast
+                                    // right next to it gets through.
+                                    const close = cx.car_size and @max(fx.abs(dx), fx.abs(dy)) <= TV.bomb_close;
+                                    if (Self.car_flags.shielded(cx.sim, cid, if (close) .bomb_close else .blast)) return;
                                     cx.sim.damageCar(cid, @as(i64, T.blast_car_damage) << fx.frac_bits, cx.by);
                                 }
                             }

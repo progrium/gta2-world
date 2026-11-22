@@ -344,7 +344,11 @@ pub fn Sys(comptime Self: type) type {
             const b_car = b.id.kind() == @backingInt(abi.Kind.car);
             if (a_car and !b_car) return self.carPed(a, b);
             if (b_car and !a_car) return self.carPed(b, a);
-            if (a_car and b_car) return self.carCar(a, b);
+            if (a_car and b_car) {
+                // A cab and its own trailer never collide.
+                if (Self.trailers.paired(self, a.id, b.id)) return;
+                return self.carCar(a, b);
+            }
             const w = &self.state.world;
             const ta = w.get(a.id, c.Transform).?;
             const tb = w.get(b.id, c.Transform).?;

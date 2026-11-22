@@ -168,6 +168,8 @@ pub fn Sys(comptime Self: type) type {
 
         pub fn siren(self: *Self, car: EntityId, on: bool) void {
             const t = self.state.world.get(car, c.Transform) orelse return;
+            // The car's siren flag, for scripts (417) and joiners.
+            Self.car_flags.setFlag(self, car, c.Vehicle.xf_siren, on);
             self.pushEvent(.{ .kind = .siren, .a = @intFromBool(on), .x = t.x, .y = t.y, .z = t.z });
         }
 

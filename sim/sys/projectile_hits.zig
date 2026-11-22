@@ -90,7 +90,10 @@ pub fn Sys(comptime Self: type) type {
                             // Cars: raw damage by anti-strength; a rocket
                             // blows up at the hit point.
                             const raw: i64 = if (def.explosive) def.damage_car else @as(i64, def.damage_car) * mult;
-                            sim.damageCar(e.id, raw << fx.frac_bits, p.owner);
+                            // Proofing (script-cars.md 2.5): rockets and
+                            // molotovs, flames, bullets.
+                            const cause: Self.CarHitCause = if (def.explosive or shot == T.shot_molotov) .rocket else if (shot == T.shot_flame) .flame else if (shot == T.shot_water) .other else .bullet;
+                            if (!Self.car_flags.shielded(sim, e.id, cause)) sim.damageCar(e.id, raw << fx.frac_bits, p.owner);
                             if (def.explosive) sim.explodeAt((t.x + e.x) >> 1, (t.y + e.y) >> 1, e.z, p.owner, 0);
                         } else {
                             const player = ww.get(e.id, c.Controller).?.player != c.Controller.no_player;

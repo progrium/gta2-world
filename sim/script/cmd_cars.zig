@@ -32,12 +32,9 @@ const W = @import("world.zig");
 const Cmd = W.Cmd;
 const Outcome = W.Outcome;
 
-pub const done = [_]u16{ 43, 44, 45, 46, 394, 395, 396, 397, 100, 175, 170, 169, 368, 167, 171, 166, 330, 254, 253, 155, 144, 398, 403, 404, 405, 142, 399, 406, 129, 157, 158, 159, 139, 270, 189, 208, 206, 207, 209, 250, 130, 154, 190, 191, 128, 267, 358, 366, 305 };
-/// Waiting on: trailers and cranes (C, cranes note), car flags that no
-/// component holds yet (jammed throttle, roof number, alarm, proofs,
-/// siren, door locks beyond the script tag), car bombs and vehicle
-/// weapons (G), crushing (B), hit records (A1), dents (C).
-pub const stubbed = [_]u16{ 188, 374, 316, 246, 247, 303, 310, 278, 311, 312, 313, 361, 200, 241, 417 };
+pub const done = [_]u16{ 43, 44, 45, 46, 394, 395, 396, 397, 100, 175, 170, 169, 368, 167, 171, 166, 330, 254, 253, 155, 144, 398, 403, 404, 405, 142, 399, 406, 129, 157, 158, 159, 139, 270, 189, 208, 206, 207, 209, 250, 130, 154, 190, 191, 128, 267, 358, 366, 305, 188, 374, 316, 246, 247, 303, 310, 278, 311, 312, 313, 361, 417 };
+/// Waiting on: vehicle weapons (G), dents (C).
+pub const stubbed = [_]u16{ 200, 241 };
 
 /// The explosion kinds `explodeAt` takes (0 small, 1 car).
 const explosion_small: u8 = 0;
@@ -54,8 +51,13 @@ pub fn Sys(comptime Self: type) type {
         pub fn create(self: *Self, ctx: anytype, cmd: Cmd, handle: u16, runtime: bool) ?EntityId {
             const p = W.params(cmd);
             const id = H.spawnCar(self, p.pos(4), p.u16_(16), p.u16_(20), p.u16_(18)) orelse return null;
-            // The trailer model is spawned and attached by C's trailers
-            // (car-height 3.7); until then it is left out.
+            // Created cars lock out AI thieves (public-sources.md 4).
+            self.state.world.get(id, c.Vehicle).?.lock = c.Vehicle.lock_thief;
+            // A trailer model hooks a trailer on behind (the parked forms,
+            // 425-428, ignore it: public-sources.md 5).
+            const trailer = p.u16_(22);
+            const parked = cmd.kind >= 425 and cmd.kind <= 428;
+            if (trailer != 0xFFFF and !parked) _ = Self.trailers.spawnBehind(self, id, trailer);
             var flags: u16 = c.ScriptTag.flag_keep;
             if (runtime and !ctx.declaring()) {
                 flags |= c.ScriptTag.flag_mission;
@@ -234,8 +236,50 @@ pub fn Sys(comptime Self: type) type {
                 },
                 267 => ctx.setCond(Self.objects.beingCrushed(self, ctx.handle(p.u16_(0)))),
                 305 => ctx.setCond(Self.car_weapons.bombArmed(self, ctx.handle(p.u16_(0)))),
-                188, 246, 247, 200, 241, 417 => return condStub(ctx, false),
-                374, 316, 303, 310, 278, 311, 312, 313, 361 => return .stubbed,
+                // 2.4 Trailers.
+                316 => _ = Self.trailers.attach(self, ctx.handle(p.u16_(0)), ctx.handle(p.u16_(2)), true),
+                246 => {
+                    const a = ctx.handle(p.u16_(0));
+                    const b = ctx.handle(p.u16_(2));
+                    const v = w.get(a, c.Vehicle);
+                    if (prelude.eql(a, b)) {
+                        ctx.setCond(v != null and (Self.trailers.isCabModel(v.?.model) or Self.trailers.isTrailerModel(v.?.model)));
+                    } else ctx.setCond(v != null and !b.isNone() and prelude.eql(v.?.trailerId(), b));
+                },
+                247 => {
+                    const b = ctx.handle(p.u16_(2));
+                    ctx.setCond(!b.isNone() and prelude.eql(Self.trailers.trailerOf(self, ctx.handle(p.u16_(0))), b));
+                },
+                // 2.5 Protective and cosmetic flags.
+                278 => Self.car_flags.setLock(self, ctx.handle(p.u16_(0)), @truncate(p.u16_(2))),
+                310 => Self.car_flags.setFlag(self, ctx.handle(p.u16_(0)), c.Vehicle.xf_alarm, true),
+                311, 312, 313 => {
+                    const bit = switch (cmd.kind) {
+                        311 => c.Vehicle.xf_bulletproof,
+                        312 => c.Vehicle.xf_rocketproof,
+                        else => c.Vehicle.xf_flameproof,
+                    };
+                    Self.car_flags.setFlag(self, ctx.handle(p.u16_(0)), bit, p.u16_(2) != 0);
+                },
+                361 => Self.car_flags.setSiren(self, ctx.handle(p.u16_(0)), p.u16_(2) != 0),
+                417 => ctx.setCond(Self.car_flags.sirenOn(self, ctx.handle(p.u16_(0)))),
+                374 => Self.car_flags.setFlag(self, ctx.handle(p.u16_(0)), c.Vehicle.xf_jammed, p.u16_(2) != 0),
+                303 => {
+                    const car = ctx.handle(p.u16_(0));
+                    if (self.writable(car)) {
+                        if (w.get(car, c.Vehicle)) |v| v.roof = @truncate(p.u32_(4));
+                    }
+                },
+                // 2.1 The car on a crane's hook.
+                188 => {
+                    const car = Self.cranes.carOn(self, ctx.handle(p.u16_(2)));
+                    ctx.setCond(!car.isNone());
+                    if (!car.isNone()) {
+                        H.tag(self, car, p.u16_(0), c.ScriptTag.flag_keep);
+                        ctx.setHandle(p.u16_(0), car);
+                    }
+                },
+                200, 241 => return condStub(ctx, false),
                 else => return .unhandled,
             }
             return .done;

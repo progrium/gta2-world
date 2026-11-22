@@ -54,6 +54,8 @@ pub const ObjectKind = enum(u8) {
     pickup = 13,
     /// A solid roadblock barrier (E places them; B makes them solid).
     barrier = 14,
+    /// A crane's hook (`sys/cranes.zig`).
+    crane = 15,
     _,
 };
 

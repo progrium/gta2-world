@@ -272,6 +272,9 @@ pub fn Sim(comptime cfg: Config) type {
                 /// shop, a = slot, b = the remap, c = 0 no stars, 1 wanted
                 /// level cleared, 2 could not pay (`wire.EventKind`).
                 respray = 20,
+                /// A car alarm went off: x, y, z of the car
+                /// (`sys/car_flags.zig`, `wire.EventKind`).
+                car_alarm = 21,
             };
             pub const no_slot: u8 = 0xFF;
             pub const weapon_car: u8 = 0x80;
@@ -336,6 +339,7 @@ pub fn Sim(comptime cfg: Config) type {
         pub const sysInput = sys_input.sysInput;
         pub const tryEnter = sys_enter_exit.tryEnter;
         pub const board = sys_enter_exit.board;
+        pub const enterable = sys_enter_exit.enterable;
         pub const tryExit = sys_enter_exit.tryExit;
         pub const releaseCar = sys_enter_exit.releaseCar;
         pub const sysRiders = sys_enter_exit.sysRiders;
@@ -446,6 +450,10 @@ pub fn Sim(comptime cfg: Config) type {
         pub const shops = shops_sys.Sys(Self); // B
         pub const death = @import("sys/death.zig").Sys(Self); // G
         pub const car_weapons = @import("sys/car_weapons.zig").Sys(Self); // G
+        pub const car_flags = @import("sys/car_flags.zig").Sys(Self); // vehicles
+        pub const CarHitCause = @import("sys/car_flags.zig").Cause;
+        pub const trailers = @import("sys/trailers.zig").Sys(Self); // vehicles
+        pub const cranes = @import("sys/cranes.zig").Sys(Self); // vehicles
         pub const spawn = sys_spawn; // F
         pub const surfaces = sys_surfaces; // C
 
@@ -499,18 +507,21 @@ pub fn Sim(comptime cfg: Config) type {
             self.sysWeapons();
             self.sysExplosions();
             self.sysMoveCars();
+            trailers.sysTrailers(self); // vehicles: pairs follow their cabs
             self.sysMovePeds();
             self.sysMoveProjectiles();
             self.buildBroadphase();
             self.sysContacts();
             self.sysProjectileHits();
             objects.sysObjects(self); // B
+            if (comptime city) cranes.sysCranes(self); // vehicles
             shops.sysShops(self); // B
             self.sysPickups();
             surfaces.sysSurfaces(self); // C
             self.sysPedStatus();
             self.sysRiders();
             self.sysHealth();
+            car_flags.sysCarFlags(self); // vehicles
             if (comptime single_player) death.sysDeath(self); // G
             self.sysRespawn();
             self.sysAmbient();

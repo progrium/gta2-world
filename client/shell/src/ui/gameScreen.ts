@@ -652,6 +652,10 @@ export function gameScreen(root: HTMLElement, o: GameScreenOpts): () => void {
         audio.play("respray", e.x, e.y, e.z);
         if (e.a === ownSlot) feedLine(e.c === 1 ? "Resprayed: the cops have lost you" : e.c === 2 ? "Resprayed, but you can't pay to lose the cops" : "Resprayed", true);
         break;
+      case 21:
+        // a car alarm went off
+        audio.play("car_alarm", e.x, e.y, e.z);
+        break;
       case 19:
         // police voice: a = 0 a cop shouts ("Freeze!"), 1 radio chatter
         audio.play(e.a === 0 ? "cop_shout" : "police_radio", e.x, e.y, e.z);

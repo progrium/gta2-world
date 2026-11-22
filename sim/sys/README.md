@@ -26,6 +26,7 @@ Shared names (imports, `Fx`, the `abi.rand` salts) come from `prelude.zig`. Rese
 | `sys/car_control.zig` | car handling | C |
 | `sys/weapons.zig` | hand weapons | G |
 | `sys/car_weapons.zig` | vehicle weapons, electro baton (stub) | G |
+| `sys/trailers.zig`, `sys/cranes.zig`, `sys/car_flags.zig` | trailers and towing, map cranes, script car flags (proofs, locks, alarm, siren) | A |
 | `sys/explosions.zig` | fire and explosions | G |
 | `sys/terrain.zig` | bodies against the map | C |
 | `sys/move_peds.zig`, `sys/move_cars.zig` | movement, knock-downs, wall hits | C |

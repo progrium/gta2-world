@@ -52,12 +52,23 @@ pub const CarModel = struct {
     /// (scoring.md 3.3). Plain integer.
     value: i32,
     /// Heavy (the style's car info [sty]): may crush cars that are not
-    /// (car-collision.md 3.6). A tank crushes even when AI-driven. Hosts set
-    /// these after `deriveModel`; which style bit is "heavy" is not in the
-    /// notes yet, so nothing sets them today.
+    /// (car-collision.md 3.6). A tank crushes even when AI-driven.
+    /// `deriveModel` sets both from the `collide_over` bit, which only the
+    /// tank has in the player's styles (docs/research/public-sources.md 2).
     heavy: i32 = 0,
     tank: i32 = 0,
+    /// The style's car info flags (`CarSpec.flags`, `car_flag_*`).
+    flags: i32 = 0,
+    /// The style's door count; 0 is a car nobody gets into.
+    doors: i32 = 2,
 };
+
+/// `CarModel.flags` bits: the style's `info_flags` in bits 0-7 and
+/// `info_flags_2` in bits 8-15 (public STY doc; `formats/cars.zig`).
+pub const car_flag_emerg_lights: i32 = 0x02;
+pub const car_flag_cab: i32 = 0x08;
+pub const car_flag_trailer: i32 = 0x10;
+pub const car_flag_collide_over: i32 = 0x100;
 
 /// What `deriveModel` takes: one `.gci` record's numbers (16.16) and the
 /// style's car info (pixels, 64 to a block).
@@ -86,6 +97,8 @@ pub const CarSpec = struct {
     sprite: i32 = 0,
     ambient: bool = true,
     value: i32 = default_car_value,
+    flags: i32 = 0,
+    doors: i32 = 2,
 };
 
 /// The derived per-model values (car-handling.md, "Values derived once per
@@ -132,6 +145,10 @@ pub fn deriveModel(sp: CarSpec) CarModel {
         .inertia = @max(inertia, fx.ratio(1, 16)),
         .restitution_8ths = wall_restitution_8ths,
         .value = sp.value,
+        .heavy = @intFromBool(sp.flags & car_flag_collide_over != 0),
+        .tank = @intFromBool(sp.flags & car_flag_collide_over != 0),
+        .flags = sp.flags,
+        .doors = sp.doors,
     };
 }
 

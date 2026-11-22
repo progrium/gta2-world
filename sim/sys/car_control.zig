@@ -32,10 +32,14 @@ pub fn Sys(comptime Self: type) type {
             self.state.world.eachFiltered(.{ c.Vehicle, c.Controller, c.Transform, c.Velocity, c.Collider, c.Health }, self.predicting(), self, struct {
                 fn f(sim: *Self, _: EntityId, v: *c.Vehicle, ctl: *c.Controller, t: *c.Transform, vel: *c.Velocity, col: *c.Collider, hp: *c.Health) void {
                     const m = T.carModel(v.model);
+                    // A towed trailer is pulled by its cab, and a car on a
+                    // crane's hook hangs (sys/trailers.zig, sys/cranes.zig).
+                    if (!v.towId().isNone() or v.xflags & c.Vehicle.xf_lifted != 0) return;
                     const ai = v.flags & c.Vehicle.flag_ai != 0;
                     const driven = (!v.driver.isNone() or ai) and v.flags & c.Vehicle.flag_wrecked == 0;
-                    const in = if (driven) ctl.in else Frame.neutral(0);
+                    var in = if (driven) ctl.in else Frame.neutral(0);
                     const player = !v.driver.isNone() and ctl.player != c.Controller.no_player;
+                    in.throttle = Self.car_flags.jammedThrottle(v, in.throttle, player);
                     const handbrake = in.buttons & Button.handbrake_jump != 0;
                     const in_water = v.flags & c.Vehicle.flag_in_water != 0;
                     const keep = v.flags & (c.Vehicle.flag_ai | c.Vehicle.flag_burning | c.Vehicle.flag_wrecked | c.Vehicle.flag_in_water | c.Vehicle.flag_crushed | c.Vehicle.flag_in_shop);
@@ -111,7 +115,7 @@ pub fn Sys(comptime Self: type) type {
 
                     // 7. Steering angle (radians).
                     const dir = frac(in.steer, 127);
-                    var angle = fx.mul(dir, m.turn_ratio);
+                    var angle = fx.mul(dir, fx.mul(m.turn_ratio, Self.trailers.turnMul(v)));
                     if (player) angle = fx.div(fx.mul(angle, @max(T.steer_speed_min, T.steer_speed_ref - speed)), T.steer_div);
                     // Ours (workstream F): traffic taking a bend or a turn
                     // steers harder, so it gets round a one-block corner.
@@ -121,6 +125,8 @@ pub fn Sys(comptime Self: type) type {
                     // 8. Tyre forces at each axle.
                     var mass = m.mass;
                     if (player) mass = fx.mul(mass, T.player_mass);
+                    // A trailer's weight (none for a truck cab).
+                    mass += Self.trailers.towMass(sim, v);
                     var force = [2]Fx{ 0, 0 };
                     var torque: Fx = 0;
                     const ra = fx.div(fx.mul(angle, T.steer_speed_ref - speed), T.rear_steer_div);
