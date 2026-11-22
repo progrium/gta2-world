@@ -31,7 +31,7 @@ export function soundCheck(audio: AudioEngine, onClose?: () => void): HTMLElemen
       }),
       onClose ? h("button", { tabindex: "-1", onclick: onClose }, "Close") : null,
     ),
-    h("p", { class: "muted small" }, "If only the audio-element beep is heard, the device's silent mode is muting web audio. If neither is heard, check the volume and output. Send a screenshot of this table either way."),
+    h("p", { class: "muted small" }, "If only the audio-element beep is heard, the device's silent mode is muting web audio. If neither is heard, check the volume and where the sound goes: a wired gamepad or headset can take the output (unplug it, or pick the speaker in Control Center). Send a screenshot of this table either way."),
     rows,
   ) as unknown as HTMLElement & { dispose: () => void };
   render();
